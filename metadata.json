@@ -1,0 +1,6 @@
+{
+  "name": "Caramelo Run: Vira-Lata Moto-Chaser",
+  "description": "Jogo 3D Endless Runner do Cão Vira-Lata Caramelo em React 19, Three.js e Express.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

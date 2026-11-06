@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Motoboy Rider Test</title>
+  <style>
+    body { margin: 0; background: #111827; overflow: hidden; font-family: sans-serif; }
+    #ui { position: absolute; top: 10px; left: 10px; z-index: 10; display: flex; gap: 8px; }
+    button { padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+    button:hover { background: #2563eb; }
+    #status { position: absolute; bottom: 10px; left: 10px; color: #94a3b8; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="ui">
+    <button onclick="setAnim('Idle_Riding')">Idle Riding</button>
+    <button onclick="setAnim('Turn_Left')">Turn Left</button>
+    <button onclick="setAnim('Turn_Right')">Turn Right</button>
+  </div>
+  <div id="status">Loading...</div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0f172a);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(2.5, 1.8, 2.5);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0.8, 0);
+    controls.update();
+
+    // Lighting
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x334155, 1.5);
+    scene.add(hemi);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
+    dirLight.position.set(3, 5, 4);
+    dirLight.castShadow = true;
+    scene.add(dirLight);
+
+    const dirLight2 = new THREE.DirectionalLight(0x38bdf8, 1.2);
+    dirLight2.position.set(-3, 3, -3);
+    scene.add(dirLight2);
+
+    // Floor grid
+    const grid = new THREE.GridHelper(10, 20, 0x475569, 0x1e293b);
+    scene.add(grid);
+
+    let mixer = null;
+    let actions = {};
+    let activeAction = null;
+    let riderModel = null;
+    let bikeModel = null;
+
+    // Build Brazilian Honda CG Titan Motorcycle
+    const bikeGroup = new THREE.Group();
+    const bikeRedMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.25, metalness: 0.7 });
+    const bikeBlackMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.6 });
+    const chromeMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, metalness: 0.95, roughness: 0.1 });
+    const tireMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 });
+    const lightMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfffbeb, emissiveIntensity: 2.5 });
+
+    // Chassis & Engine
+    const engine = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.35, 0.45), chromeMat);
+    engine.position.set(0, 0.42, 0.05);
+    bikeGroup.add(engine);
+
+    // Gas Tank
+    const tank = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.28, 0.55), bikeRedMat);
+    tank.position.set(0, 0.72, 0.22);
+    bikeGroup.add(tank);
+
+    // Seat (Banco)
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.14, 0.65), bikeBlackMat);
+    seat.position.set(0, 0.72, -0.3);
+    bikeGroup.add(seat);
+
+    // Front Fork & Handlebars
+    const forkL = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.85, 8), chromeMat);
+    forkL.position.set(-0.12, 0.52, 0.68);
+    forkL.rotation.x = -0.32;
+    const forkR = forkL.clone();
+    forkR.position.x = 0.12;
+    bikeGroup.add(forkL, forkR);
+
+    const handlebar = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.75, 8), chromeMat);
+    handlebar.rotation.z = Math.PI / 2;
+    handlebar.position.set(0, 0.92, 0.52);
+    bikeGroup.add(handlebar);
+
+    // Headlight
+    const headlight = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.08, 12), lightMat);
+    headlight.rotation.x = Math.PI / 2;
+    headlight.position.set(0, 0.75, 0.75);
+    bikeGroup.add(headlight);
+
+    // Wheels
+    const frontWheel = new THREE.Mesh(new THREE.TorusGeometry(0.31, 0.05, 16, 32), tireMat);
+    frontWheel.position.set(0, 0.32, 0.78);
+    const rearWheel = new THREE.Mesh(new THREE.TorusGeometry(0.31, 0.05, 16, 32), tireMat);
+    rearWheel.position.set(0, 0.32, -0.66);
+    bikeGroup.add(frontWheel, rearWheel);
+
+    // Exhaust Pipe
+    const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.055, 0.8, 8), chromeMat);
+    exhaust.rotation.x = Math.PI / 2 + 0.15;
+    exhaust.position.set(0.18, 0.28, -0.35);
+    bikeGroup.add(exhaust);
+
+    // Footpegs
+    const footpegL = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.18, 8), chromeMat);
+    footpegL.rotation.z = Math.PI / 2;
+    footpegL.position.set(-0.22, 0.32, -0.05);
+    const footpegR = footpegL.clone();
+    footpegR.position.x = 0.22;
+    bikeGroup.add(footpegL, footpegR);
+
+    scene.add(bikeGroup);
+    console.log('Motorcycle loaded!');
+
+    // Load Rider with cache buster
+    const gltfLoader = new GLTFLoader();
+    gltfLoader.load('/models/motoboy_rider.glb?v=' + Date.now(), (gltf) => {
+      riderModel = gltf.scene;
+      riderModel.scale.set(0.01, 0.01, 0.01);
+      
+      // Position and rotate rider upright on the bike seat
+      riderModel.rotation.set(Math.PI / 2, 0, 0);
+      riderModel.position.set(0, 0.08, -0.32);
+
+      riderModel.traverse(c => {
+        if (c.isMesh) {
+          c.castShadow = true;
+          c.receiveShadow = false;
+        }
+      });
+
+      scene.add(riderModel);
+
+      mixer = new THREE.AnimationMixer(riderModel);
+      gltf.animations.forEach(clip => {
+        console.log('Loaded clip:', clip.name);
+        const action = mixer.clipAction(clip);
+        actions[clip.name] = action;
+      });
+
+      if (actions['Idle_Riding']) {
+        activeAction = actions['Idle_Riding'];
+        activeAction.play();
+      }
+
+      document.getElementById('status').innerText = 'Ready! Clips: ' + gltf.animations.map(a => a.name).join(', ');
+      console.log('*** MOTOBOY RIDER READY ***');
+    });
+
+    window.setAnim = function(name) {
+      if (!mixer || !actions[name]) return;
+      const newAction = actions[name];
+      if (activeAction !== newAction) {
+        if (activeAction) activeAction.fadeOut(0.2);
+        newAction.reset().fadeIn(0.2).play();
+        activeAction = newAction;
+      }
+    };
+
+    const clock = new THREE.Clock();
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = clock.getDelta();
+      if (mixer) mixer.update(dt);
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>

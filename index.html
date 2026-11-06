@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Caramelo Run: Vira-Lata Moto-Chaser</title>
+    <meta name="description" content="Jogo 3D Endless Runner do Cão Vira-Lata Caramelo em React 19, Three.js e Express." />
+    <meta property="og:title" content="Caramelo Run: Vira-Lata Moto-Chaser" />
+    <meta property="og:description" content="Jogo 3D Endless Runner do Cão Vira-Lata Caramelo em React 19, Three.js e Express." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="apple-touch-icon" href="/logo.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#f59e0b" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Caramelo Run" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <script>
+      // Protege contra extensões do navegador (ex: VPN/Adblock) que tentam sobrescrever window.fetch
+      // quando o ambiente define fetch apenas com getter (TypeError: Cannot set property fetch of #<Window>)
+      (function () {
+        try {
+          var currentFetch = window.fetch ? window.fetch.bind(window) : undefined;
+          var desc = Object.getOwnPropertyDescriptor(window, 'fetch') || Object.getOwnPropertyDescriptor(Window.prototype, 'fetch');
+          if (!desc || desc.configurable !== false) {
+            Object.defineProperty(window, 'fetch', {
+              configurable: true,
+              enumerable: true,
+              get: function () {
+                return currentFetch;
+              },
+              set: function (fn) {
+                if (typeof fn === 'function') {
+                  currentFetch = fn;
+                }
+              }
+            });
+          }
+        } catch (_err) {
+          // Ignora caso o descritor seja estritamente selado
+        }
+
+        window.addEventListener(
+          'error',
+          function (event) {
+            if (
+              (event && event.filename && event.filename.indexOf('chrome-extension://') === 0) ||
+              (event && event.message && event.message.indexOf('Cannot set property fetch') !== -1)
+            ) {
+              event.stopImmediatePropagation();
+              event.preventDefault();
+            }
+          },
+          true
+        );
+      })();
+
+      // Desativa ServiceWorker antigo em ambiente de preview/dev para evitar interceptação de módulos Vite
+      (function () {
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function (regs) {
+            regs.forEach(function (r) {
+              r.unregister();
+            });
+          });
+        }
+      })();
+    </script>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        min-height: 100%;
+        background-color: #0c0a09;
+        -webkit-overflow-scrolling: touch;
+        touch-action: manipulation;
+      }
+      #root {
+        width: 100%;
+        min-height: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+      canvas {
+        touch-action: none !important;
+        -webkit-touch-callout: none !important;
+        user-select: none !important;
+        transform: translateZ(0);
+        backface-visibility: hidden;
+      }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Rubik+Mono+One&display=swap" rel="stylesheet" />
+  </head>
+  <body class="bg-amber-950/5 text-stone-900 antialiased selection:bg-amber-500 selection:text-white">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

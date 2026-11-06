@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Test NPC</title>
+  <style>
+    body { margin: 0; background: #222; overflow: hidden; }
+    canvas { width: 100vw; height: 100vh; display: block; }
+  </style>
+</head>
+<body>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+  import * as THREE from 'three';
+  import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+  import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x334155);
+
+  const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+  camera.position.set(0, 1.6, 5.8);
+  camera.lookAt(0, 0.9, 0);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  document.body.appendChild(renderer.domElement);
+
+  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 2.5);
+  scene.add(hemiLight);
+
+  const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
+  dirLight.position.set(2, 4, 3);
+  scene.add(dirLight);
+
+  const grid = new THREE.GridHelper(10, 10, 0xffffff, 0x555555);
+  scene.add(grid);
+
+  const files = [
+    { url: '/models/npcs/npc_gari.glb', name: 'Gari' },
+    { url: '/models/npcs/npc_policia.glb', name: 'Polícia' },
+    { url: '/models/npcs/npc_medico.glb', name: 'Médico' },
+    { url: '/models/npcs/npc_engenheiro.glb', name: 'Engenheiro' },
+    { url: '/models/npcs/npc_estudante.glb', name: 'Estudante' },
+    { url: '/models/npcs/npc_civil.glb', name: 'Civil' },
+  ];
+
+  const loader = new GLTFLoader();
+  const mixers = [];
+
+  files.forEach((f, idx) => {
+    loader.load(f.url, (gltf) => {
+      const model = gltf.scene;
+      model.position.set((idx - 2.5) * 1.1, 0, 0);
+      scene.add(model);
+
+      if (gltf.animations.length > 0) {
+        const mixer = new THREE.AnimationMixer(model);
+        const clipName = idx % 2 === 0 ? 'Walk' : 'Idle';
+        const clip = gltf.animations.find(a => a.name === clipName) || gltf.animations[0];
+        mixer.clipAction(clip).play();
+        mixers.push(mixer);
+      }
+      console.log(`Loaded ${f.name}!`);
+    });
+  });
+
+  const clock = new THREE.Clock();
+  function animate() {
+    requestAnimationFrame(animate);
+    const dt = clock.getDelta();
+    mixers.forEach(m => m.update(dt));
+    renderer.render(scene, camera);
+  }
+  animate();
+</script>
+</body>
+</html>

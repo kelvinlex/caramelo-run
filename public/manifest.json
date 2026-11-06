@@ -1,0 +1,51 @@
+{
+  "name": "Vira-Lata Run 3D — Caramelo Run",
+  "short_name": "Caramelo Run",
+  "description": "O maior jogo 3D de perseguição de motoqueiro do Brasil! Corra com o Caramelo, empine motos e domine a quebrada.",
+  "start_url": "/",
+  "id": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
+  "background_color": "#090d16",
+  "theme_color": "#f59e0b",
+  "orientation": "any",
+  "categories": ["games", "action", "entertainment"],
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Jogar Agora 3D",
+      "short_name": "Jogar 3D",
+      "description": "Iniciar corrida 3D imediatamente",
+      "url": "/?view=game",
+      "icons": [{ "src": "/logo.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Ranking Brasil",
+      "short_name": "Ranking",
+      "description": "Ver placar dos melhores jogadores da quebrada",
+      "url": "/?view=leaderboard",
+      "icons": [{ "src": "/logo.png", "sizes": "192x192" }]
+    }
+  ]
+}
