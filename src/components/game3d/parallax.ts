@@ -12,9 +12,9 @@ export interface HorizonVisualState {
 
 export const HORIZON_MONUMENT_CONFIG = {
   maxBuildingTopY: 17.8,
-  buildingZMin: 240,
-  buildingZMax: 256,
-  corcovadoZ: 266,
+  buildingZMin: 220,
+  buildingZMax: 240,
+  corcovadoZ: 250,
   corcovadoSummitY: 33.5,
   pedestalHeight: 4.2,
   statueHeight: 11.8,
@@ -36,23 +36,28 @@ export function computeHorizonVisualState(timeProgress: number, elapsedSec: numb
     nightFactor = 1.0 - (timeProgress - 0.88) / 0.08;
   }
 
-  const pulse = 0.5 + 0.5 * Math.sin(elapsedSec * 1.6);
-  // Brilho sutil do monumento apenas no entardecer/noite (zero disco artificial durante o dia!)
-  const monumentGlowOpacity = nightFactor * 0.22 + sunsetFactor * 0.08;
-  const uplightOpacity = sunsetFactor * 0.12 + nightFactor * 0.24;
-  const godRaysOpacity = sunsetFactor * 0.08;
-  const godRaysAngle = Math.sin(elapsedSec * 0.25) * 0.14;
+  // ✨ Brilho e Halo celestial do monumento do Cristo:
+  // - Dia: iluminação suave e celestial sob a luz do sol (0.22)
+  // - Pôr do sol: halo dourado crepuscular cinematográfico (0.38)
+  // - Noite: iluminação artística de refletores (0.24)
+  const monumentGlowOpacity = (1.0 - nightFactor) * 0.20 + sunsetFactor * 0.24 + nightFactor * 0.22;
+  const uplightOpacity = sunsetFactor * 0.14 + nightFactor * 0.28;
 
-  // Órbita panorâmica do helicóptero turístico ao redor do Cristo Redentor
-  const heliAngle = elapsedSec * 0.42;
-  const heliX = Math.cos(heliAngle) * 14.5;
-  const heliZ = HORIZON_MONUMENT_CONFIG.corcovadoZ - 5.0 + Math.sin(heliAngle) * 5.5;
-  const heliY = 44.5 + Math.sin(elapsedSec * 1.4) * 1.1;
+  // ☀️ Raios Solares Crepusculares (God Rays) radiantes atrás do Cristo
+  // Visíveis de dia e majestosos ao pôr do sol; apagam à noite
+  const godRaysOpacity = Math.max(0, (1.0 - nightFactor) * (0.22 + sunsetFactor * 0.16));
+  const godRaysAngle = Math.sin(elapsedSec * 0.20) * 0.12;
+
+  // 🚁 Órbita panorâmica do helicóptero turístico ao redor do Cristo Redentor
+  const heliAngle = elapsedSec * 0.38;
+  const heliX = Math.cos(heliAngle) * 15.0;
+  const heliZ = HORIZON_MONUMENT_CONFIG.corcovadoZ - 4.5 + Math.sin(heliAngle) * 5.0;
+  const heliY = 44.2 + Math.sin(elapsedSec * 1.3) * 1.0;
   const heliYaw = -heliAngle + Math.PI * 0.5;
 
-  // Movimento suave de ida e volta do bondinho nos morros laterais
-  const cableCarProgress = 0.5 + 0.5 * Math.sin(elapsedSec * 0.35);
-  const mistDriftX = Math.sin(elapsedSec * 0.24) * 4.5;
+  // 🚡 Movimento suave de ida e volta do bondinho do Pão de Açúcar
+  const cableCarProgress = 0.5 + 0.5 * Math.sin(elapsedSec * 0.32);
+  const mistDriftX = Math.sin(elapsedSec * 0.22) * 5.5;
 
   return {
     monumentGlowOpacity,
@@ -65,7 +70,7 @@ export function computeHorizonVisualState(timeProgress: number, elapsedSec: numb
   };
 }
 
-// 🏢 Texturas Arquitetônicas Claras e Naturais (Concreto Claro, Arenito Urbano e Vidro Reflexivo Suave)
+// 🏢 Texturas Arquitetônicas do Skyline Urbano
 function createSeriousFacadeTexture(facadeColor: number, seed: number, isDeep: boolean): THREE.CanvasTexture {
   if (typeof document === 'undefined') return new THREE.CanvasTexture({} as any);
   const canvas = document.createElement('canvas');
@@ -128,8 +133,8 @@ function createSeriousFacadeTexture(facadeColor: number, seed: number, isDeep: b
   return texture;
 }
 
-// ⛰️ Textura Procedural Orgânica de Altíssima Qualidade: Granito Carioca Esculpido & Mata Atlântica Tropical Viva
-function createCorcovadoRockForestTexture(): THREE.CanvasTexture {
+// ⛰️ PINTURA MATTE CINEMATOGRÁFICA DO MORRO DO CORCOVADO COM FADE OUT ATMOSFÉRICO REAL
+function createCinematicCorcovadoTexture(): THREE.CanvasTexture {
   if (typeof document === 'undefined') return new THREE.CanvasTexture({} as any);
   const canvas = document.createElement('canvas');
   canvas.width = 1024;
@@ -137,68 +142,71 @@ function createCorcovadoRockForestTexture(): THREE.CanvasTexture {
   const ctx = canvas.getContext('2d');
   if (!ctx) return new THREE.CanvasTexture(canvas);
 
-  // 1. Fundo base: transição suave e orgânica de Rocha Gnaisse para Floresta Tropical (sem faixas horizontais artificiais!)
+  // 1. Degradê vertical majestoso: Granito Carioca no topo -> Floresta densa -> Fade Out atmosférico na base
   const grad = ctx.createLinearGradient(0, 0, 0, 1024);
-  grad.addColorStop(0.0, '#475569');  // Cume rochoso sob o pedestal
-  grad.addColorStop(0.18, '#334155'); // Gnaisse cinza-azulado com veios
-  grad.addColorStop(0.32, '#166534'); // Floresta tropical alta nos contrafortes
-  grad.addColorStop(0.55, '#15803d'); // Mata Atlântica densa e viva
-  grad.addColorStop(0.80, '#14532d'); // Base da mata exuberante da Tijuca
-  grad.addColorStop(1.0, '#0f3d21');  // Encosta profunda do vale
+  grad.addColorStop(0.00, '#475569'); // Paredão vertical rochoso gnaisse no cume
+  grad.addColorStop(0.12, '#334155'); // Escarpa escura de rocha sob o pedestal
+  grad.addColorStop(0.24, '#1e293b'); // Fenda geológica escura
+  grad.addColorStop(0.32, '#14532d'); // Transição para floresta tropical densa
+  grad.addColorStop(0.48, '#15803d'); // Mata Atlântica rica em verde esmeralda
+  grad.addColorStop(0.64, '#166534'); // Floresta tropical de meia encosta
+  grad.addColorStop(0.78, '#3b82f6'); // Início da Perspectiva Aérea (difusão de Rayleigh)
+  grad.addColorStop(0.90, '#93c5fd'); // Névoa atmosférica luminosa do vale
+  grad.addColorStop(1.00, '#e0f2fe'); // Fade Out completo na cor do horizonte
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, 1024, 1024);
 
-  // 2. Luz solar dourada rasante tropical da tarde (iluminação suave na face leste)
+  // 2. Luz solar rasante dourada na face leste (Morning / Afternoon Golden Rim)
   const sunWash = ctx.createLinearGradient(0, 0, 1024, 0);
-  sunWash.addColorStop(0.0, 'rgba(15, 23, 42, 0.30)');
-  sunWash.addColorStop(0.35, 'rgba(255, 255, 255, 0.06)');
-  sunWash.addColorStop(0.70, 'rgba(254, 240, 138, 0.24)');
-  sunWash.addColorStop(1.0, 'rgba(20, 83, 45, 0.28)');
+  sunWash.addColorStop(0.00, 'rgba(15, 23, 42, 0.38)'); // Face ocidental sombreada
+  sunWash.addColorStop(0.45, 'rgba(255, 255, 255, 0.05)');
+  sunWash.addColorStop(0.78, 'rgba(254, 240, 138, 0.28)'); // Face leste iluminada
+  sunWash.addColorStop(1.00, 'rgba(251, 191, 36, 0.18)');
   ctx.fillStyle = sunWash;
   ctx.fillRect(0, 0, 1024, 1024);
 
-  // 3. Paredões verticais esculpidos de Granito Carioca e veios naturais de gnaisse
-  for (let i = 0; i < 90; i++) {
-    const x = (i * 47) % 1024;
-    const w = 4 + (i % 7) * 4;
-    const h = 240 + (i % 9) * 85;
-    const y = (i % 6) * 75;
-    const cliffGrad = ctx.createLinearGradient(x, 0, x + w, 0);
-    cliffGrad.addColorStop(0.0, 'rgba(30, 41, 59, 0.22)');
-    cliffGrad.addColorStop(0.4, 'rgba(148, 163, 184, 0.32)');
-    cliffGrad.addColorStop(0.7, 'rgba(203, 213, 225, 0.36)');
-    cliffGrad.addColorStop(1.0, 'rgba(30, 41, 59, 0.18)');
-    ctx.fillStyle = cliffGrad;
+  // 3. Fissuras verticais escarpadas e estratificação do Granito Carioca (y = 0 a 320)
+  for (let i = 0; i < 75; i++) {
+    const x = (i * 37 + (i % 7) * 19) % 1024;
+    const w = 3 + (i % 5) * 3;
+    const h = 180 + (i % 8) * 45;
+    const y = (i % 5) * 28;
+    const cliff = ctx.createLinearGradient(x, 0, x + w, 0);
+    cliff.addColorStop(0.0, 'rgba(15, 23, 42, 0.40)');
+    cliff.addColorStop(0.4, 'rgba(148, 163, 184, 0.35)');
+    cliff.addColorStop(0.7, 'rgba(226, 232, 240, 0.45)');
+    cliff.addColorStop(1.0, 'rgba(15, 23, 42, 0.30)');
+    ctx.fillStyle = cliff;
     ctx.fillRect(x, y, w, h);
   }
 
-  // 4. Centenas de copas exuberantes de árvores da Mata Atlântica em múltiplos tons de verde vivo
-  const treeColors = [
-    'rgba(34, 197, 94, 0.50)',   // Verde vibrante
-    'rgba(74, 222, 128, 0.42)',  // Verde claro sol
-    'rgba(22, 163, 74, 0.46)',   // Verde floresta
-    'rgba(21, 128, 61, 0.52)',   // Verde esmeralda profundo
-    'rgba(15, 118, 110, 0.36)',  // Verde azulado atlântico
-    'rgba(250, 204, 21, 0.20)',  // Ipê Amarelo tropical florido
-  ];
-
-  for (let i = 0; i < 650; i++) {
-    const cx = (i * 73 + (i % 17) * 31) % 1024;
-    const cy = 180 + ((i * 59) % 780);
-    const r = 8 + (i % 9) * 6;
-    ctx.fillStyle = treeColors[i % treeColors.length];
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fill();
+  // 4. Dossel contínuo da Mata Atlântica com micro-textura orgânica (sem círculos de sarampo!)
+  for (let band = 0; band < 45; band++) {
+    const by = 260 + band * 11;
+    const bandAlpha = Math.sin((band / 45) * Math.PI) * 0.38;
+    const col = (band % 3 === 0) ? `rgba(22, 163, 74, ${bandAlpha})`
+              : (band % 3 === 1) ? `rgba(21, 128, 61, ${bandAlpha * 1.1})`
+              : `rgba(34, 197, 94, ${bandAlpha * 0.9})`;
+    ctx.fillStyle = col;
+    for (let c = 0; c < 35; c++) {
+      const cx = (c * 31 + band * 47) % 1024;
+      const rx = 14 + (c % 7) * 4;
+      const ry = 6 + (c % 5) * 3;
+      ctx.beginPath();
+      ctx.ellipse(cx, by, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
-  // 5. Suave Distance Fade na base da montanha (integrado na textura para eliminar cortes)
-  const baseMist = ctx.createLinearGradient(0, 830, 0, 1024);
-  baseMist.addColorStop(0.0, 'rgba(186, 230, 253, 0.0)');
-  baseMist.addColorStop(0.5, 'rgba(186, 230, 253, 0.32)');
-  baseMistGrad: baseMist.addColorStop(1.0, 'rgba(186, 230, 253, 0.72)');
-  ctx.fillStyle = baseMist;
-  ctx.fillRect(0, 830, 1024, 194);
+  // 5. CAMADA DE FADE OUT ATMOSFÉRICO CINEMATOGRÁFICO NA BASE (Dissolve Aéreo Suave)
+  // Elimina cortes secos: a montanha dissolve-se harmonicamente no horizonte!
+  const fadeHaze = ctx.createLinearGradient(0, 640, 0, 1024);
+  fadeHaze.addColorStop(0.00, 'rgba(186, 230, 253, 0.0)');
+  fadeHaze.addColorStop(0.40, 'rgba(186, 230, 253, 0.48)');
+  fadeHaze.addColorStop(0.75, 'rgba(219, 234, 254, 0.85)');
+  fadeHaze.addColorStop(1.00, 'rgba(224, 242, 254, 0.98)');
+  ctx.fillStyle = fadeHaze;
+  ctx.fillRect(0, 640, 1024, 384);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -208,8 +216,91 @@ function createCorcovadoRockForestTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-// 🌫️ Textura de Distance Fade e Névoa Atmosférica Cinematográfica de Horizonte
-function createDistanceFadeMistTexture(): THREE.CanvasTexture {
+// 🪨 Textura Nobre Contínua de Monólito Granítico (Pão de Açúcar / Dois Irmãos)
+function createCinematicGraniteTexture(): THREE.CanvasTexture {
+  if (typeof document === 'undefined') return new THREE.CanvasTexture({} as any);
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 1024;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return new THREE.CanvasTexture(canvas);
+
+  // Monólito contínuo de granito carioca esculpido banhado por sol tropical
+  const grad = ctx.createLinearGradient(0, 0, 0, 1024);
+  grad.addColorStop(0.00, '#94a3b8'); // Cume de granito suave
+  grad.addColorStop(0.20, '#cbd5e1'); // Granito claro iluminado
+  grad.addColorStop(0.45, '#64748b'); // Paredão de rocha gnaisse
+  grad.addColorStop(0.65, '#15803d'); // Franja florestal na base do morro
+  grad.addColorStop(0.82, '#93c5fd'); // Névoa atmosférica
+  grad.addColorStop(1.00, '#e0f2fe'); // Fade out completo na base
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 1024, 1024);
+
+  // Luz solar dourada rasante
+  const sunLight = ctx.createLinearGradient(0, 0, 1024, 0);
+  sunLight.addColorStop(0.0, 'rgba(30, 41, 59, 0.32)');
+  sunLight.addColorStop(0.5, 'rgba(255, 255, 255, 0.08)');
+  sunLight.addColorStop(0.8, 'rgba(254, 240, 138, 0.32)');
+  sunLight.addColorStop(1.0, 'rgba(251, 191, 36, 0.18)');
+  ctx.fillStyle = sunLight;
+  ctx.fillRect(0, 0, 1024, 1024);
+
+  // Veios verticais de escarpa de granito
+  for (let i = 0; i < 40; i++) {
+    const x = (i * 49) % 1024;
+    const w = 4 + (i % 6) * 3;
+    const h = 450 + (i % 7) * 60;
+    const cliff = ctx.createLinearGradient(x, 0, x + w, 0);
+    cliff.addColorStop(0.0, 'rgba(51, 65, 85, 0.30)');
+    cliff.addColorStop(0.5, 'rgba(241, 245, 249, 0.38)');
+    cliff.addColorStop(1.0, 'rgba(51, 65, 85, 0.20)');
+    ctx.fillStyle = cliff;
+    ctx.fillRect(x, 20, w, h);
+  }
+
+  // Fade out atmosférico na base
+  const baseFade = ctx.createLinearGradient(0, 680, 0, 1024);
+  baseFade.addColorStop(0.0, 'rgba(186, 230, 253, 0.0)');
+  baseFade.addColorStop(0.5, 'rgba(186, 230, 253, 0.55)');
+  baseFade.addColorStop(1.0, 'rgba(224, 242, 254, 0.95)');
+  ctx.fillStyle = baseFade;
+  ctx.fillRect(0, 680, 1024, 344);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// 🏞️ Textura de Cordilheira Distante (Serra dos Órgãos / Maciço da Tijuca de Fundo)
+function createCinematicBackdropTexture(): THREE.CanvasTexture {
+  if (typeof document === 'undefined') return new THREE.CanvasTexture({} as any);
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return new THREE.CanvasTexture(canvas);
+
+  const grad = ctx.createLinearGradient(0, 0, 0, 512);
+  grad.addColorStop(0.00, '#64748b'); // Azul-ardósia distante
+  grad.addColorStop(0.35, '#93c5fd'); // Azul suave do ar
+  grad.addColorStop(0.70, '#bae6fd'); // Bruma luminosa
+  grad.addColorStop(1.00, '#e0f2fe'); // Fusão com o céu
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 512);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// 🌫️ Textura de Névoa de Vale e Distance Fade Atmosférico
+function createCinematicValleyMistTexture(): THREE.CanvasTexture {
   if (typeof document === 'undefined') return new THREE.CanvasTexture({} as any);
   const canvas = document.createElement('canvas');
   canvas.width = 512;
@@ -217,13 +308,29 @@ function createDistanceFadeMistTexture(): THREE.CanvasTexture {
   const ctx = canvas.getContext('2d');
   if (!ctx) return new THREE.CanvasTexture(canvas);
 
+  ctx.clearRect(0, 0, 512, 256);
+
+  // Degradê vertical suave de névoa de vale: transparente no topo e na base, luminoso no centro
   const grad = ctx.createLinearGradient(0, 0, 0, 256);
-  grad.addColorStop(0.0, 'rgba(215, 235, 250, 0.0)');
-  grad.addColorStop(0.35, 'rgba(210, 232, 248, 0.16)');
-  grad.addColorStop(0.70, 'rgba(195, 222, 246, 0.42)');
-  grad.addColorStop(1.0, 'rgba(186, 218, 245, 0.75)');
+  grad.addColorStop(0.00, 'rgba(224, 242, 254, 0.0)');
+  grad.addColorStop(0.35, 'rgba(219, 234, 254, 0.45)');
+  grad.addColorStop(0.60, 'rgba(186, 230, 253, 0.75)');
+  grad.addColorStop(0.85, 'rgba(191, 219, 254, 0.50)');
+  grad.addColorStop(1.00, 'rgba(224, 242, 254, 0.0)');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, 512, 256);
+
+  for (let i = 0; i < 8; i++) {
+    const cy = 80 + i * 16;
+    const gradWave = ctx.createRadialGradient(256, cy, 30, 256, cy, 240);
+    gradWave.addColorStop(0.0, 'rgba(255, 255, 255, 0.25)');
+    gradWave.addColorStop(0.5, 'rgba(224, 242, 254, 0.12)');
+    gradWave.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)');
+    ctx.fillStyle = gradWave;
+    ctx.beginPath();
+    ctx.ellipse(256, cy, 250, 35, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -231,51 +338,7 @@ function createDistanceFadeMistTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-// 🏔️ Gerador de Geometria Orgânica Esculpida de Montanha (48 segmentos radiais + ruído natural)
-function createSculptedMountainGeometry(
-  topRadius: number,
-  baseRadius: number,
-  height: number,
-  radialSegments: number = 48,
-  heightSegments: number = 24,
-  ridgeScale: number = 1.0
-): THREE.BufferGeometry {
-  const geo = new THREE.CylinderGeometry(topRadius, baseRadius, height, radialSegments, heightSegments, false);
-  const pos = geo.attributes.position;
-
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const y = pos.getY(i);
-    const z = pos.getZ(i);
-
-    const ny = (y + height * 0.5) / height; // 0 na base, 1 no cume
-    const angle = Math.atan2(z, x);
-
-    // Morfologia do Corcovado: encosta íngreme no topo e alargamento natural na base
-    const flare = Math.pow(1.0 - ny, 1.8) * 0.28;
-
-    // Cristas e escarpas orgânicas de relevo natural
-    const ridge1 = Math.sin(angle * 3.0 + ny * 2.8) * (0.9 + 0.6 * (1.0 - ny));
-    const ridge2 = Math.cos(angle * 5.0 - ny * 3.5) * (0.5 + 0.4 * (1.0 - ny));
-    const cliffIndent = (Math.sin(angle * 2.0) > 0.4 && ny > 0.45) ? -0.7 : 0.0;
-    const noise = (ridge1 + ridge2 + cliffIndent) * ridgeScale;
-
-    const currentR = Math.sqrt(x * x + z * z);
-    const newR = Math.max(0.3, currentR * (1.0 + flare) + noise);
-
-    pos.setX(i, Math.cos(angle) * newR);
-    pos.setZ(i, Math.sin(angle) * newR);
-
-    // Ondulação de altitude nas encostas
-    const shoulderDrop = Math.sin(angle * 2.0) * 0.75 * (1.0 - ny);
-    pos.setY(i, y + shoulderDrop);
-  }
-
-  geo.computeVertexNormals();
-  return geo;
-}
-
-// 🗿 Textura Procedural de Pedra-Sabão Art Déco Esculpida e Luminosa (Cristo Redentor)
+// 🗿 Textura Procedural de Pedra-Sabão Art Déco (Cristo Redentor)
 function createSoapstoneRobeTexture(): THREE.CanvasTexture {
   if (typeof document === 'undefined') return new THREE.CanvasTexture({} as any);
   const canvas = document.createElement('canvas');
@@ -284,7 +347,6 @@ function createSoapstoneRobeTexture(): THREE.CanvasTexture {
   const ctx = canvas.getContext('2d');
   if (!ctx) return new THREE.CanvasTexture(canvas);
 
-  // Pedra-sabão clara, nobre e majestosa
   const bg = ctx.createLinearGradient(0, 0, 256, 256);
   bg.addColorStop(0.0, '#ffffff');
   bg.addColorStop(0.60, '#f8fafc');
@@ -292,7 +354,6 @@ function createSoapstoneRobeTexture(): THREE.CanvasTexture {
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, 256, 256);
 
-  // Dobras esculturais da túnica Art Déco com degradê suave e natural
   for (let x = 16; x < 256; x += 22) {
     const foldGrad = ctx.createLinearGradient(x - 8, 0, x + 14, 0);
     foldGrad.addColorStop(0.0, 'rgba(148, 163, 184, 0.0)');
@@ -309,6 +370,7 @@ function createSoapstoneRobeTexture(): THREE.CanvasTexture {
   return tex;
 }
 
+// 🌟 Halo Celestial Suave
 function createSoftRadialGlowTexture(innerRgba: string, midRgba: string): THREE.CanvasTexture {
   if (typeof document === 'undefined') return new THREE.CanvasTexture({} as any);
   const canvas = document.createElement('canvas');
@@ -331,8 +393,8 @@ function createSoftRadialGlowTexture(innerRgba: string, midRgba: string): THREE.
   return tex;
 }
 
-// ☀️ Raios Solares Crepusculares Orgânicos e Suaves (Soft Crepuscular God Rays)
-function createCrepuscularRaysTexture(): THREE.CanvasTexture {
+// ☀️ Raios Solares Crepusculares (God Rays) Majestosos e Suaves
+function createCinematicGodRaysTexture(): THREE.CanvasTexture {
   if (typeof document === 'undefined') return new THREE.CanvasTexture({} as any);
   const canvas = document.createElement('canvas');
   canvas.width = 512;
@@ -344,23 +406,22 @@ function createCrepuscularRaysTexture(): THREE.CanvasTexture {
   ctx.save();
   ctx.translate(256, 256);
 
-  // Raios difusos suaves com atenuação gradual
-  const rayCount = 16;
+  const rayCount = 18;
   for (let i = 0; i < rayCount; i++) {
     const angle = (i / rayCount) * Math.PI * 2;
     ctx.save();
     ctx.rotate(angle);
-    const rGrad = ctx.createLinearGradient(0, 0, 248, 0);
-    rGrad.addColorStop(0.0, 'rgba(255, 251, 235, 0.45)');
-    rGrad.addColorStop(0.35, 'rgba(254, 240, 138, 0.18)');
-    rGrad.addColorStop(0.70, 'rgba(253, 224, 71, 0.06)');
-    rGrad.addColorStop(1.0, 'rgba(254, 240, 138, 0.0)');
+    const rGrad = ctx.createLinearGradient(0, 0, 250, 0);
+    rGrad.addColorStop(0.00, 'rgba(255, 254, 240, 0.65)');
+    rGrad.addColorStop(0.25, 'rgba(254, 240, 138, 0.35)');
+    rGrad.addColorStop(0.60, 'rgba(253, 224, 71, 0.12)');
+    rGrad.addColorStop(1.00, 'rgba(254, 240, 138, 0.0)');
     ctx.fillStyle = rGrad;
     ctx.beginPath();
-    ctx.moveTo(0, -6);
-    ctx.lineTo(245, -32);
-    ctx.lineTo(245, 32);
-    ctx.lineTo(0, 6);
+    ctx.moveTo(0, -5);
+    ctx.lineTo(248, -28);
+    ctx.lineTo(248, 28);
+    ctx.lineTo(0, 5);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
@@ -371,6 +432,114 @@ function createCrepuscularRaysTexture(): THREE.CanvasTexture {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.needsUpdate = true;
   return tex;
+}
+
+// 🏔️ Morfologia Esculpida do Morro do Corcovado
+function createSculptedCorcovadoGeometry(peakH: number): THREE.BufferGeometry {
+  const geo = new THREE.CylinderGeometry(3.8, 34.0, peakH, 48, 24, false);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const ny = (y + peakH * 0.5) / peakH; // 0 na base, 1 no cume
+    const angle = Math.atan2(z, x);
+
+    // Declive suave e majestoso na base com paredão escarpado no topo
+    const flare = Math.pow(1.0 - ny, 2.0) * 0.36;
+
+    // Paredão do Corcovado: face frontal quase vertical sob o pedestal
+    let cliffIndent = 0.0;
+    if (z < 0 && ny > 0.40) {
+      cliffIndent = -1.2 * Math.pow(ny, 1.5) * Math.cos(angle);
+    }
+
+    // Cristas e escarpas laterais naturais da Floresta da Tijuca descendo em leque
+    const ridge1 = Math.sin(angle * 3.0 + ny * 2.2) * (1.2 * (1.0 - ny));
+    const ridge2 = Math.cos(angle * 4.0 - ny * 3.0) * (0.8 * (1.0 - ny));
+
+    const currentR = Math.sqrt(x * x + z * z);
+    const newR = Math.max(0.5, currentR * (1.0 + flare) + ridge1 + ridge2 + cliffIndent);
+
+    pos.setX(i, Math.cos(angle) * newR);
+    pos.setZ(i, Math.sin(angle) * newR);
+
+    const shoulderElevation = Math.sin(angle * 2.0) * 0.9 * (1.0 - ny);
+    pos.setY(i, y + shoulderElevation);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// 🪨 Morfologia do Pão de Açúcar (Monólito Granítico Contínuo sem emendas)
+function createSculptedSugarloafGeometry(height: number): THREE.BufferGeometry {
+  const geo = new THREE.CylinderGeometry(1.6, 17.0, height, 44, 22, false);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const ny = (y + height * 0.5) / height;
+    const angle = Math.atan2(z, x);
+
+    // Domo parabólico natural contínuo
+    const domeCurve = Math.sqrt(Math.max(0, 1.0 - Math.pow(ny, 2.4)));
+    const baseSpread = Math.pow(1.0 - ny, 1.6) * 0.28;
+
+    const currentR = Math.sqrt(x * x + z * z);
+    const newR = Math.max(0.4, currentR * (0.68 + domeCurve * 0.48 + baseSpread));
+
+    pos.setX(i, Math.cos(angle) * newR);
+    pos.setZ(i, Math.sin(angle) * newR);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// 🏔️ Morfologia dos Morros Dois Irmãos
+function createSculptedDoisIrmaosGeometry(height: number, isMajor: boolean): THREE.BufferGeometry {
+  const geo = new THREE.CylinderGeometry(1.2, isMajor ? 16.5 : 14.5, height, 36, 18, false);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const ny = (y + height * 0.5) / height;
+    const angle = Math.atan2(z, x);
+
+    const ridge = Math.sin(angle * 2.5 + ny * 2.2) * (0.85 * (1.0 - ny));
+    const flare = Math.pow(1.0 - ny, 1.8) * 0.26;
+
+    const currentR = Math.sqrt(x * x + z * z);
+    const newR = Math.max(0.4, currentR * (1.0 + flare) + ridge);
+
+    pos.setX(i, Math.cos(angle) * newR);
+    pos.setZ(i, Math.sin(angle) * newR);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// 🌄 Cordilheira Panorâmica de Fundo (Backdrop Serra da Carioca / Serra dos Órgãos)
+function createBackdropRidgeGeometry(width: number, height: number): THREE.BufferGeometry {
+  const geo = new THREE.PlaneGeometry(width, height, 48, 12);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const nx = (x + width * 0.5) / width;
+    const ny = (y + height * 0.5) / height;
+
+    if (ny > 0.25) {
+      const wave1 = Math.sin(nx * 12.0) * 2.4;
+      const wave2 = Math.cos(nx * 6.5) * 3.8;
+      const wave3 = Math.sin(nx * 24.0) * 0.9;
+      pos.setY(i, y + (wave1 + wave2 + wave3) * (ny - 0.25));
+    }
+    pos.setZ(i, -Math.sin(nx * Math.PI) * 14.0);
+  }
+  geo.computeVertexNormals();
+  return geo;
 }
 
 export class ParallaxSystem {
@@ -403,8 +572,8 @@ export class ParallaxSystem {
   private birdFlockGroup: THREE.Group | null = null;
   private birdMeshes: Array<{ group: THREE.Group; leftWing: THREE.Mesh; rightWing: THREE.Mesh; phase: number; radius: number; speed: number; baseY: number }> = [];
   private cableCarGroup: THREE.Group | null = null;
-  private cableStart = new THREE.Vector3(10.8, 28.0, 272);
-  private cableEnd = new THREE.Vector3(17.8, 21.5, 280);
+  private cableStart = new THREE.Vector3(12.0, 27.5, 255);
+  private cableEnd = new THREE.Vector3(19.0, 20.8, 264);
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -422,7 +591,7 @@ export class ParallaxSystem {
     // 1. Skyline Metropolitano Dinâmico na Esquerda em Perspectiva (corredor central 100% livre)
     this.buildDynamicPerspectiveSkyline();
 
-    // 2. Cordilheira Carioca Esculpida, Morro do Corcovado HD, Distance Fade e Cristo Redentor 3D no topo
+    // 2. Cordilheira Carioca Esculpida, Morro do Corcovado Cinematográfico e Cristo Redentor 3D no topo
     this.buildCorcovadoAndCristoHorizon();
   }
 
@@ -508,32 +677,22 @@ export class ParallaxSystem {
     return group;
   }
 
-  /**
-   * Constrói o Skyline Metropolitano Dinâmico na Esquerda em Perspectiva (Linhas de Fuga Urbanas).
-   * O corredor central da avenida (X entre -12 e +12) fica 100% LIMPO e DESOBSTRUÍDO,
-   * permitindo vista panorâmica monumental para o Morro do Corcovado, o Cristo Redentor e o Sol.
-   */
   private buildDynamicPerspectiveSkyline(): void {
     const mats = this.createSeriousPalette();
 
-    // 🏙️ Prédios Dinâmicos no LADO ESQUERDO da tela em perspectiva de fuga cinematográfica
     const leftSkyline: Array<{ x: number; z: number; w: number; h: number; d: number; matIdx: number; penthouse: boolean }> = [
-      // Linha frontal dinâmica em perspectiva decrescente/crescente em direção ao horizonte
       { x: -14.8, z: 212, w: 4.8, h: 16.5, d: 5.6, matIdx: 0, penthouse: true },
       { x: -18.6, z: 224, w: 5.2, h: 21.5, d: 5.8, matIdx: 2, penthouse: true },
       { x: -23.2, z: 236, w: 5.6, h: 26.0, d: 6.2, matIdx: 1, penthouse: true },
       { x: -28.5, z: 248, w: 6.0, h: 23.5, d: 6.4, matIdx: 3, penthouse: false },
       { x: -35.0, z: 258, w: 6.5, h: 19.5, d: 6.8, matIdx: 4, penthouse: true },
       { x: -43.0, z: 266, w: 7.2, h: 16.0, d: 7.2, matIdx: 5, penthouse: false },
-      
-      // Segunda camada de profundidade urbana ao fundo à esquerda
       { x: -21.0, z: 206, w: 4.5, h: 14.0, d: 5.2, matIdx: 1, penthouse: false },
       { x: -26.8, z: 218, w: 5.4, h: 19.5, d: 5.8, matIdx: 3, penthouse: true },
       { x: -33.5, z: 230, w: 5.8, h: 22.8, d: 6.0, matIdx: 5, penthouse: true },
       { x: -40.5, z: 244, w: 6.4, h: 18.2, d: 6.4, matIdx: 0, penthouse: false },
     ];
 
-    // 🏢 Moldura arquitetônica suave na extrema direita (afastada para preservar a vista central)
     const rightSkyline: Array<{ x: number; z: number; w: number; h: number; d: number; matIdx: number; penthouse: boolean }> = [
       { x: 26.5, z: 248, w: 4.6, h: 14.5, d: 5.0, matIdx: 2, penthouse: false },
       { x: 32.5, z: 256, w: 5.2, h: 17.0, d: 5.5, matIdx: 4, penthouse: true },
@@ -548,7 +707,6 @@ export class ParallaxSystem {
       const bldg = this.createStaticBuilding(cfg.w, cfg.h, cfg.d, mat, cfg.penthouse);
       bldg.position.set(cfg.x, -1.2, cfg.z);
 
-      // ⚡ Otimização: desativa raycasting e congela matrizes em todos os prédios de horizonte
       bldg.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           child.raycast = () => {};
@@ -562,180 +720,75 @@ export class ParallaxSystem {
   }
 
   /**
-   * Constrói a Cordilheira Carioca Esculpida em Alta Definição (48 segmentos orgânicos),
-   * Morro do Corcovado majestoso, Distance Fade cinematográfico e Cristo Redentor Art Déco 3D.
+   * Constrói o Cenário Cinematográfico do Corcovado, Cristo Redentor, Pão de Açúcar e Cordilheira
+   * com Fade Out atmosférico na base e iluminação celestial espetacular.
    */
   private buildCorcovadoAndCristoHorizon(): void {
     const mountainGroup = new THREE.Group();
     mountainGroup.name = 'CorcovadoAndCristoHorizon';
     this.horizonRootGroup.add(mountainGroup);
 
-    const corcovadoTex = this.registerTex(createCorcovadoRockForestTexture());
-    const mountainMainMat = this.createTintableMat(0xffffff, corcovadoTex);
-    const forestBrightMat = this.createTintableMat(0x22c55e); // Verde vivo vibrante
-    const forestSlopeMat = this.createTintableMat(0x16a34a);  // Verde esmeralda rico
-    const deepForestMat = this.createTintableMat(0x15803d);   // Verde floresta denso
-    const graniteCliffMat = this.createTintableMat(0x64748b);
-    const graniteSunlitMat = this.createTintableMat(0xa8b8c8);
-    const graniteWarmMat = this.createTintableMat(0xcbd5e1);
+    // Texturas Cinematográficas
+    const corcovadoTex = this.registerTex(createCinematicCorcovadoTexture());
+    const corcovadoMainMat = this.createTintableMat(0xffffff, corcovadoTex);
 
-    const corcovadoZ = HORIZON_MONUMENT_CONFIG.corcovadoZ; // 266
+    const graniteTex = this.registerTex(createCinematicGraniteTexture());
+    const graniteMonolithMat = this.createTintableMat(0xffffff, graniteTex);
+
+    const backdropTex = this.registerTex(createCinematicBackdropTexture());
+    const backdropRidgeMat = this.createTintableMat(0xffffff, backdropTex);
+
+    const corcovadoZ = HORIZON_MONUMENT_CONFIG.corcovadoZ; // 250
     const summitY = HORIZON_MONUMENT_CONFIG.corcovadoSummitY; // 33.5
+    const peakH = summitY + 1.2; // 34.7m de altura monumental
 
     // =========================================================================
-    // 1. MACIÇO CENTRAL DO CORCOVADO ESCULPIDO (Sem cones toscos ou facetas duras)
+    // 1. MACIÇO CENTRAL DO CORCOVADO ESCULPIDO COM FADE OUT ATMOSFÉRICO
     // =========================================================================
     const corcovadoPeak = new THREE.Group();
     corcovadoPeak.position.set(0, -1.2, corcovadoZ);
     mountainGroup.add(corcovadoPeak);
 
-    const peakH = summitY + 1.2; // 34.7m de altura
-
-    // Maciço central orgânico em alta definição com 48 segmentos radiais e 24 de altura
-    const mainCorcovadoGeo = this.registerGeo(
-      createSculptedMountainGeometry(3.6, 28.5, peakH, 48, 24, 1.0)
-    );
-    const mainCone = new THREE.Mesh(mainCorcovadoGeo, mountainMainMat);
-    mainCone.position.y = peakH * 0.5;
-    mainCone.rotation.y = Math.PI * 0.08;
-    corcovadoPeak.add(mainCone);
-
-    // Paredões e Escarpas frontais de Granito Carioca esculpidas em relevo suave
-    const cliffFrontGeo = this.registerGeo(
-      createSculptedMountainGeometry(2.4, 9.8, peakH * 0.94, 32, 16, 0.6)
-    );
-    const frontCliff = new THREE.Mesh(cliffFrontGeo, graniteWarmMat);
-    frontCliff.position.set(-0.4, peakH * 0.49, -2.1);
-    frontCliff.scale.set(0.85, 1.0, 0.44);
-    corcovadoPeak.add(frontCliff);
-
-    const sunlitRidgeGeo = this.registerGeo(
-      createSculptedMountainGeometry(1.9, 8.0, peakH * 0.90, 28, 14, 0.5)
-    );
-    const sunlitRidge = new THREE.Mesh(sunlitRidgeGeo, graniteSunlitMat);
-    sunlitRidge.position.set(-1.8, peakH * 0.48, -2.3);
-    sunlitRidge.scale.set(0.68, 1.0, 0.40);
-    sunlitRidge.rotation.z = 0.05;
-    corcovadoPeak.add(sunlitRidge);
-
-    const shadowRidge = new THREE.Mesh(sunlitRidgeGeo, graniteCliffMat);
-    shadowRidge.position.set(2.0, peakH * 0.46, -2.0);
-    shadowRidge.scale.set(0.70, 0.96, 0.40);
-    shadowRidge.rotation.z = -0.06;
-    corcovadoPeak.add(shadowRidge);
-
-    // Contrafortes e cristas florestadas da Mata Atlântica (geometria orgânica 36 segs)
-    const leftButtressGeo = this.registerGeo(
-      createSculptedMountainGeometry(0.5, 15.8, 31.0, 36, 16, 0.7)
-    );
-    const leftButtress = new THREE.Mesh(leftButtressGeo, forestBrightMat);
-    leftButtress.position.set(-9.2, 14.8, 0.6);
-    leftButtress.rotation.y = 0.32;
-    leftButtress.rotation.z = 0.10;
-    corcovadoPeak.add(leftButtress);
-
-    const rightButtressGeo = this.registerGeo(
-      createSculptedMountainGeometry(0.5, 15.5, 30.2, 36, 16, 0.7)
-    );
-    const rightButtress = new THREE.Mesh(rightButtressGeo, forestSlopeMat);
-    rightButtress.position.set(9.0, 14.4, 0.6);
-    rightButtress.rotation.y = -0.32;
-    rightButtress.rotation.z = -0.10;
-    corcovadoPeak.add(rightButtress);
-
-    // Tufos 3D de Vegetação da Mata Atlântica espalhados pelas encostas
-    const foliageClusterGeo = this.registerGeo(new THREE.DodecahedronGeometry(1.6, 1));
-    const foliageOffsets = [
-      { x: -3.8, y: 16.5, z: -2.8, s: 1.4, mat: forestBrightMat },
-      { x:  3.5, y: 17.2, z: -2.6, s: 1.5, mat: forestSlopeMat },
-      { x: -5.5, y: 12.0, z: -2.0, s: 2.1, mat: deepForestMat },
-      { x:  5.8, y: 11.5, z: -1.8, s: 2.0, mat: forestBrightMat },
-      { x: -1.8, y: 22.0, z: -2.5, s: 1.2, mat: forestBrightMat },
-      { x:  2.1, y: 23.5, z: -2.3, s: 1.1, mat: forestSlopeMat },
-      { x: -7.5, y:  8.0, z: -0.5, s: 2.6, mat: deepForestMat },
-      { x:  7.8, y:  8.5, z: -0.4, s: 2.5, mat: forestBrightMat },
-    ];
-    for (let i = 0; i < foliageOffsets.length; i++) {
-      const fo = foliageOffsets[i];
-      const folMesh = new THREE.Mesh(foliageClusterGeo, fo.mat);
-      folMesh.position.set(fo.x, fo.y, fo.z);
-      folMesh.scale.set(fo.s, fo.s * 0.75, fo.s);
-      folMesh.raycast = () => {};
-      corcovadoPeak.add(folMesh);
-    }
+    const corcovadoGeo = this.registerGeo(createSculptedCorcovadoGeometry(peakH));
+    const mainCorcovadoMesh = new THREE.Mesh(corcovadoGeo, corcovadoMainMat);
+    mainCorcovadoMesh.position.y = peakH * 0.5;
+    mainCorcovadoMesh.rotation.y = Math.PI * 0.04;
+    mainCorcovadoMesh.raycast = () => {};
+    corcovadoPeak.add(mainCorcovadoMesh);
 
     // Mirante e Plataforma Panorâmica de Pedra no Cume do Corcovado
-    const terraceGeo = this.registerGeo(new THREE.CylinderGeometry(3.8, 4.2, 1.2, 24));
+    const terraceGeo = this.registerGeo(new THREE.CylinderGeometry(4.0, 4.4, 1.2, 24));
     const terraceMesh = new THREE.Mesh(terraceGeo, this.trimMat);
     terraceMesh.position.set(0, peakH - 0.35, 0);
     terraceMesh.raycast = () => {};
     corcovadoPeak.add(terraceMesh);
 
     // =========================================================================
-    // 2. CORDILHEIRA CARIOCA AO REDOR (Morro Dois Irmãos, Serra e Pão de Açúcar)
+    // 2. MONUMENTO DO CRISTO REDENTOR 3D (Escultura Nobre Art Déco)
     // =========================================================================
-    // Morro Dois Irmãos à Esquerda (Picos icônicos esculpidos organicamente)
-    const doisIrmaosMaiorGeo = this.registerGeo(
-      createSculptedMountainGeometry(1.2, 17.5, 33.0, 40, 20, 0.8)
-    );
-    const doisIrmaosMaior = new THREE.Mesh(doisIrmaosMaiorGeo, mountainMainMat);
-    doisIrmaosMaior.position.set(-13.5, 15.0, 275);
-    doisIrmaosMaior.rotation.y = 0.35;
-    doisIrmaosMaior.raycast = () => {};
-    mountainGroup.add(doisIrmaosMaior);
+    const cristoGroup = this.buildCristoRedentorMonument();
+    cristoGroup.position.set(0, summitY, corcovadoZ);
+    mountainGroup.add(cristoGroup);
 
-    const doisIrmaosMenorGeo = this.registerGeo(
-      createSculptedMountainGeometry(1.0, 15.5, 27.5, 36, 18, 0.7)
-    );
-    const doisIrmaosMenor = new THREE.Mesh(doisIrmaosMenorGeo, forestSlopeMat);
-    doisIrmaosMenor.position.set(-22.5, 12.2, 282);
-    doisIrmaosMenor.rotation.y = 0.2;
-    doisIrmaosMenor.raycast = () => {};
-    mountainGroup.add(doisIrmaosMenor);
+    // =========================================================================
+    // 3. PÃO DE AÇÚCAR À DIREITA (Monólito Contínuo com Fade Out)
+    // =========================================================================
+    const sugarloafHeight = 31.0;
+    const sugarloafGeo = this.registerGeo(createSculptedSugarloafGeometry(sugarloafHeight));
+    const sugarloafMesh = new THREE.Mesh(sugarloafGeo, graniteMonolithMat);
+    sugarloafMesh.position.set(15.5, sugarloafHeight * 0.5 - 1.2, corcovadoZ + 7);
+    sugarloafMesh.rotation.y = -0.22;
+    sugarloafMesh.raycast = () => {};
+    mountainGroup.add(sugarloafMesh);
 
-    // Encosta florestal extra à extrema esquerda (Maciço da Tijuca)
-    const tijucaRidgeGeo = this.registerGeo(
-      createSculptedMountainGeometry(1.5, 18.5, 25.0, 32, 16, 0.6)
-    );
-    const tijucaRidge = new THREE.Mesh(tijucaRidgeGeo, deepForestMat);
-    tijucaRidge.position.set(-32.0, 10.0, 290);
-    tijucaRidge.raycast = () => {};
-    mountainGroup.add(tijucaRidge);
-
-    // Pão de Açúcar à Direita (Monólito de granito com domo natural suave)
-    const sugarloafGeo = this.registerGeo(
-      createSculptedMountainGeometry(4.2, 16.5, 31.0, 44, 20, 0.4)
-    );
-    const sugarloafPeak = new THREE.Mesh(sugarloafGeo, mountainMainMat);
-    sugarloafPeak.position.set(13.5, 14.5, 273);
-    sugarloafPeak.raycast = () => {};
-    mountainGroup.add(sugarloafPeak);
-
-    const sugarloafDome = new THREE.Mesh(
-      this.registerGeo(new THREE.SphereGeometry(4.2, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.5)),
-      graniteSunlitMat
-    );
-    sugarloafDome.position.set(13.5, 30.0, 273);
-    sugarloafDome.raycast = () => {};
-    mountainGroup.add(sugarloafDome);
-
-    // Morro da Urca (Encosta verdejante ao lado do Pão de Açúcar)
-    const urcaPeakGeo = this.registerGeo(
-      createSculptedMountainGeometry(4.8, 14.5, 24.5, 36, 16, 0.5)
-    );
-    const urcaPeak = new THREE.Mesh(urcaPeakGeo, forestBrightMat);
-    urcaPeak.position.set(22.0, 11.0, 281);
-    urcaPeak.raycast = () => {};
-    mountainGroup.add(urcaPeak);
-
-    // Serra de fundo à extrema direita (Serra da Carioca)
-    const cariocaRidgeGeo = this.registerGeo(
-      createSculptedMountainGeometry(1.8, 19.5, 25.5, 32, 16, 0.5)
-    );
-    const cariocaRidge = new THREE.Mesh(cariocaRidgeGeo, deepForestMat);
-    cariocaRidge.position.set(33.0, 10.5, 292);
-    cariocaRidge.raycast = () => {};
-    mountainGroup.add(cariocaRidge);
+    // Morro da Urca ao lado do Pão de Açúcar
+    const urcaHeight = 23.5;
+    const urcaGeo = this.registerGeo(createSculptedSugarloafGeometry(urcaHeight));
+    const urcaMesh = new THREE.Mesh(urcaGeo, corcovadoMainMat);
+    urcaMesh.position.set(24.5, urcaHeight * 0.5 - 1.2, corcovadoZ + 14);
+    urcaMesh.rotation.y = 0.45;
+    urcaMesh.raycast = () => {};
+    mountainGroup.add(urcaMesh);
 
     // Cabo aéreo e Bondinho do Pão de Açúcar
     const cableCurve = new THREE.LineCurve3(this.cableStart, this.cableEnd);
@@ -763,21 +816,42 @@ export class ParallaxSystem {
     mountainGroup.add(this.cableCarGroup);
 
     // =========================================================================
-    // 3. MONUMENTO DO CRISTO REDENTOR 3D (Escultura Art Déco Majestosa)
+    // 4. MORRO DOIS IRMÃOS À ESQUERDA (Picos Esculturais Gêmeos)
     // =========================================================================
-    const cristoGroup = this.buildCristoRedentorMonument();
-    cristoGroup.position.set(0, summitY, corcovadoZ);
-    mountainGroup.add(cristoGroup);
+    const doisIrmaosMaiorH = 32.5;
+    const doisIrmaosMaiorGeo = this.registerGeo(createSculptedDoisIrmaosGeometry(doisIrmaosMaiorH, true));
+    const doisIrmaosMaior = new THREE.Mesh(doisIrmaosMaiorGeo, graniteMonolithMat);
+    doisIrmaosMaior.position.set(-15.0, doisIrmaosMaiorH * 0.5 - 1.2, corcovadoZ + 8);
+    doisIrmaosMaior.rotation.y = 0.35;
+    doisIrmaosMaior.raycast = () => {};
+    mountainGroup.add(doisIrmaosMaior);
+
+    const doisIrmaosMenorH = 26.5;
+    const doisIrmaosMenorGeo = this.registerGeo(createSculptedDoisIrmaosGeometry(doisIrmaosMenorH, false));
+    const doisIrmaosMenor = new THREE.Mesh(doisIrmaosMenorGeo, corcovadoMainMat);
+    doisIrmaosMenor.position.set(-24.5, doisIrmaosMenorH * 0.5 - 1.2, corcovadoZ + 15);
+    doisIrmaosMenor.rotation.y = 0.18;
+    doisIrmaosMenor.raycast = () => {};
+    mountainGroup.add(doisIrmaosMenor);
 
     // =========================================================================
-    // 4. DISTANCE FADE ATMOSFÉRICO CINEMATOGRÁFICO & ELEMENTOS DINÂMICOS
+    // 5. CORDILHEIRA DE FUNDO (Backdrop Serra da Carioca em Perspectiva Aérea)
+    // =========================================================================
+    const backdropGeo = this.registerGeo(createBackdropRidgeGeometry(160, 28));
+    const backdropMesh = new THREE.Mesh(backdropGeo, backdropRidgeMat);
+    backdropMesh.position.set(0, 11.5, corcovadoZ + 24);
+    backdropMesh.raycast = () => {};
+    mountainGroup.add(backdropMesh);
+
+    // =========================================================================
+    // 6. DISTANCE FADE ATMOSFÉRICO DE VALE (Efeito Fade Out Cinematográfico)
     // =========================================================================
     this.buildAtmosphericDistanceFadeLayers(mountainGroup, corcovadoZ);
     this.buildOrographicMist(mountainGroup, corcovadoZ);
     this.buildScenicHelicopter(mountainGroup);
     this.buildTropicalBirdFlock(mountainGroup, corcovadoZ);
 
-    // Congela matrizes estáticas para alta performance
+    // Congela matrizes estáticas para alta performance 60 FPS
     mountainGroup.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) {
         child.raycast = () => {};
@@ -788,42 +862,51 @@ export class ParallaxSystem {
   }
 
   /**
-   * Camadas de Distance Fade e Névoa Atmosférica em Profundidade.
-   * Cria o efeito cinematográfico de dissolução suave da base das montanhas no horizonte,
-   * unindo a cidade, os morros e o céu sem cortes secos na geometria.
+   * Camadas de Névoa de Vale e Distance Fade em Profundidade.
+   * Cria o efeito cinematográfico "Fade Out" onde a base dos morros dissolve-se
+   * suavemente no horizonte, unindo a cidade e a paisagem em um degradê etéreo.
    */
   private buildAtmosphericDistanceFadeLayers(parent: THREE.Group, corcovadoZ: number): void {
-    const fadeTex = this.registerTex(createDistanceFadeMistTexture());
+    const mistTex = this.registerTex(createCinematicValleyMistTexture());
     const planeGeo = this.registerGeo(new THREE.PlaneGeometry(1, 1));
 
+    // Camadas amplas de névoa de vale que criam o Fade Out cinematográfico
     const fadeLayers = [
-      { z: 236, y: 4.2, w: 160, h: 12.0, opacity: 0.26 },
-      { z: 268, y: 7.2, w: 190, h: 15.5, opacity: 0.30 },
+      { z: corcovadoZ - 20, y: 5.8,  w: 180, h: 14.5, opacity: 0.36, speed: 0.40 },
+      { z: corcovadoZ - 6,  y: 7.8,  w: 220, h: 17.5, opacity: 0.44, speed: -0.32 },
+      { z: corcovadoZ + 8,  y: 9.8,  w: 260, h: 20.5, opacity: 0.40, speed: 0.26 },
+      { z: corcovadoZ + 20, y: 11.8, w: 290, h: 22.5, opacity: 0.32, speed: -0.22 },
     ];
 
-    fadeLayers.forEach((layer) => {
+    fadeLayers.forEach((layer, idx) => {
       const mat = new THREE.MeshBasicMaterial({
-        map: fadeTex,
+        map: mistTex,
         color: 0xffffff,
         transparent: true,
         opacity: layer.opacity,
         depthWrite: false,
         fog: false,
       });
-      this.sharedMaterials.push(mat);
+      mat.userData = { baseColor: new THREE.Color(0xffffff) };
+      this.tintableHorizonMaterials.push(mat);
 
       const mesh = new THREE.Mesh(planeGeo, mat);
       mesh.scale.set(layer.w, layer.h, 1);
       mesh.position.set(0, layer.y, layer.z);
       mesh.raycast = () => {};
-      mesh.matrixAutoUpdate = false;
-      mesh.updateMatrix();
       parent.add(mesh);
+
+      this.mistLayers.push({
+        mesh,
+        baseX: 0,
+        speed: layer.speed,
+        phase: idx * 1.6,
+      });
     });
   }
 
   /**
-   * Constrói a escultura 3D nobre do Cristo Redentor + Pedestal Art Déco + Iluminação Monumental Suave
+   * Constrói a escultura 3D nobre do Cristo Redentor + Pedestal Art Déco + Iluminação Celestial
    */
   private buildCristoRedentorMonument(): THREE.Group {
     const monument = new THREE.Group();
@@ -838,39 +921,39 @@ export class ParallaxSystem {
     const pedestalTrimMat = this.createTintableMat(0xf1f5f9);
 
     // -------------------------------------------------------------------------
-    // A. Iluminação Monumental Suave (Sem discos ou anéis concêntricos no céu)
+    // A. Halo Celestial e Raios Solares Crepusculares (God Rays) atrás do Cristo
     // -------------------------------------------------------------------------
     const haloTex = this.registerTex(
-      createSoftRadialGlowTexture('rgba(254, 240, 138, 0.40)', 'rgba(253, 224, 71, 0.08)')
+      createSoftRadialGlowTexture('rgba(255, 250, 220, 0.65)', 'rgba(254, 240, 138, 0.22)')
     );
     const haloMat = new THREE.SpriteMaterial({
       map: haloTex,
       color: 0xfef08a,
       transparent: true,
-      opacity: 0.12, // Suave e discreto, sem criar anel sólido
+      opacity: 0.22,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       fog: false,
     });
     this.monumentHaloSprite = new THREE.Sprite(haloMat);
-    this.monumentHaloSprite.scale.set(12, 12, 1);
-    this.monumentHaloSprite.position.set(0, 11.5, 1.2);
+    this.monumentHaloSprite.scale.set(16, 16, 1);
+    this.monumentHaloSprite.position.set(0, 11.8, -0.2);
     monument.add(this.monumentHaloSprite);
 
     // Feixes de Raios Solares Crepusculares (God Rays) radiantes atrás do Cristo
-    const godRaysGeo = this.registerGeo(new THREE.PlaneGeometry(36, 36));
-    const godRaysTex = this.registerTex(createCrepuscularRaysTexture());
+    const godRaysGeo = this.registerGeo(new THREE.PlaneGeometry(42, 42));
+    const godRaysTex = this.registerTex(createCinematicGodRaysTexture());
     const godRaysMat = new THREE.MeshBasicMaterial({
       map: godRaysTex,
       color: 0xfef08a,
       transparent: true,
-      opacity: 0.16,
+      opacity: 0.24,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       fog: false,
     });
     this.godRaysMesh = new THREE.Mesh(godRaysGeo, godRaysMat);
-    this.godRaysMesh.position.set(0, 12.0, -0.6); // Bem atrás dos braços abertos
+    this.godRaysMesh.position.set(0, 12.2, -0.6); // Diretamente atrás dos braços abertos
     this.godRaysMesh.raycast = () => {};
     monument.add(this.godRaysMesh);
 
@@ -891,7 +974,6 @@ export class ParallaxSystem {
     pedStep2.position.y = 2.35;
     monument.add(pedStep2);
 
-    // Pilastras Art Déco em relevo no pedestal
     for (let i = 0; i < 4; i++) {
       const angle = (i * Math.PI) / 2 + Math.PI / 4;
       const rib = new THREE.Mesh(this.unitBoxGeo, pedestalBaseMat);
@@ -912,18 +994,18 @@ export class ParallaxSystem {
     // C. Escultura Nobre do Cristo Redentor (Y = 4.2 até Y = 16.0)
     // -------------------------------------------------------------------------
     const statueBaseY = 4.2;
-    const armY = statueBaseY + 8.4; // Y = 12.6 local
-    const armSpan = HORIZON_MONUMENT_CONFIG.statueArmSpan; // 12.6m
-    const armSpanHalf = armSpan * 0.5; // 6.3m
+    const armY = statueBaseY + 8.4;
+    const armSpan = HORIZON_MONUMENT_CONFIG.statueArmSpan;
+    const armSpanHalf = armSpan * 0.5;
 
-    // 1. Túnica Inferior (Saia colunar Art Déco elegante)
+    // 1. Túnica Inferior (Saia colunar Art Déco)
     const lowerTunicGeo = this.registerGeo(new THREE.CylinderGeometry(1.22, 1.55, 5.0, 12));
     const lowerTunic = new THREE.Mesh(lowerTunicGeo, statueMat);
     lowerTunic.position.y = statueBaseY + 2.5;
     lowerTunic.scale.set(1.0, 1.0, 0.72);
     monument.add(lowerTunic);
 
-    // 2. Torso Superior & Peito (Alarga harmoniosamente em Art Déco)
+    // 2. Torso Superior & Peito
     const upperTorsoGeo = this.registerGeo(new THREE.CylinderGeometry(1.60, 1.22, 4.2, 12));
     const upperTorso = new THREE.Mesh(upperTorsoGeo, statueMat);
     upperTorso.position.y = statueBaseY + 7.1;
@@ -961,7 +1043,6 @@ export class ParallaxSystem {
     armsBeam.position.set(0, armY, 0);
     monument.add(armsBeam);
 
-    // Mangas da túnica que descem suavemente dos braços
     const sleeveShape = new THREE.Shape();
     sleeveShape.moveTo(1.0, 0.12);
     sleeveShape.lineTo(5.2, 0.12);
@@ -982,7 +1063,6 @@ export class ParallaxSystem {
     leftSleeve.position.set(0, armY - 0.08, 0.29);
     monument.add(leftSleeve);
 
-    // Mãos abertas estendidas em bênção
     const handGeo = this.registerGeo(new THREE.BoxGeometry(0.95, 0.52, 0.35));
     const leftHand = new THREE.Mesh(handGeo, statueBrightMat);
     leftHand.position.set(-armSpanHalf + 0.25, armY + 0.04, 0);
@@ -1004,7 +1084,7 @@ export class ParallaxSystem {
 
     const headGroup = new THREE.Group();
     headGroup.position.set(0, statueBaseY + 10.55, -0.16);
-    headGroup.rotation.x = 0.18; // Leve inclinação serena abençoando o Rio
+    headGroup.rotation.x = 0.18;
     monument.add(headGroup);
 
     const headGeo = this.registerGeo(new THREE.CylinderGeometry(0.72, 0.62, 1.85, 10));
@@ -1028,7 +1108,6 @@ export class ParallaxSystem {
     noseBridge.position.set(0, 0.08, -0.66);
     headGroup.add(noseBridge);
 
-    // Sinalizador aéreo sutil de topo
     this.beaconMat = new THREE.MeshBasicMaterial({ color: 0xfef08a, fog: false });
     this.sharedMaterials.push(this.beaconMat);
     const beaconMesh = new THREE.Mesh(
@@ -1039,7 +1118,7 @@ export class ParallaxSystem {
     headGroup.add(beaconMesh);
 
     // -------------------------------------------------------------------------
-    // D. Refletores Metálicos Monumentais na Base do Pedestal (Sem cones cortados)
+    // D. Refletores Metálicos Monumentais na Base do Pedestal
     // -------------------------------------------------------------------------
     const spotFixtureGeo = this.registerGeo(new THREE.CylinderGeometry(0.35, 0.45, 0.55, 8));
     const spotFixtureMat = new THREE.MeshBasicMaterial({ color: 0x475569, fog: false });
@@ -1052,7 +1131,6 @@ export class ParallaxSystem {
       fixture.rotation.x = -0.35;
       monument.add(fixture);
 
-      // Ponto de luz suave nos refletores de solo
       const spotGlowMat = new THREE.SpriteMaterial({
         map: haloTex,
         color: 0xfef08a,
@@ -1071,18 +1149,15 @@ export class ParallaxSystem {
     return monument;
   }
 
-  /**
-   * Camadas suaves de neblina orográfica deslizando pela cintura da montanha (abaixo do pedestal)
-   */
   private buildOrographicMist(parent: THREE.Group, corcovadoZ: number): void {
     const mistTex = this.registerTex(
-      createSoftRadialGlowTexture('rgba(248, 250, 252, 0.42)', 'rgba(226, 232, 240, 0.14)')
+      createSoftRadialGlowTexture('rgba(248, 250, 252, 0.46)', 'rgba(226, 232, 240, 0.16)')
     );
     const mistConfigs = [
-      { x: -6.5, y: 23.5, z: corcovadoZ - 4.0, w: 22, h: 5.5, speed: 0.9, phase: 0.0 },
-      { x:  6.5, y: 26.5, z: corcovadoZ - 3.5, w: 20, h: 5.0, speed: -0.75, phase: 1.8 },
-      { x: -13.0, y: 20.5, z: corcovadoZ + 2.0, w: 24, h: 6.0, speed: 0.55, phase: 4.5 },
-      { x:  13.5, y: 21.5, z: corcovadoZ + 1.5, w: 24, h: 6.0, speed: -0.6, phase: 2.4 },
+      { x: -6.5, y: 23.5, z: corcovadoZ - 4.0, w: 24, h: 6.0, speed: 0.9, phase: 0.0 },
+      { x:  6.5, y: 26.5, z: corcovadoZ - 3.5, w: 22, h: 5.5, speed: -0.75, phase: 1.8 },
+      { x: -13.0, y: 20.5, z: corcovadoZ + 2.0, w: 26, h: 6.5, speed: 0.55, phase: 4.5 },
+      { x:  13.5, y: 21.5, z: corcovadoZ + 1.5, w: 26, h: 6.5, speed: -0.6, phase: 2.4 },
     ];
 
     const planeGeo = this.registerGeo(new THREE.PlaneGeometry(1, 1));
@@ -1092,7 +1167,7 @@ export class ParallaxSystem {
         map: mistTex,
         color: 0xffffff,
         transparent: true,
-        opacity: 0.48,
+        opacity: 0.52,
         depthWrite: false,
         fog: false,
       });
@@ -1105,9 +1180,6 @@ export class ParallaxSystem {
     }
   }
 
-  /**
-   * Helicóptero Panorâmico 3D sobrevoando o Cristo Redentor no horizonte
-   */
   private buildScenicHelicopter(parent: THREE.Group): void {
     const heli = new THREE.Group();
     heli.name = 'ScenicHorizonHelicopter';
@@ -1172,9 +1244,6 @@ export class ParallaxSystem {
     parent.add(heli);
   }
 
-  /**
-   * Bando de pássaros tropicais batendo asas ao redor do cume do Corcovado
-   */
   private buildTropicalBirdFlock(parent: THREE.Group, corcovadoZ: number): void {
     this.birdFlockGroup = new THREE.Group();
     this.birdFlockGroup.name = 'CorcovadoBirds';
@@ -1226,9 +1295,10 @@ export class ParallaxSystem {
 
     const visual = computeHorizonVisualState(this.currentTimeProgress, this.elapsedSec);
 
+    // Atualiza Halo e God Rays celestiais atrás do Cristo
     if (this.monumentHaloSprite) {
       (this.monumentHaloSprite.material as THREE.SpriteMaterial).opacity = visual.monumentGlowOpacity;
-      const s = 10.0 + Math.sin(this.elapsedSec * 1.6) * 0.8;
+      const s = 14.0 + Math.sin(this.elapsedSec * 1.5) * 1.2;
       this.monumentHaloSprite.scale.set(s, s, 1);
     }
 
@@ -1249,9 +1319,10 @@ export class ParallaxSystem {
       this.beaconMat.color.setHex(blink ? 0xef4444 : 0xfef08a);
     }
 
+    // Movimento suave de derivação da névoa de vale cinematográfica
     for (let i = 0; i < this.mistLayers.length; i++) {
       const m = this.mistLayers[i];
-      m.mesh.position.x = m.baseX + Math.sin(this.elapsedSec * 0.28 * m.speed + m.phase) * 3.8;
+      m.mesh.position.x = m.baseX + Math.sin(this.elapsedSec * 0.25 * m.speed + m.phase) * 5.5;
     }
 
     if (this.helicopterGroup) {
