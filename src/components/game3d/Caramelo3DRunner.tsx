@@ -83,6 +83,8 @@ import { BuildingManager } from './BuildingManager';
 import { TreeManager } from './TreeManager';
 import { GamefyBillboardManager } from './GamefyBillboard';
 import { IntroCinematic } from './IntroCinematic';
+import { geminiKeyManager } from '../../services/geminiKeyManager';
+import { geminiArgonService } from '../../services/geminiArgonService';
 import { MarketingPortalModal, recordAdImpression } from '../game/MarketingPortalModal';
 import {
   DifficultyLevel,
@@ -1176,7 +1178,11 @@ export const Caramelo3DRunner: React.FC<Caramelo3DRunnerProps> = ({
   const [showMarketingModal, setShowMarketingModal] = useState(false);
   const [isNavigatingLoading, setIsNavigatingLoading] = useState(false);
   const [navigatingMessage, setNavigatingMessage] = useState('Carregando jogo e lendo dados...');
-  const [settingsTab, setSettingsTab] = useState<'gameplay' | 'graphics' | 'audio' | 'weather'>('gameplay');
+  const [settingsTab, setSettingsTab] = useState<'gameplay' | 'graphics' | 'audio' | 'weather' | 'ai'>('gameplay');
+  const [geminiApiKeyInput, setGeminiApiKeyInput] = useState('');
+  const [geminiModelInput, setGeminiModelInput] = useState(() => geminiKeyManager.getModel());
+  const [geminiTestStatus, setGeminiTestStatus] = useState<string | null>(null);
+  const [isGeminiTesting, setIsGeminiTesting] = useState(false);
   const [showModeSelectModal, setShowModeSelectModal] = useState(false);
   const [isPhotoSelectorOpen, setIsPhotoSelectorOpen] = useState(false);
   const [currentUserPhoto, setCurrentUserPhoto] = useState<string>(() => storage.getCurrentUser()?.profilePhotoUrl || '');
@@ -7895,8 +7901,8 @@ export const Caramelo3DRunner: React.FC<Caramelo3DRunnerProps> = ({
               </div>
             </div>
 
-            {/* 4 Abas 3D de Navegação (CONTROLES / GRÁFICOS / ÁUDIO / CLIMA) */}
-            <div className="grid grid-cols-4 gap-1.5 p-1 bg-stone-950/70 rounded-2xl border-2 border-[#5f7d9c] shadow-inner">
+            {/* 5 Abas 3D de Navegação (CONTROLES / GRÁFICOS / ÁUDIO / CLIMA / GEMINI AI) */}
+            <div className="grid grid-cols-5 gap-1 p-1 bg-stone-950/70 rounded-2xl border-2 border-[#5f7d9c] shadow-inner">
               <button
                 onClick={() => setSettingsTab('gameplay')}
                 className={`py-2 px-1 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 relative ${
@@ -7906,7 +7912,7 @@ export const Caramelo3DRunner: React.FC<Caramelo3DRunnerProps> = ({
                 <SteelRivet className="top-1 left-1 w-1 h-1" />
                 <SteelRivet className="top-1 right-1 w-1 h-1" />
                 <span className="text-sm">🎮</span>
-                <span className="text-[10px] sm:text-xs">CONTROLES</span>
+                <span className="text-[9px] sm:text-[10px]">CONTROLE</span>
               </button>
 
               <button
@@ -7918,7 +7924,7 @@ export const Caramelo3DRunner: React.FC<Caramelo3DRunnerProps> = ({
                 <SteelRivet className="top-1 left-1 w-1 h-1" />
                 <SteelRivet className="top-1 right-1 w-1 h-1" />
                 <span className="text-sm">🖥️</span>
-                <span className="text-[10px] sm:text-xs">GRÁFICOS</span>
+                <span className="text-[9px] sm:text-[10px]">GRÁFICOS</span>
               </button>
 
               <button
@@ -7930,7 +7936,7 @@ export const Caramelo3DRunner: React.FC<Caramelo3DRunnerProps> = ({
                 <SteelRivet className="top-1 left-1 w-1 h-1" />
                 <SteelRivet className="top-1 right-1 w-1 h-1" />
                 <span className="text-sm">🔊</span>
-                <span className="text-[10px] sm:text-xs">ÁUDIO</span>
+                <span className="text-[9px] sm:text-[10px]">ÁUDIO</span>
               </button>
 
               <button
@@ -7942,7 +7948,19 @@ export const Caramelo3DRunner: React.FC<Caramelo3DRunnerProps> = ({
                 <SteelRivet className="top-1 left-1 w-1 h-1" />
                 <SteelRivet className="top-1 right-1 w-1 h-1" />
                 <span className="text-sm">🌤️</span>
-                <span className="text-[10px] sm:text-xs">CLIMA</span>
+                <span className="text-[9px] sm:text-[10px]">CLIMA</span>
+              </button>
+
+              <button
+                onClick={() => setSettingsTab('ai')}
+                className={`py-2 px-1 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 relative ${
+                  settingsTab === 'ai' ? 'cartoon-btn-gold shadow-lg' : 'cartoon-btn-steel'
+                }`}
+              >
+                <SteelRivet className="top-1 left-1 w-1 h-1" />
+                <SteelRivet className="top-1 right-1 w-1 h-1" />
+                <span className="text-sm">🤖</span>
+                <span className="text-[9px] sm:text-[10px]">GEMINI AI</span>
               </button>
             </div>
 
@@ -8369,6 +8387,118 @@ export const Caramelo3DRunner: React.FC<Caramelo3DRunnerProps> = ({
                       <Moon className="w-5 h-5 text-cyan-300" />
                       <span>NOITE</span>
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ABA 5: IA GEMINI ARGON */}
+              {settingsTab === 'ai' && (
+                <div className="space-y-3">
+                  {/* SEÇÃO 1: CHAVE DA API GEMINI */}
+                  <div className="cartoon-wood-plank p-3 rounded-2xl relative shadow-md space-y-2">
+                    <SteelCornerBrackets size="sm" />
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-black uppercase text-amber-200 cartoon-text-outline flex items-center gap-1.5">
+                        <span>🔑</span>
+                        <span>CHAVE DA API GEMINI (AI STUDIO)</span>
+                      </div>
+                      <span className="cartoon-steel-pill text-[9px] font-mono font-black px-2 py-0.5">
+                        {geminiKeyManager.getSlotCount() > 0 ? `${geminiKeyManager.getSlotCount()} CONTA(S)` : 'SEM CHAVE'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-amber-100/80 leading-tight">
+                      Insira sua API Key do Google AI Studio para ativar as falas e reações com inteligência artificial:
+                    </p>
+                    <div className="relative">
+                      <input
+                        type="password"
+                        value={geminiApiKeyInput}
+                        onChange={(e) => setGeminiApiKeyInput(e.target.value)}
+                        placeholder="Cole sua chave AIzaSy... aqui"
+                        className="w-full bg-stone-900/90 border-2 border-[#543015] rounded-xl px-3 py-2 text-xs text-amber-100 placeholder-stone-500 font-mono focus:outline-none focus:border-amber-400"
+                      />
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={() => {
+                          sound.playClick();
+                          if (geminiApiKeyInput.trim()) {
+                            geminiKeyManager.saveLocalKeys([geminiApiKeyInput.trim()]);
+                            setGeminiTestStatus('Chave salva no navegador!');
+                            setTimeout(() => setGeminiTestStatus(null), 3000);
+                          }
+                        }}
+                        className="flex-1 py-2 cartoon-btn-gold rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                      >
+                        <span>💾</span>
+                        <span>SALVAR CHAVE</span>
+                      </button>
+                      <button
+                        onClick={async () => {
+                          sound.playBark();
+                          setIsGeminiTesting(true);
+                          setGeminiTestStatus('Testando conexão com Google Gemini...');
+                          try {
+                            const res = await geminiArgonService.testAllKeys(geminiModelInput);
+                            if (res.length > 0 && res[0].status === 'online') {
+                              setGeminiTestStatus(`✅ Online! Latência: ${res[0].latencyMs}ms`);
+                            } else {
+                              setGeminiTestStatus(`❌ ${res[0]?.error || 'Erro na conexão'}`);
+                            }
+                          } catch (err: any) {
+                            setGeminiTestStatus(`❌ Erro: ${err.message}`);
+                          } finally {
+                            setIsGeminiTesting(false);
+                          }
+                        }}
+                        disabled={isGeminiTesting || (geminiKeyManager.getSlotCount() === 0 && !geminiApiKeyInput.trim())}
+                        className="flex-1 py-2 cartoon-btn-blue disabled:opacity-50 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                      >
+                        <span>⚡</span>
+                        <span>{isGeminiTesting ? 'TESTANDO...' : 'TESTAR PING'}</span>
+                      </button>
+                    </div>
+                    {geminiTestStatus && (
+                      <div className="p-2 bg-stone-950/80 border border-amber-800/60 rounded-xl text-[11px] font-bold text-amber-200 text-center">
+                        {geminiTestStatus}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* SEÇÃO 2: SELEÇÃO DE MODELO */}
+                  <div className="cartoon-wood-plank p-3 rounded-2xl relative shadow-md space-y-2">
+                    <SteelCornerBrackets size="sm" />
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-black uppercase text-amber-200 cartoon-text-outline flex items-center gap-1.5">
+                        <span>🤖</span>
+                        <span>MODELO GEMINI (MODEL)</span>
+                      </div>
+                      <span className="text-[10px] font-mono font-bold text-amber-300 bg-amber-950/80 px-2 py-0.5 rounded-md border border-amber-800">
+                        {geminiModelInput}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {[
+                        { id: 'gemini-2.5-flash', label: '⚡ 2.5 Flash (Padrão)' },
+                        { id: 'gemini-2.5-flash-lite', label: '🚀 Flash-Lite (Rápido)' },
+                        { id: 'gemini-2.5-pro', label: '🧠 2.5 Pro (Avançado)' },
+                        { id: 'gemini-4-argon', label: '🧪 4 Argon (Lab)' },
+                      ].map((m) => (
+                        <button
+                          key={m.id}
+                          onClick={() => {
+                            sound.playClick();
+                            setGeminiModelInput(m.id);
+                            geminiKeyManager.setModel(m.id);
+                          }}
+                          className={`py-2 px-2 rounded-xl text-[11px] font-black uppercase transition-all cursor-pointer ${
+                            geminiModelInput === m.id ? 'cartoon-btn-gold shadow-md' : 'cartoon-btn-steel'
+                          }`}
+                        >
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}

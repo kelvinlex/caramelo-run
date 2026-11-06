@@ -82,17 +82,41 @@ export class GeminiKeyManager {
         if (metaEnv.VITE_GEMINI_API_KEYS) {
           rawKeys.push(...metaEnv.VITE_GEMINI_API_KEYS.split(',').map((k: string) => k.trim()));
         }
+        if (metaEnv.GEMINI_API_KEYS) {
+          rawKeys.push(...metaEnv.GEMINI_API_KEYS.split(',').map((k: string) => k.trim()));
+        }
         for (let i = 1; i <= 10; i++) {
-          const key = metaEnv[`VITE_GEMINI_KEY_${i}`];
+          const key = metaEnv[`VITE_GEMINI_KEY_${i}`] || metaEnv[`GEMINI_KEY_${i}`];
           if (key && !rawKeys.includes(key.trim())) {
             rawKeys.push(key.trim());
           }
         }
-        if (rawKeys.length === 0 && metaEnv.VITE_GEMINI_API_KEY) {
-          rawKeys.push(metaEnv.VITE_GEMINI_API_KEY.trim());
+        if (rawKeys.length === 0) {
+          const single = metaEnv.VITE_GEMINI_API_KEY || metaEnv.GEMINI_API_KEY;
+          if (single) rawKeys.push(single.trim());
         }
       } catch {
         // Ignora se import.meta não estiver disponível
+      }
+
+      // 3. Tenta carregar do localStorage do navegador
+      if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+          const stored = window.localStorage.getItem('caramelorun_gemini_keys');
+          if (stored) {
+            const arr = JSON.parse(stored);
+            if (Array.isArray(arr)) {
+              arr.forEach((k: string) => {
+                const t = k?.trim();
+                if (t && !rawKeys.includes(t)) rawKeys.push(t);
+              });
+            }
+          }
+          const single = window.localStorage.getItem('caramelorun_gemini_api_key');
+          if (single && !rawKeys.includes(single.trim())) {
+            rawKeys.push(single.trim());
+          }
+        } catch {}
       }
     }
 
@@ -327,6 +351,38 @@ export class GeminiKeyManager {
 
   public getSlotCount(): number {
     return this.slots.length;
+  }
+
+  public getRawSlots(): KeySlot[] {
+    return this.slots;
+  }
+
+  public saveLocalKeys(keys: string[]): void {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem('caramelorun_gemini_keys', JSON.stringify(keys.filter(Boolean)));
+    }
+    this.initKeys();
+  }
+
+  public getModel(): string {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = window.localStorage.getItem('caramelorun_gemini_model');
+      if (stored && stored.trim()) return stored.trim();
+    }
+    const metaEnv = (import.meta as any)?.env || {};
+    if (metaEnv.GEMINI_MODEL) return metaEnv.GEMINI_MODEL.trim();
+    if (metaEnv.VITE_GEMINI_MODEL) return metaEnv.VITE_GEMINI_MODEL.trim();
+    if (typeof process !== 'undefined' && process.env?.GEMINI_MODEL) {
+      return process.env.GEMINI_MODEL.trim();
+    }
+    return 'gemini-2.5-flash';
+  }
+
+  public setModel(modelName: string): void {
+    const clean = modelName.trim();
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem('caramelorun_gemini_model', clean);
+    }
   }
 }
 
