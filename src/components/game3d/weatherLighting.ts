@@ -597,425 +597,98 @@ function createPhotorealisticAtmosphericGlowTexture(): THREE.CanvasTexture {
     return tex;
   }
 
-  // ☁️ 2. Arquétipo 1: Cumulonimbus Tempestuoso Volumétrico (Referência Esquerda)
-  // Base maciça com sombras em vinho/ameixa, corpo alaranjado e cristas douradas com rim lighting
-  function createVolumetricStormCumulonimbusTexture(): THREE.CanvasTexture {
-    if (typeof document === 'undefined') return new THREE.CanvasTexture({} as any);
-    const width = 1024;
-    const height = 512;
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return new THREE.CanvasTexture(canvas);
-
-    // 1. Base / Sombra Profunda Volumétrica (Vinho, roxo imperial, ameixa e ardósia)
-    const shadowGrad = ctx.createLinearGradient(0, height * 0.25, 0, height);
-    shadowGrad.addColorStop(0.00, 'rgba(42, 20, 53, 0.0)');
-    shadowGrad.addColorStop(0.22, 'rgba(42, 20, 53, 0.78)');
-    shadowGrad.addColorStop(0.60, 'rgba(58, 24, 72, 0.95)');
-    shadowGrad.addColorStop(0.90, 'rgba(38, 19, 55, 0.98)');
-    shadowGrad.addColorStop(1.00, 'rgba(28, 14, 42, 0.96)');
-    ctx.fillStyle = shadowGrad;
-
-    const shadowLobes = [
-      { x: 260, y: 340, rx: 190, ry: 105, tilt: -0.05 },
-      { x: 480, y: 360, rx: 240, ry: 115, tilt: 0.02 },
-      { x: 720, y: 350, rx: 210, ry: 105, tilt: 0.04 },
-      { x: 380, y: 400, rx: 220, ry: 85, tilt: -0.02 },
-      { x: 620, y: 410, rx: 240, ry: 80, tilt: 0.03 },
-      { x: 170, y: 320, rx: 130, ry: 75, tilt: -0.08 },
-      { x: 840, y: 330, rx: 140, ry: 80, tilt: 0.06 },
-    ];
-    shadowLobes.forEach(l => {
-      ctx.beginPath();
-      ctx.ellipse(l.x, l.y, l.rx, l.ry, l.tilt, 0, Math.PI * 2);
-      ctx.fill();
-    });
-
-    // Luz de reflexão terracota suave na borda inferior da base
-    const bounceGrad = ctx.createLinearGradient(0, height * 0.72, 0, height);
-    bounceGrad.addColorStop(0.0, 'rgba(180, 60, 45, 0.0)');
-    bounceGrad.addColorStop(0.5, 'rgba(195, 75, 50, 0.35)');
-    bounceGrad.addColorStop(1.0, 'rgba(215, 95, 55, 0.50)');
-    ctx.fillStyle = bounceGrad;
-    shadowLobes.slice(3).forEach(l => {
-      ctx.beginPath();
-      ctx.ellipse(l.x, l.y + 14, l.rx * 0.95, l.ry * 0.68, l.tilt, 0, Math.PI * 2);
-      ctx.fill();
-    });
-
-    // 2. Corpos Intermediários Volumétricos (Damasco queimado, terracota e orquídea escura)
-    const midGrad = ctx.createLinearGradient(0, height * 0.12, 0, height * 0.68);
-    midGrad.addColorStop(0.00, 'rgba(234, 110, 50, 0.94)');
-    midGrad.addColorStop(0.35, 'rgba(198, 72, 72, 0.92)');
-    midGrad.addColorStop(0.70, 'rgba(132, 44, 88, 0.90)');
-    midGrad.addColorStop(1.00, 'rgba(74, 26, 76, 0.88)');
-    ctx.fillStyle = midGrad;
-
-    const midLobes = [
-      { x: 260, y: 260, rx: 160, ry: 95, tilt: -0.06 },
-      { x: 440, y: 230, rx: 185, ry: 110, tilt: -0.02 },
-      { x: 620, y: 240, rx: 175, ry: 105, tilt: 0.03 },
-      { x: 760, y: 265, rx: 140, ry: 85, tilt: 0.05 },
-      { x: 340, y: 200, rx: 145, ry: 90, tilt: -0.04 },
-      { x: 530, y: 180, rx: 165, ry: 95, tilt: 0.02 },
-      { x: 700, y: 205, rx: 135, ry: 80, tilt: 0.04 },
-    ];
-    midLobes.forEach(l => {
-      ctx.beginPath();
-      ctx.ellipse(l.x, l.y, l.rx, l.ry, l.tilt, 0, Math.PI * 2);
-      ctx.fill();
-    });
-
-    // 3. Cristas e Cúpulas Iluminadas Diretamente pelo Sol (Ouro radiante e âmbar)
-    const sunlitGrad = ctx.createLinearGradient(0, height * 0.04, 0, height * 0.44);
-    sunlitGrad.addColorStop(0.00, 'rgba(255, 248, 220, 0.98)'); // Brilho ápice creme
-    sunlitGrad.addColorStop(0.25, 'rgba(254, 240, 138, 0.96)'); // Amarelo dourado
-    sunlitGrad.addColorStop(0.55, 'rgba(251, 191, 36, 0.95)');  // Âmbar
-    sunlitGrad.addColorStop(0.85, 'rgba(249, 115, 22, 0.92)');  // Laranja damasco
-    sunlitGrad.addColorStop(1.00, 'rgba(225, 29, 72, 0.88)');   // Rosa coral de transição
-    ctx.fillStyle = sunlitGrad;
-
-    const sunlitBillows = [
-      { x: 370, y: 155, rx: 125, ry: 75, tilt: -0.04 },
-      { x: 510, y: 125, rx: 145, ry: 85, tilt: 0.01 },
-      { x: 650, y: 145, rx: 125, ry: 75, tilt: 0.03 },
-      { x: 440, y: 100, rx: 110, ry: 65, tilt: -0.02 },
-      { x: 580, y: 90, rx: 120, ry: 70, tilt: 0.02 },
-      { x: 270, y: 195, rx: 110, ry: 65, tilt: -0.07 },
-      { x: 760, y: 185, rx: 105, ry: 60, tilt: 0.06 },
-    ];
-    sunlitBillows.forEach(b => {
-      ctx.beginPath();
-      ctx.ellipse(b.x, b.y, b.rx, b.ry, b.tilt, 0, Math.PI * 2);
-      ctx.fill();
-    });
-
-    // 4. Textura de Pinceladas a Óleo / Espátula Direcionais (110 traços modelando o relevo)
-    const strokeColors = [
-      'rgba(255, 251, 235, 0.86)',
-      'rgba(254, 240, 138, 0.78)',
-      'rgba(251, 191, 36, 0.72)',
-      'rgba(249, 115, 22, 0.68)',
-      'rgba(225, 29, 72, 0.58)',
-      'rgba(147, 51, 234, 0.42)',
-      'rgba(88, 28, 135, 0.46)',
-    ];
-
-    for (let i = 0; i < 115; i++) {
-      const bIdx = i % sunlitBillows.length;
-      const b = sunlitBillows[bIdx];
-      const angle = (i * 0.32) % Math.PI - Math.PI * 0.5;
-      const dist = (0.18 + (i % 5) * 0.16) * b.rx;
-      const sx = b.x + Math.cos(angle) * dist;
-      const sy = b.y + Math.sin(angle) * (dist * (b.ry / b.rx));
-      const len = 32 + (i % 4) * 20;
-      const tilt = b.tilt + (Math.sin(i * 1.2) * 0.22);
-      const ex = sx + Math.cos(tilt) * len;
-      const ey = sy + Math.sin(tilt) * len * 0.42;
-      const cpX = (sx + ex) * 0.5 + Math.sin(i * 1.7) * 14;
-      const cpY = (sy + ey) * 0.5 - Math.cos(i * 1.3) * 9;
-
-      const col = strokeColors[i % strokeColors.length];
-      const strokeW = 4.2 + (i % 4) * 2.8;
-      drawImpastoBrushStroke(ctx, sx, sy, cpX, cpY, ex, ey, strokeW, col, true);
-    }
-
-    // 5. Cloud Rim Lighting Incandescente (Bordas douradas brilhantes contornando as cúpulas)
-    ctx.save();
-    sunlitBillows.forEach((b) => {
-      // Glow suave de contorno
-      ctx.strokeStyle = 'rgba(253, 224, 71, 0.46)';
-      ctx.lineWidth = 10.0;
-      ctx.beginPath();
-      ctx.arc(b.x, b.y + 4, b.rx * 0.95, Math.PI * 1.05, Math.PI * 1.95);
-      ctx.stroke();
-
-      // Borda nítida dourada incandescente
-      ctx.strokeStyle = 'rgba(254, 240, 138, 0.90)';
-      ctx.lineWidth = 4.6;
-      ctx.beginPath();
-      ctx.arc(b.x, b.y + 2, b.rx * 0.94, Math.PI * 1.12, Math.PI * 1.88);
-      ctx.stroke();
-
-      // Núcleo branco puro de alta saturação ótica
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.96)';
-      ctx.lineWidth = 2.4;
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, b.rx * 0.93, Math.PI * 1.25, Math.PI * 1.75);
-      ctx.stroke();
-    });
-    ctx.restore();
-
-    // 6. Filamentos e Wisps Rasgados nas Bordas (Dissolução natural no céu)
-    for (let w = 0; w < 48; w++) {
-      const angle = (w / 48) * Math.PI * 2;
-      const radX = 390 + Math.sin(w * 2.8) * 65;
-      const radY = 175 + Math.cos(w * 3.2) * 50;
-      const wx = 512 + Math.cos(angle) * radX;
-      const wy = 260 + Math.sin(angle) * radY;
-      const wLen = 24 + (w % 4) * 16;
-      const col = (wy < 220) ? 'rgba(254, 240, 138, 0.38)' : 'rgba(126, 34, 206, 0.30)';
-      drawImpastoBrushStroke(ctx, wx, wy, wx + wLen * 0.5, wy - 6, wx + wLen, wy + 4, 3.8, col);
-    }
-
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.needsUpdate = true;
-    return tex;
-  }
-
-  // ☁️ 3. Arquétipo 2: Prateleira de Nuvem Estendida / Bigorna Tempestuosa (Referência Direita)
-  // Estrutura horizontal dominante com traços de espátula, crista dourada e base roxa
-  function createCinematicCloudShelfTexture(): THREE.CanvasTexture {
-    if (typeof document === 'undefined') return new THREE.CanvasTexture({} as any);
-    const width = 1024;
-    const height = 400;
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return new THREE.CanvasTexture(canvas);
-
-    // 1. Sombra da Base Horizontal (Vinho escuro, ardósia crepuscular e ameixa)
-    const baseGrad = ctx.createLinearGradient(0, height * 0.35, 0, height);
-    baseGrad.addColorStop(0.00, 'rgba(49, 16, 66, 0.0)');
-    baseGrad.addColorStop(0.30, 'rgba(49, 16, 66, 0.82)');
-    baseGrad.addColorStop(0.70, 'rgba(64, 20, 80, 0.94)');
-    baseGrad.addColorStop(1.00, 'rgba(34, 12, 48, 0.92)');
-    ctx.fillStyle = baseGrad;
-
-    const baseShelves = [
-      { x: 320, y: 250, rx: 270, ry: 75, tilt: -0.02 },
-      { x: 680, y: 260, rx: 290, ry: 70, tilt: 0.02 },
-      { x: 500, y: 285, rx: 340, ry: 65, tilt: 0.00 },
-      { x: 190, y: 240, rx: 160, ry: 60, tilt: -0.04 },
-      { x: 860, y: 275, rx: 150, ry: 55, tilt: 0.04 },
-    ];
-    baseShelves.forEach(s => {
-      ctx.beginPath();
-      ctx.ellipse(s.x, s.y, s.rx, s.ry, s.tilt, 0, Math.PI * 2);
-      ctx.fill();
-    });
-
-    // 2. Prateleira Intermediária (Pêssego radiante, coral e lilás crepuscular)
-    const shelfMidGrad = ctx.createLinearGradient(0, height * 0.15, 0, height * 0.65);
-    shelfMidGrad.addColorStop(0.00, 'rgba(251, 146, 60, 0.95)');
-    shelfMidGrad.addColorStop(0.40, 'rgba(225, 29, 72, 0.92)');
-    shelfMidGrad.addColorStop(0.75, 'rgba(147, 51, 234, 0.88)');
-    shelfMidGrad.addColorStop(1.00, 'rgba(88, 28, 135, 0.85)');
-    ctx.fillStyle = shelfMidGrad;
-
-    const midShelves = [
-      { x: 280, y: 190, rx: 220, ry: 62, tilt: -0.03 },
-      { x: 520, y: 175, rx: 280, ry: 68, tilt: -0.01 },
-      { x: 740, y: 195, rx: 230, ry: 58, tilt: 0.02 },
-      { x: 400, y: 150, rx: 200, ry: 55, tilt: -0.02 },
-      { x: 640, y: 155, rx: 220, ry: 56, tilt: 0.01 },
-    ];
-    midShelves.forEach(s => {
-      ctx.beginPath();
-      ctx.ellipse(s.x, s.y, s.rx, s.ry, s.tilt, 0, Math.PI * 2);
-      ctx.fill();
-    });
-
-    // 3. Crista Superior Longa com Iluminação Dourada da Tarde
-    const crestGrad = ctx.createLinearGradient(0, height * 0.05, 0, height * 0.40);
-    crestGrad.addColorStop(0.00, 'rgba(255, 251, 235, 0.98)');
-    crestGrad.addColorStop(0.30, 'rgba(254, 240, 138, 0.96)');
-    crestGrad.addColorStop(0.65, 'rgba(251, 191, 36, 0.92)');
-    crestGrad.addColorStop(1.00, 'rgba(249, 115, 22, 0.88)');
-    ctx.fillStyle = crestGrad;
-
-    const upperCrests = [
-      { x: 340, y: 120, rx: 170, ry: 45, tilt: -0.02 },
-      { x: 530, y: 105, rx: 210, ry: 50, tilt: -0.01 },
-      { x: 720, y: 125, rx: 180, ry: 42, tilt: 0.02 },
-      { x: 440, y: 88, rx: 150, ry: 38, tilt: -0.01 },
-      { x: 610, y: 85, rx: 160, ry: 40, tilt: 0.01 },
-    ];
-    upperCrests.forEach(c => {
-      ctx.beginPath();
-      ctx.ellipse(c.x, c.y, c.rx, c.ry, c.tilt, 0, Math.PI * 2);
-      ctx.fill();
-    });
-
-    // 4. Pinceladas Horizontais com Textura de Espátula (Palette Knife Sweeps)
-    for (let i = 0; i < 90; i++) {
-      const sx = 100 + ((i * 39) % 800);
-      const sy = 80 + ((i * 23) % 180);
-      const len = 70 + (i % 5) * 35;
-      const tilt = (i % 2 === 0 ? -0.02 : 0.015) + Math.sin(i) * 0.01;
-      const ex = sx + len;
-      const ey = sy + len * tilt;
-      const cpX = (sx + ex) * 0.5;
-      const cpY = (sy + ey) * 0.5 - 4;
-
-      const col = sy < 125 
-        ? 'rgba(254, 240, 138, 0.78)'
-        : sy < 185
-        ? 'rgba(251, 146, 60, 0.65)'
-        : 'rgba(168, 85, 247, 0.50)';
-
-      drawImpastoBrushStroke(ctx, sx, sy, cpX, cpY, ex, ey, 5.0 + (i % 3) * 2.2, col, true);
-    }
-
-    // 5. Cloud Rim Lighting na Crista Superior Alongada
-    ctx.save();
-    upperCrests.forEach(c => {
-      ctx.strokeStyle = 'rgba(254, 240, 138, 0.92)';
-      ctx.lineWidth = 4.2;
-      ctx.beginPath();
-      ctx.arc(c.x, c.y + 2, c.rx * 0.94, Math.PI * 1.15, Math.PI * 1.85);
-      ctx.stroke();
-
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.98)';
-      ctx.lineWidth = 2.0;
-      ctx.beginPath();
-      ctx.arc(c.x, c.y, c.rx * 0.92, Math.PI * 1.25, Math.PI * 1.75);
-      ctx.stroke();
-    });
-    ctx.restore();
-
-    // 6. Cauda Alongada e Mechas Eólicas
-    for (let t = 0; t < 36; t++) {
-      const tx = 60 + ((t * 43) % 900);
-      const ty = 140 + ((t * 19) % 160);
-      const tLen = 40 + (t % 4) * 25;
-      drawImpastoBrushStroke(ctx, tx, ty, tx + tLen * 0.5, ty - 3, tx + tLen, ty + 2, 3.2, 'rgba(251, 191, 36, 0.32)');
-    }
-
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.needsUpdate = true;
-    return tex;
-  }
-
-  // ☁️ 4. Arquétipo 3: Aglomerado Cumulus em Chiaroscuro Dramático
-  // Contraste extremo entre cavidades de sombra roxa profunda e cristas banhadas em ouro ardente
-  function createDramaticCumulusClusterTexture(): THREE.CanvasTexture {
-    if (typeof document === 'undefined') return new THREE.CanvasTexture({} as any);
-    const width = 768;
-    const height = 420;
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return new THREE.CanvasTexture(canvas);
-
-    // Sombra profunda
-    const shGrad = ctx.createLinearGradient(0, height * 0.25, 0, height);
-    shGrad.addColorStop(0.00, 'rgba(38, 17, 52, 0.0)');
-    shGrad.addColorStop(0.35, 'rgba(38, 17, 52, 0.88)');
-    shGrad.addColorStop(0.85, 'rgba(52, 21, 68, 0.96)');
-    shGrad.addColorStop(1.00, 'rgba(32, 13, 44, 0.95)');
-    ctx.fillStyle = shGrad;
-
-    const clusters = [
-      { x: 230, y: 260, rx: 140, ry: 85, tilt: -0.05 },
-      { x: 384, y: 280, rx: 190, ry: 95, tilt: 0.02 },
-      { x: 538, y: 260, rx: 145, ry: 85, tilt: 0.05 },
-      { x: 310, y: 320, rx: 160, ry: 70, tilt: -0.02 },
-      { x: 460, y: 325, rx: 170, ry: 70, tilt: 0.03 },
-    ];
-    clusters.forEach(c => {
-      ctx.beginPath();
-      ctx.ellipse(c.x, c.y, c.rx, c.ry, c.tilt, 0, Math.PI * 2);
-      ctx.fill();
-    });
-
-    // Corpo alaranjado e cristas douradas
-    const bodyGrad = ctx.createLinearGradient(0, height * 0.08, 0, height * 0.60);
-    bodyGrad.addColorStop(0.00, 'rgba(255, 248, 220, 0.98)');
-    bodyGrad.addColorStop(0.25, 'rgba(254, 240, 138, 0.96)');
-    bodyGrad.addColorStop(0.60, 'rgba(249, 115, 22, 0.92)');
-    bodyGrad.addColorStop(1.00, 'rgba(190, 24, 93, 0.85)');
-    ctx.fillStyle = bodyGrad;
-
-    const summits = [
-      { x: 280, y: 170, rx: 105, ry: 65, tilt: -0.05 },
-      { x: 390, y: 135, rx: 125, ry: 75, tilt: 0.01 },
-      { x: 505, y: 160, rx: 110, ry: 65, tilt: 0.04 },
-      { x: 440, y: 110, rx: 95, ry: 55, tilt: 0.02 },
-    ];
-    summits.forEach(s => {
-      ctx.beginPath();
-      ctx.ellipse(s.x, s.y, s.rx, s.ry, s.tilt, 0, Math.PI * 2);
-      ctx.fill();
-    });
-
-    // Pinceladas táteis e borda de Rim Lighting
-    for (let i = 0; i < 75; i++) {
-      const s = summits[i % summits.length];
-      const ang = (i * 0.38) % Math.PI - Math.PI * 0.5;
-      const rad = (0.2 + (i % 4) * 0.18) * s.rx;
-      const px = s.x + Math.cos(ang) * rad;
-      const py = s.y + Math.sin(ang) * rad * 0.65;
-      const len = 28 + (i % 4) * 16;
-      drawImpastoBrushStroke(ctx, px, py, px + len * 0.5, py - 4, px + len, py + 3, 4.0, 'rgba(254, 240, 138, 0.72)', true);
-    }
-
-    summits.forEach(s => {
-      ctx.strokeStyle = 'rgba(254, 240, 138, 0.92)';
-      ctx.lineWidth = 4.2;
-      ctx.beginPath();
-      ctx.arc(s.x, s.y + 2, s.rx * 0.93, Math.PI * 1.15, Math.PI * 1.85);
-      ctx.stroke();
-
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.96)';
-      ctx.lineWidth = 2.0;
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, s.rx * 0.91, Math.PI * 1.25, Math.PI * 1.75);
-      ctx.stroke();
-    });
-
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.needsUpdate = true;
-    return tex;
-  }
-
-  // ☁️ 5. Arquétipo 4: Mechas Atmosféricas e Scud Dispersas (Cirros e Fragmentos)
-  // Pequenas formações se dispersando pelo céu com traços leves de pincel
-  function createRaggedAtmosphericWispsTexture(): THREE.CanvasTexture {
+  // ☁️ 2. Pinceladas Suaves de Tinta a Óleo e Mechas Translúcidas (Zero nuvens grossas ou roxas)
+  // Textura A: Fita de pincelada suave em degradê dourado/pêssego
+  function createSoftPainterlyBrushRibbonTexture(): THREE.CanvasTexture {
     if (typeof document === 'undefined') return new THREE.CanvasTexture({} as any);
     const width = 512;
-    const height = 256;
+    const height = 128;
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d');
     if (!ctx) return new THREE.CanvasTexture(canvas);
 
-    // Múltiplos filamentos soltos soprados pelo vento com pontas desfiadas
-    const wispGrad = ctx.createLinearGradient(0, 0, width, 0);
-    wispGrad.addColorStop(0.00, 'rgba(254, 240, 138, 0.0)');
-    wispGrad.addColorStop(0.18, 'rgba(254, 240, 138, 0.65)');
-    wispGrad.addColorStop(0.50, 'rgba(251, 146, 60, 0.88)');
-    wispGrad.addColorStop(0.82, 'rgba(216, 70, 239, 0.55)');
-    wispGrad.addColorStop(1.00, 'rgba(168, 85, 247, 0.0)');
-    ctx.fillStyle = wispGrad;
+    ctx.clearRect(0, 0, width, height);
 
-    const filaments = [
-      { y: 110, rx: 200, ry: 24, tilt: -0.03 },
-      { y: 85, rx: 150, ry: 18, tilt: 0.02 },
-      { y: 145, rx: 175, ry: 20, tilt: -0.015 },
-      { y: 65, rx: 110, ry: 14, tilt: -0.04 },
-      { y: 170, rx: 130, ry: 16, tilt: 0.03 },
+    // Traço suave horizontal com pontas desfiadas afiladas (pincelada translúcida)
+    const ribbonGrad = ctx.createLinearGradient(0, 0, width, 0);
+    ribbonGrad.addColorStop(0.00, 'rgba(254, 240, 138, 0.0)');
+    ribbonGrad.addColorStop(0.18, 'rgba(254, 240, 138, 0.45)');
+    ribbonGrad.addColorStop(0.50, 'rgba(251, 146, 60, 0.65)');
+    ribbonGrad.addColorStop(0.82, 'rgba(254, 215, 170, 0.40)');
+    ribbonGrad.addColorStop(1.00, 'rgba(254, 240, 138, 0.0)');
+    ctx.fillStyle = ribbonGrad;
+
+    const ribbons = [
+      { y: 64, rx: 210, ry: 22, tilt: -0.015 },
+      { y: 52, rx: 160, ry: 16, tilt: 0.012 },
+      { y: 76, rx: 180, ry: 18, tilt: -0.01 },
+      { y: 44, rx: 120, ry: 12, tilt: -0.02 },
+      { y: 84, rx: 130, ry: 14, tilt: 0.018 },
     ];
-    filaments.forEach(f => {
+    ribbons.forEach(r => {
       ctx.beginPath();
-      ctx.ellipse(256, f.y, f.rx, f.ry, f.tilt, 0, Math.PI * 2);
+      ctx.ellipse(256, r.y, r.rx, r.ry, r.tilt, 0, Math.PI * 2);
       ctx.fill();
     });
 
-    // Pinceladas de cerdas finas
-    for (let i = 0; i < 45; i++) {
-      const sx = 60 + ((i * 37) % 380);
-      const sy = 60 + ((i * 29) % 140);
-      const len = 50 + (i % 4) * 22;
-      drawImpastoBrushStroke(ctx, sx, sy, sx + len * 0.5, sy - 3, sx + len, sy + 2, 2.8, 'rgba(254, 240, 138, 0.60)');
+    // Pinceladas de cerdas finas com textura de espátula e brilho dourado suave
+    for (let i = 0; i < 40; i++) {
+      const sx = 60 + ((i * 39) % 360);
+      const sy = 40 + ((i * 27) % 50);
+      const len = 65 + (i % 4) * 25;
+      const ex = sx + len;
+      const ey = sy + (Math.sin(i * 1.5) * 3);
+      const col = (i % 2 === 0) 
+        ? 'rgba(255, 251, 235, 0.35)' 
+        : 'rgba(254, 240, 138, 0.28)';
+      drawImpastoBrushStroke(ctx, sx, sy, (sx + ex) * 0.5, sy - 2, ex, ey, 2.8 + (i % 3) * 1.5, col);
+    }
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  // Textura B: Mechas de Cirros Eólicos Leves e Translúcidos
+  function createSoftCirrusWispTexture(): THREE.CanvasTexture {
+    if (typeof document === 'undefined') return new THREE.CanvasTexture({} as any);
+    const width = 512;
+    const height = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return new THREE.CanvasTexture(canvas);
+
+    ctx.clearRect(0, 0, width, height);
+
+    const wispGrad = ctx.createLinearGradient(0, 0, width, 0);
+    wispGrad.addColorStop(0.00, 'rgba(254, 240, 138, 0.0)');
+    wispGrad.addColorStop(0.25, 'rgba(254, 243, 199, 0.38)');
+    wispGrad.addColorStop(0.55, 'rgba(253, 186, 116, 0.48)');
+    wispGrad.addColorStop(0.85, 'rgba(244, 114, 182, 0.25)');
+    wispGrad.addColorStop(1.00, 'rgba(254, 240, 138, 0.0)');
+    ctx.fillStyle = wispGrad;
+
+    const wisps = [
+      { y: 60, rx: 195, ry: 18, tilt: -0.02 },
+      { y: 74, rx: 165, ry: 15, tilt: 0.015 },
+      { y: 48, rx: 135, ry: 12, tilt: -0.025 },
+    ];
+    wisps.forEach(w => {
+      ctx.beginPath();
+      ctx.ellipse(256, w.y, w.rx, w.ry, w.tilt, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    for (let i = 0; i < 30; i++) {
+      const sx = 75 + ((i * 41) % 340);
+      const sy = 45 + ((i * 23) % 40);
+      const len = 50 + (i % 4) * 20;
+      drawImpastoBrushStroke(ctx, sx, sy, sx + len * 0.5, sy - 2, sx + len, sy + 1, 2.2, 'rgba(255, 255, 255, 0.28)');
     }
 
     const tex = new THREE.CanvasTexture(canvas);
@@ -1039,125 +712,72 @@ function createPhotorealisticAtmosphericGlowTexture(): THREE.CanvasTexture {
   painterlySkyDomeMesh.raycast = () => {};
   scene.add(painterlySkyDomeMesh);
 
-  // ☁️ NUVENS CINEMATOGRÁFICAS PINTADAS À MÃO DISTRIBUÍDAS EM 4 CAMADAS DE PROFUNDIDADE
+  // ☁️ PINCELADAS SUAVES TRANSLÚCIDAS NO ALTO CÉU (Zero nuvens grossas ou roxas)
   const cloudsGroup = new THREE.Group();
-  cloudsGroup.name = 'PainterlyCinematicCloudsGroup';
+  cloudsGroup.name = 'PainterlySoftBrushRibbonsGroup';
 
-  const texStormCumulonimbus = createVolumetricStormCumulonimbusTexture();
-  const texCloudShelf = createCinematicCloudShelfTexture();
-  const texCumulusCluster = createDramaticCumulusClusterTexture();
-  const texRaggedWisps = createRaggedAtmosphericWispsTexture();
+  const texBrushRibbon = createSoftPainterlyBrushRibbonTexture();
+  const texCirrusWisp = createSoftCirrusWispTexture();
 
-  const cloudMatStorm = new THREE.MeshBasicMaterial({
-    map: texStormCumulonimbus,
+  const cloudMatRibbon = new THREE.MeshBasicMaterial({
+    map: texBrushRibbon,
     color: 0xffffff,
     transparent: true,
-    opacity: 0.94,
+    opacity: 0.52,
     depthWrite: false,
     side: THREE.DoubleSide,
     fog: false,
   });
 
-  const cloudMatShelf = new THREE.MeshBasicMaterial({
-    map: texCloudShelf,
+  const cloudMatCirrus = new THREE.MeshBasicMaterial({
+    map: texCirrusWisp,
     color: 0xffffff,
     transparent: true,
-    opacity: 0.90,
+    opacity: 0.45,
     depthWrite: false,
     side: THREE.DoubleSide,
     fog: false,
   });
 
-  const cloudMatCluster = new THREE.MeshBasicMaterial({
-    map: texCumulusCluster,
-    color: 0xffffff,
-    transparent: true,
-    opacity: 0.92,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-    fog: false,
-  });
-
-  const cloudMatWisps = new THREE.MeshBasicMaterial({
-    map: texRaggedWisps,
-    color: 0xffffff,
-    transparent: true,
-    opacity: 0.80,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-    fog: false,
-  });
-
-  const cloudMats = [cloudMatStorm, cloudMatShelf, cloudMatCluster, cloudMatWisps];
+  const cloudMats = [cloudMatRibbon, cloudMatCirrus];
 
   function updateAllCloudColors(hex: number) {
     cloudMats.forEach(m => m.color.setHex(hex));
   }
 
-  // 🚀 OTIMIZAÇÃO SUPREMA: 1 única geometria compartilhada na VRAM para todas as 36 nuvens!
+  // 🚀 OTIMIZAÇÃO: 1 única geometria compartilhada na VRAM para as pinceladas suaves
   const sharedCloudGeo = new THREE.PlaneGeometry(1, 1);
 
-  const TOTAL_CLOUDS = 36;
+  // Apenas 16 pinceladas suaves finas e esguias flutuando bem alto (acima das montanhas)
+  const TOTAL_CLOUDS = 16;
   for (let i = 0; i < TOTAL_CLOUDS; i++) {
-    // 4 Camadas de Profundidade Atmosférica e Escala Monumental:
-    let baseW = 120;
-    let baseH = 55;
-    let altitudeY = 65;
-    let depthZ = 160;
-    let driftSpeed = 0.32;
-    let matIdx = 0;
-
-    if (i < 8) {
-      // Camada 1: Horizonte Colossal Distante (Atrás do Cristo e Montanhas - Escala Monumental)
-      baseW = 210 + (i % 4) * 26;
-      baseH = 72 + (i % 3) * 14;
-      altitudeY = 76 + (i % 4) * 8;
-      depthZ = 240 + (i % 5) * 18;
-      driftSpeed = 0.12 + (i % 3) * 0.04; // Deriva majestosa lenta criando sensação de escala colossal
-      matIdx = (i % 2 === 0) ? 1 : 0; // Alterna entre Shelf e Cumulonimbus
-    } else if (i < 20) {
-      // Camada 2: Médio Céu (Cumulonimbus volumétricos com iluminação dourada e sombra vinho)
-      baseW = 135 + (i % 4) * 22;
-      baseH = 58 + (i % 3) * 12;
-      altitudeY = 62 + (i % 5) * 7;
-      depthZ = 145 + (i % 6) * 16;
-      driftSpeed = 0.26 + (i % 4) * 0.06;
-      matIdx = (i % 3 === 0) ? 0 : 2; // Cumulonimbus & Aglomerados
-    } else if (i < 28) {
-      // Camada 3: Prateleiras e Bigornas Laterais (Ampla cobertura horizontal)
-      baseW = 145 + (i % 4) * 24;
-      baseH = 46 + (i % 3) * 8;
-      altitudeY = 78 + (i % 4) * 8;
-      depthZ = 95 + (i % 4) * 15;
-      driftSpeed = 0.38 + (i % 3) * 0.08;
-      matIdx = (i % 2 === 0) ? 1 : 2; // Prateleira & Aglomerado
-    } else {
-      // Camada 4: Nuvens Scud Baixas e Mechas Eólicas em Parallax Dinâmico
-      baseW = 55 + (i % 4) * 14;
-      baseH = 26 + (i % 3) * 6;
-      altitudeY = 46 + (i % 4) * 6;
-      depthZ = 55 + (i % 4) * 10;
-      driftSpeed = 0.52 + (i % 3) * 0.10; // Parallax mais rápido na proximidade
-      matIdx = 3; // Mechas soltas e fragmentos
-    }
-
+    const matIdx = i % 2;
     const mesh = new THREE.Mesh(sharedCloudGeo, cloudMats[matIdx]);
     mesh.raycast = () => {};
-    mesh.scale.set(baseW, baseH, 1);
-    mesh.rotation.x = -Math.PI * 0.06; // Leve inclinação para perspectiva cinematográfica
 
-    // Distribuição espacial equilibrada em X com leve jitter
-    const xStep = 560 / TOTAL_CLOUDS;
-    const rawX = -280 + i * xStep + ((i * 37) % 36) - 18;
-    const posX = Math.abs(rawX) < 18 ? (i % 2 === 0 ? rawX + 30 : rawX - 30) : rawX;
+    // Pinceladas horizontais esguias e finas (baseH fino de 12 a 20m para NUNCA formar blocos grossos)
+    const baseW = 95 + (i % 4) * 22;
+    const baseH = 12 + (i % 3) * 4;
+    // Altitude alta (92m a 122m) — muito acima dos picos do Corcovado e Cristo (Y ≈ 47-50m)
+    const altitudeY = 92 + (i % 5) * 6;
+    const depthZ = 170 + (i % 4) * 25;
+    const driftSpeed = 0.18 + (i % 3) * 0.06;
+
+    mesh.scale.set(baseW, baseH, 1);
+    mesh.rotation.x = -Math.PI * 0.05;
+
+    // Distribuição equilibrada em X
+    const xStep = 520 / TOTAL_CLOUDS;
+    const rawX = -260 + i * xStep + ((i * 31) % 28) - 14;
+    const posX = Math.abs(rawX) < 16 ? (i % 2 === 0 ? rawX + 26 : rawX - 26) : rawX;
 
     mesh.position.set(posX, altitudeY, depthZ);
     mesh.userData = {
       baseY: altitudeY,
       floatPhase: (i * 0.73) % (Math.PI * 2),
       driftSpeed: driftSpeed,
-      bobAmp: 0.005 + (i % 3) * 0.003,
-      bobFreq: 0.5 + (i % 4) * 0.12,
+      bobAmp: 0.003 + (i % 3) * 0.002,
+      bobFreq: 0.4 + (i % 4) * 0.1,
     };
 
     cloudsGroup.add(mesh);
@@ -1839,19 +1459,15 @@ function createPhotorealisticAtmosphericGlowTexture(): THREE.CanvasTexture {
       try { (sunburstTex as any)?.dispose?.(); } catch (_) {}
       try { (shadowTex as any)?.dispose?.(); } catch (_) {}
       try { (painterlySkyTex as any)?.dispose?.(); } catch (_) {}
-      try { (texStormCumulonimbus as any)?.dispose?.(); } catch (_) {}
-      try { (texCloudShelf as any)?.dispose?.(); } catch (_) {}
-      try { (texCumulusCluster as any)?.dispose?.(); } catch (_) {}
-      try { (texRaggedWisps as any)?.dispose?.(); } catch (_) {}
+      try { (texBrushRibbon as any)?.dispose?.(); } catch (_) {}
+      try { (texCirrusWisp as any)?.dispose?.(); } catch (_) {}
       
       // These objects might not be in the traversed groups
       try { if (typeof rainGeo !== 'undefined') rainGeo?.dispose?.(); } catch (_) {}
       try { if (typeof rainLineMat !== 'undefined') rainLineMat?.dispose?.(); } catch (_) {}
       try { sharedCloudGeo?.dispose?.(); } catch (_) {}
-      try { cloudMatStorm?.dispose?.(); } catch (_) {}
-      try { cloudMatShelf?.dispose?.(); } catch (_) {}
-      try { cloudMatCluster?.dispose?.(); } catch (_) {}
-      try { cloudMatWisps?.dispose?.(); } catch (_) {}
+      try { cloudMatRibbon?.dispose?.(); } catch (_) {}
+      try { cloudMatCirrus?.dispose?.(); } catch (_) {}
       try { if (typeof painterlySkyDomeGeo !== 'undefined') painterlySkyDomeGeo?.dispose?.(); } catch (_) {}
       try { if (typeof painterlySkyDomeMat !== 'undefined') painterlySkyDomeMat?.dispose?.(); } catch (_) {}
     }
