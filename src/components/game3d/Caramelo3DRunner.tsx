@@ -273,7 +273,7 @@ export const Caramelo3DRunner: React.FC<Caramelo3DRunnerProps> = ({
   const [userNotes100, setUserNotes100] = useState(() => storage.getCurrentUser()?.notas100 ?? 0);
   const [gameOverReason, setGameOverReason] = useState<string>('');
   const [highScore, setHighScore] = useState(() => storage.getCurrentUser()?.stats.maiorPontuacao || 0);
-  const [currentTimeOfDay, setCurrentTimeOfDay] = useState<TimeOfDay>('DAY');
+  const [currentTimeOfDay, setCurrentTimeOfDay] = useState<TimeOfDay>('SUNSET');
   const [soundMuted, setSoundMuted] = useState(false);
   const [lives, setLives] = useState(() => getMaxLives(getSavedDifficulty()));
   // ⏸️ Animação Dinâmica de Score e Dinheiro Subindo no GameOver
@@ -1853,8 +1853,7 @@ export const Caramelo3DRunner: React.FC<Caramelo3DRunnerProps> = ({
       }
       const g = gameRef.current;
       if (g.weather) {
-        g.weather.resetToDay();
-        setCurrentTimeOfDay('DAY');
+        g.weather.setTimeOfDayMode(currentTimeOfDay);
       }
       const currentMaxLives = getMaxLives(difficultyRef.current);
       const diffConfig = DIFFICULTY_CONFIGS[difficultyRef.current];
@@ -8344,7 +8343,7 @@ export const Caramelo3DRunner: React.FC<Caramelo3DRunnerProps> = ({
                     <button
                       onClick={() => {
                         if (gameRef.current.weather) {
-                          gameRef.current.weather.toggleTimeOfDay();
+                          gameRef.current.weather.setTimeOfDayMode('SUNSET');
                           setCurrentTimeOfDay('SUNSET');
                         }
                       }}
@@ -8358,7 +8357,7 @@ export const Caramelo3DRunner: React.FC<Caramelo3DRunnerProps> = ({
                     <button
                       onClick={() => {
                         if (gameRef.current.weather) {
-                          gameRef.current.weather.toggleTimeOfDay();
+                          gameRef.current.weather.setTimeOfDayMode('NIGHT');
                           setCurrentTimeOfDay('NIGHT');
                         }
                       }}

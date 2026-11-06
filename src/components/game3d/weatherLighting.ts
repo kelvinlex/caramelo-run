@@ -22,6 +22,9 @@ export interface WeatherSystem {
   lensFlareGroup: THREE.Group;
   update: (dt: number, scene: THREE.Scene, cameraPos: THREE.Vector3) => TimeOfDay;
   resetToDay: () => void;
+  setSunset: () => void;
+  setNight: () => void;
+  setTimeOfDayMode: (mode: TimeOfDay) => void;
   toggleTimeOfDay: () => TimeOfDay;
   setOptimizedMode: (optimized: boolean) => void;
   dispose: () => void;
@@ -483,10 +486,46 @@ function createPhotorealisticAtmosphericGlowTexture(): THREE.CanvasTexture {
   let lowFlyoverZ = 220;
 
   // =========================================================================
-  // 6. CÉU AZUL VIBRANTE E NUVENS EM PINCELADA CEL SHADING SUAVES
-  // Elimina todo o esbranquiçado leitoso do céu e traz nuvens cel artísticas
-  // espalhadas aleatoriamente em 3 camadas e se movendo suavemente.
+  // 6. MOTOR VISUAL DE CÉU CINEMATOGRÁFICO — NUVENS PINTADAS À MÃO (MATTE PAINTING)
+  // Inspirado fielmente na referência: cumulus volumétricos colossais, pinceladas
+  // a óleo/espátula visíveis, iluminação crepuscular dourada/âmbar, bordas com
+  // Cloud Rim Lighting incandescente e sombras profundas em vinho, roxo e ameixa.
+  // 100% Procedural via Canvas 2D em GPU com 1 única PlaneGeometry compartilhada (60 FPS).
   // =========================================================================
+
+  // Helper: Pincelada a óleo / espátula com textura de cerdas e afunilamento natural
+  function drawImpastoBrushStroke(
+    ctx: CanvasRenderingContext2D,
+    x0: number, y0: number,
+    cpX: number, cpY: number,
+    x1: number, y1: number,
+    width: number,
+    color: string,
+    withBristleHighlights = false
+  ) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.quadraticCurveTo(cpX, cpY, x1, y1);
+    ctx.stroke();
+
+    if (withBristleHighlights && width > 4.5) {
+      // Estria luminosa de cerda interna (efeito impasto de tinta a óleo)
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+      ctx.lineWidth = width * 0.32;
+      ctx.beginPath();
+      ctx.moveTo(x0 + 1.2, y0 - 1.2);
+      ctx.quadraticCurveTo(cpX, cpY - 1.2, x1, y1 - 1.2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // 🌅 1. Cúpula Panorâmica Hemisférica em Pintura Digital a Óleo
   function createPainterlySkyTexture(): THREE.CanvasTexture {
     if (typeof document === 'undefined') return new THREE.CanvasTexture({} as any);
     const width = 2048;
@@ -497,52 +536,57 @@ function createPhotorealisticAtmosphericGlowTexture(): THREE.CanvasTexture {
     const ctx = canvas.getContext('2d');
     if (!ctx) return new THREE.CanvasTexture(canvas);
 
-    // 1. Degradê de céu tropical brasileiro profundo e límpido (ZERO BRANCO LEITOSO)
+    // 1. Degradê vertical crepuscular cinematográfico (Zênite índigo profundo -> Ametista -> Vinho -> Laranja Cádmio -> Ouro Horizon)
     const skyGrad = ctx.createLinearGradient(0, 0, 0, height);
-    skyGrad.addColorStop(0.00, '#035388'); // Azul safira cerúleo profundo no zênite
-    skyGrad.addColorStop(0.20, '#0284c7'); // Azul cobalto vibrante e luminoso
-    skyGrad.addColorStop(0.48, '#0ea5e9'); // Azul celeste radiante (luz do dia)
-    skyGrad.addColorStop(0.74, '#38bdf8'); // Azul piscina / ciano atmosférico límpido
-    skyGrad.addColorStop(1.00, '#60a5fa'); // Azul horizonte limpo, vivo e saturado (sem neblina branca)
+    skyGrad.addColorStop(0.00, '#0e112d'); // Zênite azul-noite profundo / safira escuro
+    skyGrad.addColorStop(0.15, '#1e1b4b'); // Azul cobalto escuro crepuscular
+    skyGrad.addColorStop(0.32, '#3b1d54'); // Roxo ametista imperial / ameixa
+    skyGrad.addColorStop(0.48, '#6b2160'); // Vinho aveludado e magenta real
+    skyGrad.addColorStop(0.62, '#9f2855'); // Rosa coral escuro crepuscular
+    skyGrad.addColorStop(0.74, '#cf4732'); // Vermelhão pôr do sol / terracota
+    skyGrad.addColorStop(0.85, '#f97316'); // Laranja cádmio ardente e saturado
+    skyGrad.addColorStop(0.93, '#fbbf24'); // Âmbar dourado crepuscular
+    skyGrad.addColorStop(1.00, '#fef08a'); // Ouro límpido radiante na linha do horizonte
     ctx.fillStyle = skyGrad;
     ctx.fillRect(0, 0, width, height);
 
-    // 2. Ondas suaves de ar e pinceladas de atmosfera transparente (sem estragar o azul profundo)
-    function drawSoftAirRibbon(x0: number, y0: number, x1: number, y1: number, w: number, color: string) {
-      ctx!.save();
-      ctx!.strokeStyle = color;
-      ctx!.lineWidth = w;
-      ctx!.lineCap = 'round';
-      ctx!.beginPath();
-      ctx!.moveTo(x0, y0);
-      const cpX = (x0 + x1) * 0.5 + 40;
-      const cpY = (y0 + y1) * 0.5 - 18;
-      ctx!.quadraticCurveTo(cpX, cpY, x1, y1);
-      ctx!.stroke();
-      // Repetição seamless horizontal
-      if (x1 > width - 50) {
-        ctx!.beginPath();
-        ctx!.moveTo(x0 - width, y0);
-        ctx!.quadraticCurveTo(cpX - width, cpY, x1 - width, y1);
-        ctx!.stroke();
-      }
-      if (x0 < 50) {
-        ctx!.beginPath();
-        ctx!.moveTo(x0 + width, y0);
-        ctx!.quadraticCurveTo(cpX + width, cpY, x1 + width, y1);
-        ctx!.stroke();
-      }
-      ctx!.restore();
-    }
+    // 2. Halo solar volumétrico difuso na linha do horizonte (luz quente espalhando no céu)
+    const sunAzimuthX = width * 0.50;
+    const sunHorizonY = height * 0.88;
+    const solarGlowGrad = ctx.createRadialGradient(sunAzimuthX, sunHorizonY, 10, sunAzimuthX, sunHorizonY, width * 0.45);
+    solarGlowGrad.addColorStop(0.00, 'rgba(255, 247, 237, 0.55)');
+    solarGlowGrad.addColorStop(0.20, 'rgba(254, 215, 170, 0.40)');
+    solarGlowGrad.addColorStop(0.50, 'rgba(249, 115, 22, 0.22)');
+    solarGlowGrad.addColorStop(0.80, 'rgba(159, 40, 85, 0.08)');
+    solarGlowGrad.addColorStop(1.00, 'rgba(110, 23, 76, 0.0)');
+    ctx.fillStyle = solarGlowGrad;
+    ctx.fillRect(0, 0, width, height);
 
-    // Apenas filamentos ultra suaves de brisa celeste (0.05 a 0.08 de opacidade)
-    for (let i = 0; i < 16; i++) {
-      const x0 = (i * 135) % width;
-      const y0 = 80 + ((i * 47) % 380);
-      const len = 280 + (i % 4) * 80;
+    // 3. Estrias horizontais de pinceladas atmosféricas texturizadas (seamless wrapping)
+    for (let i = 0; i < 32; i++) {
+      const x0 = (i * 128) % width;
+      const y0 = 340 + ((i * 37) % 520);
+      const len = 340 + (i % 5) * 90;
       const x1 = x0 + len;
-      const y1 = y0 + 15 + (i % 3) * 10;
-      drawSoftAirRibbon(x0, y0, x1, y1, 28, 'rgba(186, 230, 253, 0.06)');
+      const y1 = y0 + 10 + (i % 4) * 6;
+      const cpX = (x0 + x1) * 0.5 + 30;
+      const cpY = (y0 + y1) * 0.5 - 14;
+
+      const alpha = 0.08 + (i % 3) * 0.05;
+      const col = y0 > 650 
+        ? `rgba(254, 240, 138, ${alpha})`
+        : y0 > 480 
+        ? `rgba(251, 146, 60, ${alpha})`
+        : `rgba(216, 70, 239, ${alpha * 0.8})`;
+
+      drawImpastoBrushStroke(ctx, x0, y0, cpX, cpY, x1, y1, 24, col);
+      // Repetição horizontal perfeita
+      if (x1 > width - 40) {
+        drawImpastoBrushStroke(ctx, x0 - width, y0, cpX - width, cpY, x1 - width, y1, 24, col);
+      }
+      if (x0 < 40) {
+        drawImpastoBrushStroke(ctx, x0 + width, y0, cpX + width, cpY, x1 + width, y1, 24, col);
+      }
     }
 
     const tex = new THREE.CanvasTexture(canvas);
@@ -553,74 +597,376 @@ function createPhotorealisticAtmosphericGlowTexture(): THREE.CanvasTexture {
     return tex;
   }
 
-  // ☁️ 1. Textura Cel Shading: Cúmulus Majestoso em Pincelada Artística (Estilo Anime/Ghibli)
-  function createCelCumulusCloudTexture(): THREE.CanvasTexture {
+  // ☁️ 2. Arquétipo 1: Cumulonimbus Tempestuoso Volumétrico (Referência Esquerda)
+  // Base maciça com sombras em vinho/ameixa, corpo alaranjado e cristas douradas com rim lighting
+  function createVolumetricStormCumulonimbusTexture(): THREE.CanvasTexture {
     if (typeof document === 'undefined') return new THREE.CanvasTexture({} as any);
-    const width = 512;
-    const height = 256;
+    const width = 1024;
+    const height = 512;
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d');
     if (!ctx) return new THREE.CanvasTexture(canvas);
 
-    // 1. Base / Sombra Cel Suave (volume inferior em tom azul-celeste suave)
-    const shadowGrad = ctx.createLinearGradient(0, 90, 0, height);
-    shadowGrad.addColorStop(0.0, 'rgba(186, 230, 253, 0.0)');
-    shadowGrad.addColorStop(0.4, 'rgba(186, 230, 253, 0.70)');
-    shadowGrad.addColorStop(1.0, 'rgba(147, 197, 253, 0.85)');
+    // 1. Base / Sombra Profunda Volumétrica (Vinho, roxo imperial, ameixa e ardósia)
+    const shadowGrad = ctx.createLinearGradient(0, height * 0.25, 0, height);
+    shadowGrad.addColorStop(0.00, 'rgba(42, 20, 53, 0.0)');
+    shadowGrad.addColorStop(0.22, 'rgba(42, 20, 53, 0.78)');
+    shadowGrad.addColorStop(0.60, 'rgba(58, 24, 72, 0.95)');
+    shadowGrad.addColorStop(0.90, 'rgba(38, 19, 55, 0.98)');
+    shadowGrad.addColorStop(1.00, 'rgba(28, 14, 42, 0.96)');
     ctx.fillStyle = shadowGrad;
 
     const shadowLobes = [
-      { x: 135, y: 165, rx: 85, ry: 48 },
-      { x: 256, y: 175, rx: 145, ry: 58 },
-      { x: 375, y: 165, rx: 90, ry: 50 },
-      { x: 210, y: 195, rx: 110, ry: 40 },
-      { x: 315, y: 195, rx: 105, ry: 40 },
+      { x: 260, y: 340, rx: 190, ry: 105, tilt: -0.05 },
+      { x: 480, y: 360, rx: 240, ry: 115, tilt: 0.02 },
+      { x: 720, y: 350, rx: 210, ry: 105, tilt: 0.04 },
+      { x: 380, y: 400, rx: 220, ry: 85, tilt: -0.02 },
+      { x: 620, y: 410, rx: 240, ry: 80, tilt: 0.03 },
+      { x: 170, y: 320, rx: 130, ry: 75, tilt: -0.08 },
+      { x: 840, y: 330, rx: 140, ry: 80, tilt: 0.06 },
     ];
     shadowLobes.forEach(l => {
       ctx.beginPath();
-      ctx.ellipse(l.x, l.y, l.rx, l.ry, 0, 0, Math.PI * 2);
+      ctx.ellipse(l.x, l.y, l.rx, l.ry, l.tilt, 0, Math.PI * 2);
       ctx.fill();
     });
 
-    // 2. Camada Cel Principal (Corpo fofo branco-creme aveludado)
-    ctx.fillStyle = 'rgba(250, 253, 255, 0.96)';
-    const bodyLobes = [
-      { x: 120, y: 145, rx: 75, ry: 46 },
-      { x: 185, y: 112, rx: 85, ry: 60 },
-      { x: 270, y: 92, rx: 96, ry: 68 },
-      { x: 350, y: 120, rx: 82, ry: 56 },
-      { x: 405, y: 152, rx: 65, ry: 42 },
-      { x: 256, y: 142, rx: 125, ry: 56 },
+    // Luz de reflexão terracota suave na borda inferior da base
+    const bounceGrad = ctx.createLinearGradient(0, height * 0.72, 0, height);
+    bounceGrad.addColorStop(0.0, 'rgba(180, 60, 45, 0.0)');
+    bounceGrad.addColorStop(0.5, 'rgba(195, 75, 50, 0.35)');
+    bounceGrad.addColorStop(1.0, 'rgba(215, 95, 55, 0.50)');
+    ctx.fillStyle = bounceGrad;
+    shadowLobes.slice(3).forEach(l => {
+      ctx.beginPath();
+      ctx.ellipse(l.x, l.y + 14, l.rx * 0.95, l.ry * 0.68, l.tilt, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // 2. Corpos Intermediários Volumétricos (Damasco queimado, terracota e orquídea escura)
+    const midGrad = ctx.createLinearGradient(0, height * 0.12, 0, height * 0.68);
+    midGrad.addColorStop(0.00, 'rgba(234, 110, 50, 0.94)');
+    midGrad.addColorStop(0.35, 'rgba(198, 72, 72, 0.92)');
+    midGrad.addColorStop(0.70, 'rgba(132, 44, 88, 0.90)');
+    midGrad.addColorStop(1.00, 'rgba(74, 26, 76, 0.88)');
+    ctx.fillStyle = midGrad;
+
+    const midLobes = [
+      { x: 260, y: 260, rx: 160, ry: 95, tilt: -0.06 },
+      { x: 440, y: 230, rx: 185, ry: 110, tilt: -0.02 },
+      { x: 620, y: 240, rx: 175, ry: 105, tilt: 0.03 },
+      { x: 760, y: 265, rx: 140, ry: 85, tilt: 0.05 },
+      { x: 340, y: 200, rx: 145, ry: 90, tilt: -0.04 },
+      { x: 530, y: 180, rx: 165, ry: 95, tilt: 0.02 },
+      { x: 700, y: 205, rx: 135, ry: 80, tilt: 0.04 },
     ];
-    bodyLobes.forEach(l => {
+    midLobes.forEach(l => {
       ctx.beginPath();
-      ctx.ellipse(l.x, l.y, l.rx, l.ry, 0, 0, Math.PI * 2);
+      ctx.ellipse(l.x, l.y, l.rx, l.ry, l.tilt, 0, Math.PI * 2);
       ctx.fill();
     });
 
-    // 3. Pinceladas Cel Shading nos Topos (Realces luminosos nítidos e orgânicos)
-    ctx.fillStyle = 'rgba(255, 255, 255, 1.0)';
-    const highlightCrests = [
-      { x: 185, y: 88, rx: 62, ry: 34 },
-      { x: 268, y: 70, rx: 76, ry: 40 },
-      { x: 346, y: 96, rx: 62, ry: 34 },
-      { x: 124, y: 126, rx: 50, ry: 26 },
-      { x: 395, y: 136, rx: 46, ry: 24 },
+    // 3. Cristas e Cúpulas Iluminadas Diretamente pelo Sol (Ouro radiante e âmbar)
+    const sunlitGrad = ctx.createLinearGradient(0, height * 0.04, 0, height * 0.44);
+    sunlitGrad.addColorStop(0.00, 'rgba(255, 248, 220, 0.98)'); // Brilho ápice creme
+    sunlitGrad.addColorStop(0.25, 'rgba(254, 240, 138, 0.96)'); // Amarelo dourado
+    sunlitGrad.addColorStop(0.55, 'rgba(251, 191, 36, 0.95)');  // Âmbar
+    sunlitGrad.addColorStop(0.85, 'rgba(249, 115, 22, 0.92)');  // Laranja damasco
+    sunlitGrad.addColorStop(1.00, 'rgba(225, 29, 72, 0.88)');   // Rosa coral de transição
+    ctx.fillStyle = sunlitGrad;
+
+    const sunlitBillows = [
+      { x: 370, y: 155, rx: 125, ry: 75, tilt: -0.04 },
+      { x: 510, y: 125, rx: 145, ry: 85, tilt: 0.01 },
+      { x: 650, y: 145, rx: 125, ry: 75, tilt: 0.03 },
+      { x: 440, y: 100, rx: 110, ry: 65, tilt: -0.02 },
+      { x: 580, y: 90, rx: 120, ry: 70, tilt: 0.02 },
+      { x: 270, y: 195, rx: 110, ry: 65, tilt: -0.07 },
+      { x: 760, y: 185, rx: 105, ry: 60, tilt: 0.06 },
     ];
-    highlightCrests.forEach(c => {
+    sunlitBillows.forEach(b => {
       ctx.beginPath();
-      ctx.ellipse(c.x, c.y, c.rx, c.ry, 0, 0, Math.PI * 2);
+      ctx.ellipse(b.x, b.y, b.rx, b.ry, b.tilt, 0, Math.PI * 2);
       ctx.fill();
     });
 
-    // 4. Efeito de Pincelada / Dry Brush chanfrada nas bordas
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
-    ctx.lineWidth = 3.2;
-    highlightCrests.forEach(c => {
+    // 4. Textura de Pinceladas a Óleo / Espátula Direcionais (110 traços modelando o relevo)
+    const strokeColors = [
+      'rgba(255, 251, 235, 0.86)',
+      'rgba(254, 240, 138, 0.78)',
+      'rgba(251, 191, 36, 0.72)',
+      'rgba(249, 115, 22, 0.68)',
+      'rgba(225, 29, 72, 0.58)',
+      'rgba(147, 51, 234, 0.42)',
+      'rgba(88, 28, 135, 0.46)',
+    ];
+
+    for (let i = 0; i < 115; i++) {
+      const bIdx = i % sunlitBillows.length;
+      const b = sunlitBillows[bIdx];
+      const angle = (i * 0.32) % Math.PI - Math.PI * 0.5;
+      const dist = (0.18 + (i % 5) * 0.16) * b.rx;
+      const sx = b.x + Math.cos(angle) * dist;
+      const sy = b.y + Math.sin(angle) * (dist * (b.ry / b.rx));
+      const len = 32 + (i % 4) * 20;
+      const tilt = b.tilt + (Math.sin(i * 1.2) * 0.22);
+      const ex = sx + Math.cos(tilt) * len;
+      const ey = sy + Math.sin(tilt) * len * 0.42;
+      const cpX = (sx + ex) * 0.5 + Math.sin(i * 1.7) * 14;
+      const cpY = (sy + ey) * 0.5 - Math.cos(i * 1.3) * 9;
+
+      const col = strokeColors[i % strokeColors.length];
+      const strokeW = 4.2 + (i % 4) * 2.8;
+      drawImpastoBrushStroke(ctx, sx, sy, cpX, cpY, ex, ey, strokeW, col, true);
+    }
+
+    // 5. Cloud Rim Lighting Incandescente (Bordas douradas brilhantes contornando as cúpulas)
+    ctx.save();
+    sunlitBillows.forEach((b) => {
+      // Glow suave de contorno
+      ctx.strokeStyle = 'rgba(253, 224, 71, 0.46)';
+      ctx.lineWidth = 10.0;
       ctx.beginPath();
-      ctx.arc(c.x, c.y + 4, c.rx * 0.9, Math.PI * 1.1, Math.PI * 1.9);
+      ctx.arc(b.x, b.y + 4, b.rx * 0.95, Math.PI * 1.05, Math.PI * 1.95);
+      ctx.stroke();
+
+      // Borda nítida dourada incandescente
+      ctx.strokeStyle = 'rgba(254, 240, 138, 0.90)';
+      ctx.lineWidth = 4.6;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y + 2, b.rx * 0.94, Math.PI * 1.12, Math.PI * 1.88);
+      ctx.stroke();
+
+      // Núcleo branco puro de alta saturação ótica
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.96)';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.rx * 0.93, Math.PI * 1.25, Math.PI * 1.75);
+      ctx.stroke();
+    });
+    ctx.restore();
+
+    // 6. Filamentos e Wisps Rasgados nas Bordas (Dissolução natural no céu)
+    for (let w = 0; w < 48; w++) {
+      const angle = (w / 48) * Math.PI * 2;
+      const radX = 390 + Math.sin(w * 2.8) * 65;
+      const radY = 175 + Math.cos(w * 3.2) * 50;
+      const wx = 512 + Math.cos(angle) * radX;
+      const wy = 260 + Math.sin(angle) * radY;
+      const wLen = 24 + (w % 4) * 16;
+      const col = (wy < 220) ? 'rgba(254, 240, 138, 0.38)' : 'rgba(126, 34, 206, 0.30)';
+      drawImpastoBrushStroke(ctx, wx, wy, wx + wLen * 0.5, wy - 6, wx + wLen, wy + 4, 3.8, col);
+    }
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  // ☁️ 3. Arquétipo 2: Prateleira de Nuvem Estendida / Bigorna Tempestuosa (Referência Direita)
+  // Estrutura horizontal dominante com traços de espátula, crista dourada e base roxa
+  function createCinematicCloudShelfTexture(): THREE.CanvasTexture {
+    if (typeof document === 'undefined') return new THREE.CanvasTexture({} as any);
+    const width = 1024;
+    const height = 400;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return new THREE.CanvasTexture(canvas);
+
+    // 1. Sombra da Base Horizontal (Vinho escuro, ardósia crepuscular e ameixa)
+    const baseGrad = ctx.createLinearGradient(0, height * 0.35, 0, height);
+    baseGrad.addColorStop(0.00, 'rgba(49, 16, 66, 0.0)');
+    baseGrad.addColorStop(0.30, 'rgba(49, 16, 66, 0.82)');
+    baseGrad.addColorStop(0.70, 'rgba(64, 20, 80, 0.94)');
+    baseGrad.addColorStop(1.00, 'rgba(34, 12, 48, 0.92)');
+    ctx.fillStyle = baseGrad;
+
+    const baseShelves = [
+      { x: 320, y: 250, rx: 270, ry: 75, tilt: -0.02 },
+      { x: 680, y: 260, rx: 290, ry: 70, tilt: 0.02 },
+      { x: 500, y: 285, rx: 340, ry: 65, tilt: 0.00 },
+      { x: 190, y: 240, rx: 160, ry: 60, tilt: -0.04 },
+      { x: 860, y: 275, rx: 150, ry: 55, tilt: 0.04 },
+    ];
+    baseShelves.forEach(s => {
+      ctx.beginPath();
+      ctx.ellipse(s.x, s.y, s.rx, s.ry, s.tilt, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // 2. Prateleira Intermediária (Pêssego radiante, coral e lilás crepuscular)
+    const shelfMidGrad = ctx.createLinearGradient(0, height * 0.15, 0, height * 0.65);
+    shelfMidGrad.addColorStop(0.00, 'rgba(251, 146, 60, 0.95)');
+    shelfMidGrad.addColorStop(0.40, 'rgba(225, 29, 72, 0.92)');
+    shelfMidGrad.addColorStop(0.75, 'rgba(147, 51, 234, 0.88)');
+    shelfMidGrad.addColorStop(1.00, 'rgba(88, 28, 135, 0.85)');
+    ctx.fillStyle = shelfMidGrad;
+
+    const midShelves = [
+      { x: 280, y: 190, rx: 220, ry: 62, tilt: -0.03 },
+      { x: 520, y: 175, rx: 280, ry: 68, tilt: -0.01 },
+      { x: 740, y: 195, rx: 230, ry: 58, tilt: 0.02 },
+      { x: 400, y: 150, rx: 200, ry: 55, tilt: -0.02 },
+      { x: 640, y: 155, rx: 220, ry: 56, tilt: 0.01 },
+    ];
+    midShelves.forEach(s => {
+      ctx.beginPath();
+      ctx.ellipse(s.x, s.y, s.rx, s.ry, s.tilt, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // 3. Crista Superior Longa com Iluminação Dourada da Tarde
+    const crestGrad = ctx.createLinearGradient(0, height * 0.05, 0, height * 0.40);
+    crestGrad.addColorStop(0.00, 'rgba(255, 251, 235, 0.98)');
+    crestGrad.addColorStop(0.30, 'rgba(254, 240, 138, 0.96)');
+    crestGrad.addColorStop(0.65, 'rgba(251, 191, 36, 0.92)');
+    crestGrad.addColorStop(1.00, 'rgba(249, 115, 22, 0.88)');
+    ctx.fillStyle = crestGrad;
+
+    const upperCrests = [
+      { x: 340, y: 120, rx: 170, ry: 45, tilt: -0.02 },
+      { x: 530, y: 105, rx: 210, ry: 50, tilt: -0.01 },
+      { x: 720, y: 125, rx: 180, ry: 42, tilt: 0.02 },
+      { x: 440, y: 88, rx: 150, ry: 38, tilt: -0.01 },
+      { x: 610, y: 85, rx: 160, ry: 40, tilt: 0.01 },
+    ];
+    upperCrests.forEach(c => {
+      ctx.beginPath();
+      ctx.ellipse(c.x, c.y, c.rx, c.ry, c.tilt, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // 4. Pinceladas Horizontais com Textura de Espátula (Palette Knife Sweeps)
+    for (let i = 0; i < 90; i++) {
+      const sx = 100 + ((i * 39) % 800);
+      const sy = 80 + ((i * 23) % 180);
+      const len = 70 + (i % 5) * 35;
+      const tilt = (i % 2 === 0 ? -0.02 : 0.015) + Math.sin(i) * 0.01;
+      const ex = sx + len;
+      const ey = sy + len * tilt;
+      const cpX = (sx + ex) * 0.5;
+      const cpY = (sy + ey) * 0.5 - 4;
+
+      const col = sy < 125 
+        ? 'rgba(254, 240, 138, 0.78)'
+        : sy < 185
+        ? 'rgba(251, 146, 60, 0.65)'
+        : 'rgba(168, 85, 247, 0.50)';
+
+      drawImpastoBrushStroke(ctx, sx, sy, cpX, cpY, ex, ey, 5.0 + (i % 3) * 2.2, col, true);
+    }
+
+    // 5. Cloud Rim Lighting na Crista Superior Alongada
+    ctx.save();
+    upperCrests.forEach(c => {
+      ctx.strokeStyle = 'rgba(254, 240, 138, 0.92)';
+      ctx.lineWidth = 4.2;
+      ctx.beginPath();
+      ctx.arc(c.x, c.y + 2, c.rx * 0.94, Math.PI * 1.15, Math.PI * 1.85);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.98)';
+      ctx.lineWidth = 2.0;
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, c.rx * 0.92, Math.PI * 1.25, Math.PI * 1.75);
+      ctx.stroke();
+    });
+    ctx.restore();
+
+    // 6. Cauda Alongada e Mechas Eólicas
+    for (let t = 0; t < 36; t++) {
+      const tx = 60 + ((t * 43) % 900);
+      const ty = 140 + ((t * 19) % 160);
+      const tLen = 40 + (t % 4) * 25;
+      drawImpastoBrushStroke(ctx, tx, ty, tx + tLen * 0.5, ty - 3, tx + tLen, ty + 2, 3.2, 'rgba(251, 191, 36, 0.32)');
+    }
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  // ☁️ 4. Arquétipo 3: Aglomerado Cumulus em Chiaroscuro Dramático
+  // Contraste extremo entre cavidades de sombra roxa profunda e cristas banhadas em ouro ardente
+  function createDramaticCumulusClusterTexture(): THREE.CanvasTexture {
+    if (typeof document === 'undefined') return new THREE.CanvasTexture({} as any);
+    const width = 768;
+    const height = 420;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return new THREE.CanvasTexture(canvas);
+
+    // Sombra profunda
+    const shGrad = ctx.createLinearGradient(0, height * 0.25, 0, height);
+    shGrad.addColorStop(0.00, 'rgba(38, 17, 52, 0.0)');
+    shGrad.addColorStop(0.35, 'rgba(38, 17, 52, 0.88)');
+    shGrad.addColorStop(0.85, 'rgba(52, 21, 68, 0.96)');
+    shGrad.addColorStop(1.00, 'rgba(32, 13, 44, 0.95)');
+    ctx.fillStyle = shGrad;
+
+    const clusters = [
+      { x: 230, y: 260, rx: 140, ry: 85, tilt: -0.05 },
+      { x: 384, y: 280, rx: 190, ry: 95, tilt: 0.02 },
+      { x: 538, y: 260, rx: 145, ry: 85, tilt: 0.05 },
+      { x: 310, y: 320, rx: 160, ry: 70, tilt: -0.02 },
+      { x: 460, y: 325, rx: 170, ry: 70, tilt: 0.03 },
+    ];
+    clusters.forEach(c => {
+      ctx.beginPath();
+      ctx.ellipse(c.x, c.y, c.rx, c.ry, c.tilt, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Corpo alaranjado e cristas douradas
+    const bodyGrad = ctx.createLinearGradient(0, height * 0.08, 0, height * 0.60);
+    bodyGrad.addColorStop(0.00, 'rgba(255, 248, 220, 0.98)');
+    bodyGrad.addColorStop(0.25, 'rgba(254, 240, 138, 0.96)');
+    bodyGrad.addColorStop(0.60, 'rgba(249, 115, 22, 0.92)');
+    bodyGrad.addColorStop(1.00, 'rgba(190, 24, 93, 0.85)');
+    ctx.fillStyle = bodyGrad;
+
+    const summits = [
+      { x: 280, y: 170, rx: 105, ry: 65, tilt: -0.05 },
+      { x: 390, y: 135, rx: 125, ry: 75, tilt: 0.01 },
+      { x: 505, y: 160, rx: 110, ry: 65, tilt: 0.04 },
+      { x: 440, y: 110, rx: 95, ry: 55, tilt: 0.02 },
+    ];
+    summits.forEach(s => {
+      ctx.beginPath();
+      ctx.ellipse(s.x, s.y, s.rx, s.ry, s.tilt, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Pinceladas táteis e borda de Rim Lighting
+    for (let i = 0; i < 75; i++) {
+      const s = summits[i % summits.length];
+      const ang = (i * 0.38) % Math.PI - Math.PI * 0.5;
+      const rad = (0.2 + (i % 4) * 0.18) * s.rx;
+      const px = s.x + Math.cos(ang) * rad;
+      const py = s.y + Math.sin(ang) * rad * 0.65;
+      const len = 28 + (i % 4) * 16;
+      drawImpastoBrushStroke(ctx, px, py, px + len * 0.5, py - 4, px + len, py + 3, 4.0, 'rgba(254, 240, 138, 0.72)', true);
+    }
+
+    summits.forEach(s => {
+      ctx.strokeStyle = 'rgba(254, 240, 138, 0.92)';
+      ctx.lineWidth = 4.2;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y + 2, s.rx * 0.93, Math.PI * 1.15, Math.PI * 1.85);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.96)';
+      ctx.lineWidth = 2.0;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.rx * 0.91, Math.PI * 1.25, Math.PI * 1.75);
       ctx.stroke();
     });
 
@@ -630,56 +976,11 @@ function createPhotorealisticAtmosphericGlowTexture(): THREE.CanvasTexture {
     return tex;
   }
 
-  // ☁️ 2. Textura Cel Shading: Pincelada Cirrostratus Alongada (Brisa e Movimento Horizontal)
-  function createCelStratusCloudTexture(): THREE.CanvasTexture {
+  // ☁️ 5. Arquétipo 4: Mechas Atmosféricas e Scud Dispersas (Cirros e Fragmentos)
+  // Pequenas formações se dispersando pelo céu com traços leves de pincel
+  function createRaggedAtmosphericWispsTexture(): THREE.CanvasTexture {
     if (typeof document === 'undefined') return new THREE.CanvasTexture({} as any);
     const width = 512;
-    const height = 192;
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return new THREE.CanvasTexture(canvas);
-
-    // Degradê horizontal feathered com pontas artísticas afiladas
-    const grad = ctx.createLinearGradient(0, 0, width, 0);
-    grad.addColorStop(0.00, 'rgba(255, 255, 255, 0.0)');
-    grad.addColorStop(0.12, 'rgba(224, 242, 254, 0.55)');
-    grad.addColorStop(0.35, 'rgba(255, 255, 255, 0.92)');
-    grad.addColorStop(0.70, 'rgba(255, 255, 255, 0.90)');
-    grad.addColorStop(0.88, 'rgba(224, 242, 254, 0.50)');
-    grad.addColorStop(1.00, 'rgba(255, 255, 255, 0.0)');
-
-    ctx.fillStyle = grad;
-    const strokes = [
-      { y: 96, rx: 220, ry: 30, tilt: -0.02 },
-      { y: 78, rx: 165, ry: 22, tilt: 0.015 },
-      { y: 116, rx: 185, ry: 24, tilt: -0.01 },
-      { y: 68, rx: 115, ry: 16, tilt: -0.025 },
-      { y: 126, rx: 135, ry: 18, tilt: 0.02 },
-    ];
-    strokes.forEach(s => {
-      ctx.beginPath();
-      ctx.ellipse(256, s.y, s.rx, s.ry, s.tilt, 0, Math.PI * 2);
-      ctx.fill();
-    });
-
-    // Crista central nítida (pincelada luminosa com luz direta)
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.88)';
-    ctx.beginPath();
-    ctx.ellipse(256, 88, 145, 12, -0.01, 0, Math.PI * 2);
-    ctx.fill();
-
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.needsUpdate = true;
-    return tex;
-  }
-
-  // ☁️ 3. Textura Cel Shading: Tufo de Nuvem Puffy Compacto (Anime Cel Puffs)
-  function createCelPuffCloudTexture(): THREE.CanvasTexture {
-    if (typeof document === 'undefined') return new THREE.CanvasTexture({} as any);
-    const width = 384;
     const height = 256;
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -687,34 +988,35 @@ function createPhotorealisticAtmosphericGlowTexture(): THREE.CanvasTexture {
     const ctx = canvas.getContext('2d');
     if (!ctx) return new THREE.CanvasTexture(canvas);
 
-    // Sombra cel base
-    ctx.fillStyle = 'rgba(186, 230, 253, 0.65)';
-    ctx.beginPath();
-    ctx.ellipse(192, 162, 125, 46, 0, 0, Math.PI * 2);
-    ctx.fill();
+    // Múltiplos filamentos soltos soprados pelo vento com pontas desfiadas
+    const wispGrad = ctx.createLinearGradient(0, 0, width, 0);
+    wispGrad.addColorStop(0.00, 'rgba(254, 240, 138, 0.0)');
+    wispGrad.addColorStop(0.18, 'rgba(254, 240, 138, 0.65)');
+    wispGrad.addColorStop(0.50, 'rgba(251, 146, 60, 0.88)');
+    wispGrad.addColorStop(0.82, 'rgba(216, 70, 239, 0.55)');
+    wispGrad.addColorStop(1.00, 'rgba(168, 85, 247, 0.0)');
+    ctx.fillStyle = wispGrad;
 
-    // Bolotas e lóbulos de nuvem cel fofa
-    ctx.fillStyle = 'rgba(250, 253, 255, 0.95)';
-    const puffs = [
-      { x: 115, y: 148, r: 48 },
-      { x: 180, y: 116, r: 64 },
-      { x: 248, y: 126, r: 54 },
-      { x: 280, y: 152, r: 44 },
+    const filaments = [
+      { y: 110, rx: 200, ry: 24, tilt: -0.03 },
+      { y: 85, rx: 150, ry: 18, tilt: 0.02 },
+      { y: 145, rx: 175, ry: 20, tilt: -0.015 },
+      { y: 65, rx: 110, ry: 14, tilt: -0.04 },
+      { y: 170, rx: 130, ry: 16, tilt: 0.03 },
     ];
-    puffs.forEach(p => {
+    filaments.forEach(f => {
       ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.ellipse(256, f.y, f.rx, f.ry, f.tilt, 0, Math.PI * 2);
       ctx.fill();
     });
 
-    // Realce luminoso cel no topo
-    ctx.fillStyle = 'rgba(255, 255, 255, 1.0)';
-    ctx.beginPath();
-    ctx.arc(180, 96, 44, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(128, 122, 34, 0, Math.PI * 2);
-    ctx.fill();
+    // Pinceladas de cerdas finas
+    for (let i = 0; i < 45; i++) {
+      const sx = 60 + ((i * 37) % 380);
+      const sy = 60 + ((i * 29) % 140);
+      const len = 50 + (i % 4) * 22;
+      drawImpastoBrushStroke(ctx, sx, sy, sx + len * 0.5, sy - 3, sx + len, sy + 2, 2.8, 'rgba(254, 240, 138, 0.60)');
+    }
 
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -737,98 +1039,117 @@ function createPhotorealisticAtmosphericGlowTexture(): THREE.CanvasTexture {
   painterlySkyDomeMesh.raycast = () => {};
   scene.add(painterlySkyDomeMesh);
 
-  // ☁️ NUVENS CEL SHADING ESTILIZADAS EM PINCELADAS (Espalhadas em 3 camadas e se movendo suavemente)
+  // ☁️ NUVENS CINEMATOGRÁFICAS PINTADAS À MÃO DISTRIBUÍDAS EM 4 CAMADAS DE PROFUNDIDADE
   const cloudsGroup = new THREE.Group();
-  cloudsGroup.name = 'CelPainterlyCloudsGroup';
+  cloudsGroup.name = 'PainterlyCinematicCloudsGroup';
 
-  const texCumulus = createCelCumulusCloudTexture();
-  const texStratus = createCelStratusCloudTexture();
-  const texPuff = createCelPuffCloudTexture();
+  const texStormCumulonimbus = createVolumetricStormCumulonimbusTexture();
+  const texCloudShelf = createCinematicCloudShelfTexture();
+  const texCumulusCluster = createDramaticCumulusClusterTexture();
+  const texRaggedWisps = createRaggedAtmosphericWispsTexture();
 
-  const cloudMat1 = new THREE.MeshBasicMaterial({
-    map: texCumulus,
+  const cloudMatStorm = new THREE.MeshBasicMaterial({
+    map: texStormCumulonimbus,
     color: 0xffffff,
     transparent: true,
-    opacity: 0.88,
+    opacity: 0.94,
     depthWrite: false,
     side: THREE.DoubleSide,
     fog: false,
   });
 
-  const cloudMat2 = new THREE.MeshBasicMaterial({
-    map: texStratus,
+  const cloudMatShelf = new THREE.MeshBasicMaterial({
+    map: texCloudShelf,
     color: 0xffffff,
     transparent: true,
-    opacity: 0.82,
+    opacity: 0.90,
     depthWrite: false,
     side: THREE.DoubleSide,
     fog: false,
   });
 
-  const cloudMat3 = new THREE.MeshBasicMaterial({
-    map: texPuff,
+  const cloudMatCluster = new THREE.MeshBasicMaterial({
+    map: texCumulusCluster,
     color: 0xffffff,
     transparent: true,
-    opacity: 0.86,
+    opacity: 0.92,
     depthWrite: false,
     side: THREE.DoubleSide,
     fog: false,
   });
 
-  const cloudMats = [cloudMat1, cloudMat2, cloudMat3];
+  const cloudMatWisps = new THREE.MeshBasicMaterial({
+    map: texRaggedWisps,
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.80,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    fog: false,
+  });
+
+  const cloudMats = [cloudMatStorm, cloudMatShelf, cloudMatCluster, cloudMatWisps];
 
   function updateAllCloudColors(hex: number) {
-    cloudMat1.color.setHex(hex);
-    cloudMat2.color.setHex(hex);
-    cloudMat3.color.setHex(hex);
+    cloudMats.forEach(m => m.color.setHex(hex));
   }
 
-  // 🚀 OTIMIZAÇÃO: 1 única geometria compartilhada na VRAM para todas as 30 nuvens!
+  // 🚀 OTIMIZAÇÃO SUPREMA: 1 única geometria compartilhada na VRAM para todas as 36 nuvens!
   const sharedCloudGeo = new THREE.PlaneGeometry(1, 1);
 
-  const TOTAL_CLOUDS = 30;
+  const TOTAL_CLOUDS = 36;
   for (let i = 0; i < TOTAL_CLOUDS; i++) {
-    const matIdx = i % 3;
-    const mesh = new THREE.Mesh(sharedCloudGeo, cloudMats[matIdx]);
-    mesh.raycast = () => {};
-
-    // 3 Camadas de Altitude e Proporção Visual:
-    let baseW = 85;
-    let baseH = 36;
-    let altitudeY = 75;
-    let depthZ = 120;
-    let driftSpeed = 0.42;
+    // 4 Camadas de Profundidade Atmosférica e Escala Monumental:
+    let baseW = 120;
+    let baseH = 55;
+    let altitudeY = 65;
+    let depthZ = 160;
+    let driftSpeed = 0.32;
+    let matIdx = 0;
 
     if (i < 8) {
-      // Camada 1: Baixa / Horizonte distante
-      baseW = 60 + (i % 4) * 20;
-      baseH = 22 + (i % 3) * 8;
-      altitudeY = 46 + (i % 4) * 6;
-      depthZ = 210 + (i % 5) * 35;
-      driftSpeed = 0.22 + (i % 3) * 0.08;
+      // Camada 1: Horizonte Colossal Distante (Atrás do Cristo e Montanhas - Escala Monumental)
+      baseW = 210 + (i % 4) * 26;
+      baseH = 72 + (i % 3) * 14;
+      altitudeY = 76 + (i % 4) * 8;
+      depthZ = 240 + (i % 5) * 18;
+      driftSpeed = 0.12 + (i % 3) * 0.04; // Deriva majestosa lenta criando sensação de escala colossal
+      matIdx = (i % 2 === 0) ? 1 : 0; // Alterna entre Shelf e Cumulonimbus
     } else if (i < 20) {
-      // Camada 2: Média (Cumulus fofas de destaque cel)
-      baseW = 85 + (i % 5) * 22;
-      baseH = 34 + (i % 4) * 12;
-      altitudeY = 68 + (i % 5) * 8;
-      depthZ = 125 + (i % 6) * 30;
-      driftSpeed = 0.36 + (i % 4) * 0.10;
+      // Camada 2: Médio Céu (Cumulonimbus volumétricos com iluminação dourada e sombra vinho)
+      baseW = 135 + (i % 4) * 22;
+      baseH = 58 + (i % 3) * 12;
+      altitudeY = 62 + (i % 5) * 7;
+      depthZ = 145 + (i % 6) * 16;
+      driftSpeed = 0.26 + (i % 4) * 0.06;
+      matIdx = (i % 3 === 0) ? 0 : 2; // Cumulonimbus & Aglomerados
+    } else if (i < 28) {
+      // Camada 3: Prateleiras e Bigornas Laterais (Ampla cobertura horizontal)
+      baseW = 145 + (i % 4) * 24;
+      baseH = 46 + (i % 3) * 8;
+      altitudeY = 78 + (i % 4) * 8;
+      depthZ = 95 + (i % 4) * 15;
+      driftSpeed = 0.38 + (i % 3) * 0.08;
+      matIdx = (i % 2 === 0) ? 1 : 2; // Prateleira & Aglomerado
     } else {
-      // Camada 3: Alta (Cirros alongados e mechas celestes)
-      baseW = 110 + (i % 4) * 28;
-      baseH = 30 + (i % 3) * 10;
-      altitudeY = 96 + (i % 4) * 10;
-      depthZ = 75 + (i % 4) * 40;
-      driftSpeed = 0.46 + (i % 3) * 0.12;
+      // Camada 4: Nuvens Scud Baixas e Mechas Eólicas em Parallax Dinâmico
+      baseW = 55 + (i % 4) * 14;
+      baseH = 26 + (i % 3) * 6;
+      altitudeY = 46 + (i % 4) * 6;
+      depthZ = 55 + (i % 4) * 10;
+      driftSpeed = 0.52 + (i % 3) * 0.10; // Parallax mais rápido na proximidade
+      matIdx = 3; // Mechas soltas e fragmentos
     }
 
+    const mesh = new THREE.Mesh(sharedCloudGeo, cloudMats[matIdx]);
+    mesh.raycast = () => {};
     mesh.scale.set(baseW, baseH, 1);
-    mesh.rotation.x = -Math.PI * 0.07; // Leve inclinação para visão da câmera
+    mesh.rotation.x = -Math.PI * 0.06; // Leve inclinação para perspectiva cinematográfica
 
-    // Posição X amplamente distribuída de forma pseudo-aleatória equilibrada
-    const xStep = 540 / TOTAL_CLOUDS;
-    const rawX = -270 + i * xStep + ((i * 37) % 35) - 17;
-    const posX = Math.abs(rawX) < 20 ? (i % 2 === 0 ? rawX + 32 : rawX - 32) : rawX;
+    // Distribuição espacial equilibrada em X com leve jitter
+    const xStep = 560 / TOTAL_CLOUDS;
+    const rawX = -280 + i * xStep + ((i * 37) % 36) - 18;
+    const posX = Math.abs(rawX) < 18 ? (i % 2 === 0 ? rawX + 30 : rawX - 30) : rawX;
 
     mesh.position.set(posX, altitudeY, depthZ);
     mesh.userData = {
@@ -836,7 +1157,7 @@ function createPhotorealisticAtmosphericGlowTexture(): THREE.CanvasTexture {
       floatPhase: (i * 0.73) % (Math.PI * 2),
       driftSpeed: driftSpeed,
       bobAmp: 0.005 + (i % 3) * 0.003,
-      bobFreq: 0.6 + (i % 4) * 0.15,
+      bobFreq: 0.5 + (i % 4) * 0.12,
     };
 
     cloudsGroup.add(mesh);
@@ -869,7 +1190,7 @@ function createPhotorealisticAtmosphericGlowTexture(): THREE.CanvasTexture {
   const currentFogColor = new THREE.Color();
 
   const CYCLE_DURATION = 220.0;
-  let cycleTimer = 45.0;
+  let cycleTimer = 92.0; // Inicia no Pôr do Sol Dourado Cinematográfico (~0.418)
 
   // =========================================================================
   // 7. REALISTIC FINE RAIN & GROUND SPLASH SYSTEM (Chuva Fina e Pingos no Chão)
@@ -1004,8 +1325,8 @@ function createPhotorealisticAtmosphericGlowTexture(): THREE.CanvasTexture {
   let rainCycleTimer = 15.0; // Inicia sem chuva para curtir o sol; primeira pancada em ~45s
 
   return {
-    timeOfDay: 'DAY',
-    timeProgress: 0.2,
+    timeOfDay: 'SUNSET',
+    timeProgress: 0.418,
     lowPlaneRumble: 0,
     isRaining: false,
     rainIntensity: 0.0,
@@ -1191,17 +1512,19 @@ function createPhotorealisticAtmosphericGlowTexture(): THREE.CanvasTexture {
         currentSkyColor.lerpColors(daySky, sunsetSky, t);
         currentFogColor.lerpColors(dayFog, sunsetFog, t);
         ambientLight.color.setHex(0xfb923c);
-        ambientLight.intensity = 1.3 - t * 0.4;
+        ambientLight.intensity = 1.35;
+        hemiLight.color.setHex(0xf43f5e);
+        hemiLight.groundColor.setHex(0x7c2d12);
         sunLight.color.setHex(0xf97316);
-        sunLight.intensity = 2.4 - t * 0.9;
+        sunLight.intensity = 2.2 - t * 0.4;
         starMat.opacity = t * 0.3;
         constelStarMat.opacity = t * 0.35;
         constelLineMat.opacity = t * 0.15;
-        updateAllCloudColors(0xfca5a5);
-        // O sol escurece horizontalmente em direção ao horizonte (de branco/ouro para âmbar e carmesim)
-        _colA.setHex(0xffffff); _colB.setHex(0xd97706);
+        updateAllCloudColors(0xffffff); // Mantém puras as cores ricas a óleo e rim lighting da referência
+        // O sol escurece em direção ao horizonte (de ouro/âmbar para carmesim)
+        _colA.setHex(0xfffbeb); _colB.setHex(0xf59e0b);
         sunCoreMat.color.lerpColors(_colA, _colB, t);
-        _colA.setHex(0xfacc15); _colB.setHex(0x991b1b);
+        _colA.setHex(0xfacc15); _colB.setHex(0xef4444);
         coronaMat.color.lerpColors(_colA, _colB, t);
       } else if (progress < 0.68) {
         currentMode = 'NIGHT';
@@ -1360,7 +1683,7 @@ function createPhotorealisticAtmosphericGlowTexture(): THREE.CanvasTexture {
       if (currentMode === 'DAY') {
         painterlySkyDomeMat.color.setHex(0xffffff);
       } else if (currentMode === 'SUNSET') {
-        painterlySkyDomeMat.color.setHex(0xfecdd3);
+        painterlySkyDomeMat.color.setHex(0xffffff); // Mantém o degradê cinematográfico puro
       } else {
         painterlySkyDomeMat.color.setHex(0x38bdf8).multiplyScalar(0.25);
       }
@@ -1406,23 +1729,67 @@ function createPhotorealisticAtmosphericGlowTexture(): THREE.CanvasTexture {
       currentFogColor.setHex(0x38bdf8);
       ambientLight.color.setHex(0xffedd5);
       ambientLight.intensity = 1.35;
+      hemiLight.color.setHex(0xbae6fd);
+      hemiLight.groundColor.setHex(0x92400e);
       sunLight.color.setHex(0xfffbeb);
       sunLight.intensity = 1.6;
       starMat.opacity = 0;
       constelStarMat.opacity = 0;
       constelLineMat.opacity = 0;
       updateAllCloudColors(0xffffff);
+      painterlySkyDomeMat.color.setHex(0xffffff);
       sunCoreMat.color.setHex(0xffffff);
       coronaMat.color.setHex(0xfacc15);
       sunburstMat.opacity = 0.28;
     },
+    setSunset() {
+      cycleTimer = 92.0; // Sunset (~0.418)
+      this.timeProgress = 0.418;
+      this.timeOfDay = 'SUNSET';
+      currentSkyColor.copy(sunsetSky);
+      currentFogColor.copy(sunsetFog);
+      ambientLight.color.setHex(0xfb923c);
+      ambientLight.intensity = 1.35;
+      hemiLight.color.setHex(0xf43f5e);
+      hemiLight.groundColor.setHex(0x7c2d12);
+      sunLight.color.setHex(0xf97316);
+      sunLight.intensity = 2.2;
+      updateAllCloudColors(0xffffff);
+      painterlySkyDomeMat.color.setHex(0xffffff);
+      sunCoreMat.color.setHex(0xfffbeb);
+      coronaMat.color.setHex(0xf97316);
+      sunburstMat.opacity = 0.35;
+    },
+    setNight() {
+      cycleTimer = 160.0; // Night (~0.727)
+      this.timeProgress = 0.727;
+      this.timeOfDay = 'NIGHT';
+      currentSkyColor.copy(nightSky);
+      currentFogColor.copy(nightFog);
+      ambientLight.color.setHex(0x1e293b);
+      ambientLight.intensity = 0.52;
+      hemiLight.color.setHex(0x1e1b4b);
+      hemiLight.groundColor.setHex(0x0f172a);
+      sunLight.color.setHex(0x93c5fd);
+      sunLight.intensity = 0.85;
+      updateAllCloudColors(0x334155);
+      painterlySkyDomeMat.color.setHex(0x38bdf8).multiplyScalar(0.25);
+      starMat.opacity = 0.95;
+      constelStarMat.opacity = 1.0;
+      constelLineMat.opacity = 0.45;
+    },
+    setTimeOfDayMode(mode: TimeOfDay) {
+      if (mode === 'DAY') this.resetToDay();
+      else if (mode === 'SUNSET') this.setSunset();
+      else if (mode === 'NIGHT') this.setNight();
+    },
     toggleTimeOfDay(): TimeOfDay {
       if (this.timeOfDay === 'DAY') {
-        cycleTimer = 95.0; // Sunset (~0.43)
+        this.setSunset();
       } else if (this.timeOfDay === 'SUNSET') {
-        cycleTimer = 150.0; // Night (~0.68)
+        this.setNight();
       } else {
-        cycleTimer = 44.0; // Day (~0.20)
+        this.resetToDay();
       }
       return this.timeOfDay;
     },
@@ -1472,17 +1839,19 @@ function createPhotorealisticAtmosphericGlowTexture(): THREE.CanvasTexture {
       try { (sunburstTex as any)?.dispose?.(); } catch (_) {}
       try { (shadowTex as any)?.dispose?.(); } catch (_) {}
       try { (painterlySkyTex as any)?.dispose?.(); } catch (_) {}
-      try { (texCumulus as any)?.dispose?.(); } catch (_) {}
-      try { (texStratus as any)?.dispose?.(); } catch (_) {}
-      try { (texPuff as any)?.dispose?.(); } catch (_) {}
+      try { (texStormCumulonimbus as any)?.dispose?.(); } catch (_) {}
+      try { (texCloudShelf as any)?.dispose?.(); } catch (_) {}
+      try { (texCumulusCluster as any)?.dispose?.(); } catch (_) {}
+      try { (texRaggedWisps as any)?.dispose?.(); } catch (_) {}
       
       // These objects might not be in the traversed groups
       try { if (typeof rainGeo !== 'undefined') rainGeo?.dispose?.(); } catch (_) {}
       try { if (typeof rainLineMat !== 'undefined') rainLineMat?.dispose?.(); } catch (_) {}
       try { sharedCloudGeo?.dispose?.(); } catch (_) {}
-      try { cloudMat1?.dispose?.(); } catch (_) {}
-      try { cloudMat2?.dispose?.(); } catch (_) {}
-      try { cloudMat3?.dispose?.(); } catch (_) {}
+      try { cloudMatStorm?.dispose?.(); } catch (_) {}
+      try { cloudMatShelf?.dispose?.(); } catch (_) {}
+      try { cloudMatCluster?.dispose?.(); } catch (_) {}
+      try { cloudMatWisps?.dispose?.(); } catch (_) {}
       try { if (typeof painterlySkyDomeGeo !== 'undefined') painterlySkyDomeGeo?.dispose?.(); } catch (_) {}
       try { if (typeof painterlySkyDomeMat !== 'undefined') painterlySkyDomeMat?.dispose?.(); } catch (_) {}
     }
