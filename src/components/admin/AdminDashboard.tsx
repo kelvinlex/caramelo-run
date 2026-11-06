@@ -28,7 +28,6 @@ import { GameOverImagesTab } from './GameOverImagesTab';
 import { AntiCheatTab } from './AntiCheatTab';
 import { SqlExportTab } from './SqlExportTab';
 import { ApiDocsTab } from './ApiDocsTab';
-import { GeminiArgonTab } from './GeminiArgonTab';
 import { CarameloAvatar } from '../common/CarameloAvatar';
 
 interface AdminDashboardProps {
@@ -45,7 +44,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onInspectUser,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'users' | 'finance' | 'economy' | 'images' | 'anticheat' | 'sql' | 'api' | 'gemini'
+    'overview' | 'users' | 'finance' | 'economy' | 'images' | 'anticheat' | 'sql' | 'api'
   >('overview');
 
   const [metrics, setMetrics] = useState({
@@ -158,7 +157,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               { id: 'economy', label: '🐕 Loja/Skins', icon: ShoppingBag },
               { id: 'images', label: '🖼️ Imagens', icon: ImageIcon },
               { id: 'anticheat', label: '🚨 Anti-Cheat', icon: ShieldAlert },
-              { id: 'gemini', label: '🤖 Gemini Argon AI', icon: Sparkles },
               { id: 'sql', label: '💾 phpMyAdmin SQL', icon: Database },
               { id: 'api', label: '🏗️ Configs & API', icon: Code },
             ].map((tab) => {
@@ -360,7 +358,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {activeTab === 'anticheat' && <AntiCheatTab />}
         {activeTab === 'sql' && <SqlExportTab />}
         {activeTab === 'api' && <ApiDocsTab />}
-        {activeTab === 'gemini' && <GeminiArgonTab />}
       </main>
     </div>
   );
