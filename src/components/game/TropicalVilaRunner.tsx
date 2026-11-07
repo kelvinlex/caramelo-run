@@ -185,6 +185,7 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
     right: () => void;
     jump: () => void;
     roll: () => void;
+    wheelie?: () => void;
   } | null>(null);
 
   // Sincroniza usuário e storage
@@ -719,6 +720,15 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
 
               <div className="flex items-center gap-3 pointer-events-auto">
                 <button
+                  onPointerDown={() => controlTriggerRef.current?.wheelie?.()}
+                  className="w-14 h-14 bg-gradient-to-br from-amber-500 to-orange-600 text-slate-950 font-black rounded-2xl border-2 border-amber-300 flex flex-col items-center justify-center shadow-2xl active:scale-90 transition-all touch-none"
+                  aria-label="Empinar / Grau (Q)"
+                  title="Empinar no Grau (Q)"
+                >
+                  <span className="text-[11px] font-black tracking-tight leading-none">GRAU</span>
+                  <span className="text-[9px] font-extrabold opacity-80 leading-none mt-0.5">(Q)</span>
+                </button>
+                <button
                   onPointerDown={() => controlTriggerRef.current?.roll()}
                   className="w-14 h-14 bg-slate-900/80 backdrop-blur-md active:bg-sky-500 active:text-slate-950 text-slate-200 rounded-2xl border-2 border-slate-700 flex items-center justify-center shadow-2xl active:scale-90 transition-all touch-none"
                   aria-label="Deslizar"
@@ -728,7 +738,7 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
                 <button
                   onPointerDown={() => controlTriggerRef.current?.jump()}
                   className="w-16 h-16 bg-gradient-to-br from-amber-500 to-orange-600 text-slate-950 font-black rounded-2xl border-2 border-amber-300 flex items-center justify-center shadow-2xl active:scale-90 transition-all touch-none"
-                  aria-label="Pular / Grau"
+                  aria-label="Pular"
                 >
                   <ArrowUp className="w-10 h-10 stroke-[3]" />
                 </button>

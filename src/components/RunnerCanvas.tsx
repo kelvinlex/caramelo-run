@@ -94,6 +94,7 @@ interface RunnerCanvasProps {
     right: () => void;
     jump: () => void;
     roll: () => void;
+    wheelie?: () => void;
   } | null>;
 }
 
@@ -550,6 +551,17 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       });
     };
 
+    // Controles dinâmicos e movimentação livre da moto
+    const keysDown = {
+      left: false,
+      right: false,
+      wheelie: false,
+    };
+    let steerVelocityX = 0;
+    let freePlayerX = 0;
+    let wheeliePulseTimer = 0;
+    let smoothWheelieAmount = 0;
+
     const resetRun = () => {
       playerState = createInitialPlayerState();
       hitstopTimer = 0;
@@ -557,6 +569,13 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       camRollAngle = 0;
       camRollImpulse = 0;
       gaitCycle = 0;
+      steerVelocityX = 0;
+      freePlayerX = 0;
+      wheeliePulseTimer = 0;
+      smoothWheelieAmount = 0;
+      keysDown.left = false;
+      keysDown.right = false;
+      keysDown.wheelie = false;
       emitHud(true);
     };
 
@@ -566,6 +585,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     // 15. Camera Lane & Movement Controls (Sound & Shadow systems removed per user request!)
     const doShiftLeft = () => {
       if (phaseRef.current !== 'playing') return;
+      steerVelocityX = Math.max(-8.5, steerVelocityX - 3.8);
       const prevLane = playerState.lane;
       playerState = shiftLane(playerState, -1);
       if (playerState.lane !== prevLane) {
@@ -575,6 +595,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
 
     const doShiftRight = () => {
       if (phaseRef.current !== 'playing') return;
+      steerVelocityX = Math.min(8.5, steerVelocityX + 3.8);
       const prevLane = playerState.lane;
       playerState = shiftLane(playerState, 1);
       if (playerState.lane !== prevLane) {
@@ -594,29 +615,54 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       playerState = triggerRoll(playerState);
     };
 
+    const doWheelie = () => {
+      if (phaseRef.current !== 'playing') return;
+      wheeliePulseTimer = 1.8; // Empina bem suavemente por 1.8 segundos
+    };
+
     controlTriggerRef.current = {
       left: doShiftLeft,
       right: doShiftRight,
       jump: doJump,
       roll: doRoll,
+      wheelie: doWheelie,
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.repeat) return;
       if (phaseRef.current === 'playing') {
         if (e.code === 'ArrowLeft' || e.code === 'KeyA') {
           e.preventDefault();
-          doShiftLeft();
+          keysDown.left = true;
+          if (!e.repeat) doShiftLeft();
         } else if (e.code === 'ArrowRight' || e.code === 'KeyD') {
           e.preventDefault();
-          doShiftRight();
+          keysDown.right = true;
+          if (!e.repeat) doShiftRight();
+        } else if (e.code === 'KeyQ') {
+          e.preventDefault();
+          keysDown.wheelie = true;
+          wheeliePulseTimer = 1.8;
         } else if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') {
-          e.preventDefault();
-          doJump();
+          if (!e.repeat) {
+            e.preventDefault();
+            doJump();
+          }
         } else if (e.code === 'ArrowDown' || e.code === 'KeyS') {
-          e.preventDefault();
-          doRoll();
+          if (!e.repeat) {
+            e.preventDefault();
+            doRoll();
+          }
         }
+      }
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'ArrowLeft' || e.code === 'KeyA') {
+        keysDown.left = false;
+      } else if (e.code === 'ArrowRight' || e.code === 'KeyD') {
+        keysDown.right = false;
+      } else if (e.code === 'KeyQ') {
+        keysDown.wheelie = false;
       }
     };
 
@@ -641,6 +687,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     };
 
     window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
     const canvasEl = renderer.domElement;
     canvasEl.addEventListener('pointerdown', onPointerDown);
     canvasEl.addEventListener('pointerup', onPointerUp);
@@ -756,6 +803,26 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
         } else {
           playerState = stepPlayerPhysics(playerState, dt);
 
+          // Movimento livre e responsivo da moto (pilotagem solta e suave pela rua toda)
+          const steerAccel = 36.0;
+          const maxSteerSpeed = 8.6;
+          if (keysDown.left) {
+            steerVelocityX = Math.max(-maxSteerSpeed, steerVelocityX - steerAccel * dt);
+          } else if (keysDown.right) {
+            steerVelocityX = Math.min(maxSteerSpeed, steerVelocityX + steerAccel * dt);
+          } else {
+            // Desaceleração suave por inércia quando solta a direção
+            steerVelocityX = THREE.MathUtils.lerp(steerVelocityX, 0, Math.min(1, 9.5 * dt));
+          }
+
+          freePlayerX = playerState.x + steerVelocityX * dt;
+          // Limites confortáveis do asfalto (rua de 11.6m, margem segura entre -4.75m e +4.75m)
+          freePlayerX = THREE.MathUtils.clamp(freePlayerX, -4.75, 4.75);
+          playerState.x = freePlayerX;
+
+          // Sincroniza a faixa lógica da moto para casas, placar e regras do jogo
+          playerState.lane = (freePlayerX < -1.5 ? -1 : freePlayerX > 1.5 ? 1 : 0) as LaneIndex;
+
           const moveZ = playerState.speed * dt;
 
           // Scroll street asphalt, bump map & sidewalk concrete textures synchronized with player speed
@@ -857,10 +924,24 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
           camera.updateProjectionMatrix();
         }
 
-        const targetLaneX = laneToX(playerState.lane);
-        const lateralDelta = targetLaneX - playerState.x;
+        // Inclinação dinâmica realista: responde diretamente à velocidade lateral real da moto (mais solta e livre)
+        const steerLean = (steerVelocityX / 8.6) * 1.6;
 
-        // Atualiza a moto 3D do jogador com esterçamento, inclinação lateral e giro de rodas
+        // Grau no 'Q' bem suave (Wheelie progressivo contínuo ao segurar ou suave ao apertar)
+        if (wheeliePulseTimer > 0) {
+          wheeliePulseTimer = Math.max(0, wheeliePulseTimer - dt);
+        }
+        const isWheelieActive = keysDown.wheelie || wheeliePulseTimer > 0;
+        const targetWheelieVal = isWheelieActive ? 1.0 : 0.0;
+        // Interpolação suave e orgânica (sobe macio e desce macio, sem solavancos)
+        smoothWheelieAmount = THREE.MathUtils.lerp(smoothWheelieAmount, targetWheelieVal, Math.min(1, 4.2 * dt));
+
+        // Ângulo suave de empinar: até ~0.58 rad (~33.5 graus de grau clássico cartoon)
+        const qWheeliePitch = smoothWheelieAmount * 0.58;
+        const jumpPitch = playerState.isJumping ? Math.min(0.42, (playerState.vy + 5) * 0.04) : 0;
+        const totalPitch = Math.max(qWheeliePitch, jumpPitch);
+
+        // Atualiza a moto 3D do jogador com esterçamento, inclinação lateral, grau suave e giro de rodas
         if (playerMotoInstance) {
           const isPlayingOrPaused = activePhase === 'playing' || activePhase === 'paused';
           playerMotoInstance.root.visible = isPlayingOrPaused;
@@ -868,26 +949,23 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
           if (isPlayingOrPaused) {
             playerMotoInstance.root.position.set(playerState.x, playerState.y, 0);
 
-            const steerLean = lateralDelta * 1.5;
-            const jumpPitch = playerState.isJumping ? Math.min(0.42, (playerState.vy + 5) * 0.04) : 0;
-
             playerMotoInstance.update(
               dt,
               isActivelyRunning ? playerState.speed : 0,
               steerLean,
-              jumpPitch
+              totalPitch
             );
           }
         }
 
         _camTargetPos.set(
           playerState.x * 0.72 + shakeX,
-          2.05 + playerState.y * 0.35 + shakeY,
-          3.85,
+          2.05 + playerState.y * 0.35 + shakeY + smoothWheelieAmount * 0.12,
+          3.85 + smoothWheelieAmount * 0.22,
         );
         _camLookAt.set(
-          playerState.x * 0.45 + lateralDelta * 0.15,
-          1.28 + playerState.y * 0.18,
+          playerState.x * 0.45 + steerVelocityX * 0.05,
+          1.28 + playerState.y * 0.18 + smoothWheelieAmount * 0.18,
           -32,
         );
         const camDamp = 1 - Math.exp(-8.5 * dt);
@@ -1052,6 +1130,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       cancelAnimationFrame(frameId);
       clearTimeout(frameId);
       window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('resize', onResize);
       canvasEl.removeEventListener('pointerdown', onPointerDown);
       canvasEl.removeEventListener('pointerup', onPointerUp);

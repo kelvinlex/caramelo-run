@@ -119,13 +119,20 @@ export async function createMotoInstance(
     }
   });
 
-  // Encontra pivôs de direção e rodas
+  // Encontra pivôs de direção, rodas e descanso lateral/cavalete (pezinho levantado)
   let steeringPivot: THREE.Object3D | null = null;
   let frontWheel: THREE.Object3D | null = null;
   let rearWheel: THREE.Object3D | null = null;
 
   motoMeshGroup.traverse((child) => {
     const n = child.name.toLowerCase();
+    // Retrai e levanta o pezinho lateral e o cavalete central em todas as motos (fica recolhido e levantado)
+    if (n.includes('sidestand')) {
+      child.quaternion.set(0, 0, -0.5971954, 0.8020958);
+    }
+    if (n.includes('centerstand')) {
+      child.quaternion.set(0, 0, -0.58509725, 0.8109631);
+    }
     if (n.includes('steering') || n.includes('guidao')) {
       steeringPivot = child;
     }
@@ -158,26 +165,34 @@ export async function createMotoInstance(
       rearWheel.rotation.z = -wheelAngle;
     }
 
-    // Esterçamento suave do guidão quando estiver mudando de faixa
+    // Esterçamento suave do guidão nas curvas e desvios
     if (steeringPivot) {
-      const targetSteer = -steerLean * 0.28;
+      const targetSteer = -steerLean * 0.32;
       steeringPivot.rotation.y = THREE.MathUtils.lerp(steeringPivot.rotation.y, targetSteer, Math.min(1, 14 * dt));
     }
 
-    // Inclinação lateral da moto nas curvas e trocas de faixa (Banking/Lean)
-    const targetRoll = -steerLean * 0.38;
+    // Inclinação lateral da moto mais livre e solta nas manobras (Banking/Lean fluido)
+    const targetRoll = -steerLean * 0.46;
     visualHolder.rotation.z = THREE.MathUtils.lerp(visualHolder.rotation.z, targetRoll, Math.min(1, 12 * dt));
 
-    // Inclinação no grau (Pitch ao pular)
-    visualHolder.rotation.x = THREE.MathUtils.lerp(visualHolder.rotation.x, -pitchAngle, Math.min(1, 15 * dt));
+    // Inclinação suave do grau (Pitch ao empinar no Q ou pular)
+    visualHolder.rotation.x = THREE.MathUtils.lerp(visualHolder.rotation.x, -pitchAngle, Math.min(1, 12 * dt));
+
+    // Ponto de apoio do grau no pneu traseiro:
+    // O eixo traseiro fica em Z = +0.68m no espaço global da moto.
+    // Conforme a moto empina, elevamos a posição Y proporcionalmente para que a roda traseira
+    // fique cravada no asfalto e a dianteira suba suavemente para o ar.
+    const wheelieLiftY = 0.68 * Math.sin(Math.max(0, pitchAngle));
+    const wheelieShiftZ = 0.68 * (1 - Math.cos(Math.max(0, pitchAngle)));
 
     // Vibração suave de marcha lenta / aceleração do motor (estilo cartoon)
     if (speed > 0.5) {
       engineBob += dt * 38;
-      visualHolder.position.y = Math.sin(engineBob) * 0.008;
+      visualHolder.position.y = Math.sin(engineBob) * 0.007 + wheelieLiftY;
     } else {
-      visualHolder.position.y = 0;
+      visualHolder.position.y = wheelieLiftY;
     }
+    visualHolder.position.z = wheelieShiftZ;
   };
 
   const dispose = () => {
