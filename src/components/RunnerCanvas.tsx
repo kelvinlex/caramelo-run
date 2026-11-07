@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { createMotoInstance, type MotoInstance } from '../services/motoModelLoader';
 import {
   BEHIND_GAMEPLAY_CULL_Z,
   DEFAULT_WORLD_CURVE_Y,
@@ -85,6 +86,7 @@ interface RunnerCanvasProps {
   skyPreset: SkyPreset;
   inspectedHouseId: number | null;
   runNonce: number;
+  equippedMotoId?: string;
   onHudUpdate: (hud: HudSnapshot) => void;
   onGameOver: (finalHud: HudSnapshot) => void;
   controlTriggerRef: React.MutableRefObject<{
@@ -114,6 +116,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
   skyPreset,
   inspectedHouseId,
   runNonce,
+  equippedMotoId,
   onHudUpdate,
   onGameOver,
   controlTriggerRef,
@@ -125,15 +128,18 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
   const onHudUpdateRef = useRef(onHudUpdate);
   const onGameOverRef = useRef(onGameOver);
   const bestScoreRef = useRef<number>(0);
+  const equippedMotoRef = useRef<string | undefined>(equippedMotoId);
 
   phaseRef.current = phase;
   skyPresetRef.current = skyPreset;
   inspectedHouseRef.current = inspectedHouseId;
   onHudUpdateRef.current = onHudUpdate;
   onGameOverRef.current = onGameOver;
+  equippedMotoRef.current = equippedMotoId;
 
   const resetRunRef = useRef<(() => void) | null>(null);
   const updateSkyRef = useRef<((preset: SkyPreset) => void) | null>(null);
+  const updateMotoRef = useRef<((id: string) => void) | null>(null);
 
   useEffect(() => {
     if (resetRunRef.current && runNonce > 0) {
@@ -146,6 +152,12 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       updateSkyRef.current(skyPreset);
     }
   }, [skyPreset]);
+
+  useEffect(() => {
+    if (updateMotoRef.current && equippedMotoId) {
+      updateMotoRef.current(equippedMotoId);
+    }
+  }, [equippedMotoId]);
 
   useEffect(() => {
     const container = mountRef.current;
@@ -456,6 +468,38 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     }
 
     // 10. Birds, Parrots, Character and Coin systems removed per user request ("remove os passaros tambem os papagaio do jogo")!
+
+    // 11. Moto do Jogador (Player Motorcycle) carregada dinamicamente
+    let playerMotoInstance: MotoInstance | null = null;
+    let currentLoadedMotoId = equippedMotoRef.current || 'cg160_titan';
+
+    const loadPlayerMoto = (motoId: string) => {
+      createMotoInstance(motoId, { scale: 1.0, castShadow: true, receiveShadow: true })
+        .then((inst) => {
+          if (isDisposed) {
+            inst.dispose();
+            return;
+          }
+          if (playerMotoInstance) {
+            scene.remove(playerMotoInstance.root);
+            playerMotoInstance.dispose();
+          }
+          playerMotoInstance = inst;
+          playerMotoInstance.root.position.set(playerState.x, playerState.y, 0);
+          playerMotoInstance.root.visible = phaseRef.current === 'playing' || phaseRef.current === 'paused';
+          scene.add(playerMotoInstance.root);
+        })
+        .catch((err) => {
+          console.warn('[RunnerCanvas] Erro ao instanciar moto do jogador:', err);
+        });
+    };
+
+    loadPlayerMoto(currentLoadedMotoId);
+
+    updateMotoRef.current = (newId: string) => {
+      currentLoadedMotoId = newId;
+      loadPlayerMoto(newId);
+    };
 
     // 14. Game State, Smooth Camera Sway State & Reset Handler
     let playerState: PlayerState = createInitialPlayerState();
@@ -816,15 +860,35 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
         const targetLaneX = laneToX(playerState.lane);
         const lateralDelta = targetLaneX - playerState.x;
 
+        // Atualiza a moto 3D do jogador com esterçamento, inclinação lateral e giro de rodas
+        if (playerMotoInstance) {
+          const isPlayingOrPaused = activePhase === 'playing' || activePhase === 'paused';
+          playerMotoInstance.root.visible = isPlayingOrPaused;
+
+          if (isPlayingOrPaused) {
+            playerMotoInstance.root.position.set(playerState.x, playerState.y, 0);
+
+            const steerLean = lateralDelta * 1.5;
+            const jumpPitch = playerState.isJumping ? Math.min(0.42, (playerState.vy + 5) * 0.04) : 0;
+
+            playerMotoInstance.update(
+              dt,
+              isActivelyRunning ? playerState.speed : 0,
+              steerLean,
+              jumpPitch
+            );
+          }
+        }
+
         _camTargetPos.set(
-          playerState.x * 0.68 + shakeX,
-          2.72 + playerState.y * 0.25 + shakeY,
-          5.55,
+          playerState.x * 0.72 + shakeX,
+          2.05 + playerState.y * 0.35 + shakeY,
+          3.85,
         );
         _camLookAt.set(
-          playerState.x * 0.45 + lateralDelta * 0.18,
-          2.08 + playerState.y * 0.12,
-          -36,
+          playerState.x * 0.45 + lateralDelta * 0.15,
+          1.28 + playerState.y * 0.18,
+          -32,
         );
         const camDamp = 1 - Math.exp(-8.5 * dt);
         camera.position.lerp(_camTargetPos, camDamp);
@@ -991,6 +1055,9 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       window.removeEventListener('resize', onResize);
       canvasEl.removeEventListener('pointerdown', onPointerDown);
       canvasEl.removeEventListener('pointerup', onPointerUp);
+      if (playerMotoInstance) {
+        playerMotoInstance.dispose();
+      }
       renderer.dispose();
     };
   }, []);

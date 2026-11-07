@@ -24,9 +24,10 @@ import {
   Moon,
   MoveHorizontal,
   Gamepad2,
-  Palette,
   Check,
   Lock,
+  Flame,
+  Zap,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import {
@@ -48,6 +49,16 @@ import {
 import { GalleryModal } from '../game3d/GalleryModal';
 import { MarketingPortalModal } from './MarketingPortalModal';
 import { ProfilePhotoSelectorModal } from '../player/ProfilePhotoSelectorModal';
+import {
+  MOTORCYCLES_CATALOG,
+  getSavedEquippedMotoId,
+  saveEquippedMotoId,
+  getUnlockedMotoIds,
+  saveUnlockedMotoIds,
+  getMotoSpecById,
+  type MotorcycleSpec,
+} from '../../game/motosCatalog';
+import { Garage3DShowroom } from './Garage3DShowroom';
 
 export interface TropicalVilaRunnerProps {
   onBackToMenu?: () => void;
@@ -56,128 +67,6 @@ export interface TropicalVilaRunnerProps {
 }
 
 export type GameState = 'IDLE' | 'PLAYING';
-
-export interface MotoSkinItem {
-  id: string;
-  name: string;
-  subtitle: string;
-  thumbnail: string;
-  rarity: string;
-  color: string;
-  price: number;
-}
-
-export interface DogSkinItem {
-  id: string;
-  name: string;
-  subtitle: string;
-  icon: string;
-  rarity: string;
-  color: string;
-  price: number;
-  description: string;
-}
-
-export const MOTO_SKINS: MotoSkinItem[] = [
-  {
-    id: 'moto_default',
-    name: 'Honda CG 160 Titan',
-    subtitle: 'A Lendária Clássica Vermelha',
-    thumbnail: '/assets/aistudio/image_f982d7d4.png',
-    rarity: 'Comum',
-    color: '#ef4444',
-    price: 0,
-  },
-  {
-    id: 'moto_skin1',
-    name: 'CG 160 Cargo Laranja',
-    subtitle: 'Baú Ciano & Carenagem Laranja',
-    thumbnail: '/assets/aistudio/image_f61de67f.png',
-    rarity: 'Rara',
-    color: '#ea580c',
-    price: 1500,
-  },
-  {
-    id: 'moto_skin2',
-    name: 'Fazer 250 Street Black',
-    subtitle: 'Estilo Noturno & Baú Branco',
-    thumbnail: '/assets/aistudio/image_f77c3dae.png',
-    rarity: 'Especial',
-    color: '#18181b',
-    price: 3500,
-  },
-  {
-    id: 'moto_skin3',
-    name: 'XRE 300 Rally Amarela',
-    subtitle: 'Baú Roxo & Carenagem Amarela',
-    thumbnail: '/assets/aistudio/image_fa94b008.png',
-    rarity: 'Lendária',
-    color: '#eab308',
-    price: 5000,
-  },
-  {
-    id: 'titan_dourada',
-    name: 'CG 160 Ouro Maciço',
-    subtitle: 'Edição Mítica da Quebrada',
-    thumbnail: '/assets/aistudio/image_f93f2d69.png',
-    rarity: 'Mítica',
-    color: '#fbbf24',
-    price: 10000,
-  },
-];
-
-export const CARAMELO_SKINS: DogSkinItem[] = [
-  {
-    id: 'caramelo_default',
-    name: 'Caramelo Clássico',
-    subtitle: 'O autêntico vira-lata caramelo brasileiro',
-    icon: '🐕',
-    rarity: 'Lendária',
-    color: '#d97706',
-    description: 'Ágil, incansável e rei absoluto das calçadas do Brasil.',
-    price: 0,
-  },
-  {
-    id: 'caramelo_skin1',
-    name: 'Caramelo Dourado',
-    subtitle: 'Vira-lata dourado com pelagem reluzente',
-    icon: '✨',
-    rarity: 'Especial',
-    color: '#eab308',
-    description: 'Pelagem dourada brilhante, focado na corrida e nas manobras da quebrada.',
-    price: 1000,
-  },
-  {
-    id: 'caramelo_praia',
-    name: 'Caramelo Praiano',
-    subtitle: 'Direto de Copacabana com óculos e bermuda',
-    icon: '🏄',
-    rarity: 'Especial',
-    color: '#06b6d4',
-    description: 'Estilo praiano carioca, sempre no pique do verão tropical.',
-    price: 2000,
-  },
-  {
-    id: 'caramelo_style',
-    name: 'Caramelo Mandrake',
-    subtitle: 'Visual de cria, kit reflexivo e postura',
-    icon: '🕶️',
-    rarity: 'Rara',
-    color: '#a855f7',
-    description: 'Juliete espelhada, coleira de ouro e atitude de mandrake.',
-    price: 3000,
-  },
-  {
-    id: 'caramelo_cyber',
-    name: 'Cyber Caramelo 2077',
-    subtitle: 'Vira-lata cibernético com circuitos de neon',
-    icon: '⚡',
-    rarity: 'Mítica',
-    color: '#3b82f6',
-    description: 'Implantes neurais para desviar de qualquer obstáculo em nanossegundos.',
-    price: 8000,
-  },
-];
 
 export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
   onBackToMenu,
@@ -188,6 +77,12 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
   const [phase, setPhase] = useState<GamePhase>('title');
   const [runNonce, setRunNonce] = useState(0);
   const startTimeRef = useRef<number>(Date.now());
+
+  // Moto equipada e moto inspecionada na Garagem Showroom
+  const [equippedMotoId, setEquippedMotoId] = useState<string>(getSavedEquippedMotoId);
+  const [selectedGarageMotoId, setSelectedGarageMotoId] = useState<string>(getSavedEquippedMotoId);
+  const [unlockedMotoIds, setUnlockedMotoIds] = useState<string[]>(getUnlockedMotoIds);
+  const [garageCategoryFilter, setGarageCategoryFilter] = useState<'all' | 'street' | 'trail' | 'naked' | 'custom'>('all');
 
   // Clima e Shader de Céu
   const [skyPreset, setSkyPreset] = useState<SkyPreset>(() => {
@@ -204,7 +99,6 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
   const [isSettingsOpen, setIsSettingsOpen] = useState(startInSettings);
   const [settingsTab, setSettingsTab] = useState<'gameplay' | 'graphics' | 'audio' | 'weather'>('gameplay');
   const [showSkinsModal, setShowSkinsModal] = useState(false);
-  const [skinsTab, setSkinsTab] = useState<'motoboy' | 'caramelo'>('motoboy');
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [showMarketingModal, setShowMarketingModal] = useState(false);
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
@@ -265,39 +159,6 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
       if (saved !== null) return saved === 'true';
     } catch {}
     return false;
-  });
-
-  // Skins selecionadas
-  const [equippedMotoSkinId, setEquippedMotoSkinId] = useState<string>(() => {
-    return localStorage.getItem('caramelorun_equipped_moto_skin') || 'moto_default';
-  });
-  const [previewMotoSkin, setPreviewMotoSkin] = useState<MotoSkinItem>(() => {
-    const saved = localStorage.getItem('caramelorun_equipped_moto_skin') || 'moto_default';
-    return MOTO_SKINS.find((m) => m.id === saved) || MOTO_SKINS[0];
-  });
-
-  const [equippedDogSkinId, setEquippedDogSkinId] = useState<string>(() => {
-    return localStorage.getItem('caramelorun_equipped_dog_skin') || 'caramelo_default';
-  });
-  const [previewDogSkin, setPreviewDogSkin] = useState<DogSkinItem>(() => {
-    const saved = localStorage.getItem('caramelorun_equipped_dog_skin') || 'caramelo_default';
-    return CARAMELO_SKINS.find((c) => c.id === saved) || CARAMELO_SKINS[0];
-  });
-
-  const [unlockedMotoSkins, setUnlockedMotoSkins] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('caramelorun_unlocked_moto_skins');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return ['moto_default'];
-  });
-
-  const [unlockedDogSkins, setUnlockedDogSkins] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('caramelorun_unlocked_dog_skins');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return ['caramelo_default'];
   });
 
   // HUD
@@ -433,58 +294,50 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
     return true;
   }, [userCoins]);
 
-  // Compra ou Equipamento de Skin Moto
-  const handleEquipOrBuyMoto = (moto: MotoSkinItem) => {
+  // Ação de Equipar ou Comprar Moto
+  const handleEquipOrBuyMoto = (spec: MotorcycleSpec) => {
     sound.playClick();
-    const isUnlocked = !moto.price || unlockedMotoSkins.includes(moto.id);
+    const isUnlocked = !spec.price || unlockedMotoIds.includes(spec.id);
+
     if (isUnlocked) {
-      setEquippedMotoSkinId(moto.id);
-      localStorage.setItem('caramelorun_equipped_moto_skin', moto.id);
-      confetti({ particleCount: 35, spread: 50 });
+      setEquippedMotoId(spec.id);
+      saveEquippedMotoId(spec.id);
+      confetti({ particleCount: 40, spread: 60 });
     } else {
-      if (handleSpendCoins(moto.price)) {
-        const next = [...unlockedMotoSkins, moto.id];
-        setUnlockedMotoSkins(next);
-        localStorage.setItem('caramelorun_unlocked_moto_skins', JSON.stringify(next));
-        setEquippedMotoSkinId(moto.id);
-        localStorage.setItem('caramelorun_equipped_moto_skin', moto.id);
-        confetti({ particleCount: 65, spread: 80, origin: { y: 0.6 } });
+      if (handleSpendCoins(spec.price)) {
+        const next = [...unlockedMotoIds, spec.id];
+        setUnlockedMotoIds(next);
+        saveUnlockedMotoIds(next);
+        setEquippedMotoId(spec.id);
+        saveEquippedMotoId(spec.id);
+        confetti({ particleCount: 75, spread: 85, origin: { y: 0.6 } });
       } else {
-        alert('Moedas insuficientes!');
+        alert('Moedas insuficientes para desbloquear esta motocicleta!');
       }
     }
   };
 
-  // Compra ou Equipamento de Skin Caramelo
-  const handleEquipOrBuyDog = (dog: DogSkinItem) => {
-    sound.playClick();
-    const isUnlocked = !dog.price || unlockedDogSkins.includes(dog.id);
-    if (isUnlocked) {
-      setEquippedDogSkinId(dog.id);
-      localStorage.setItem('caramelorun_equipped_dog_skin', dog.id);
-      confetti({ particleCount: 35, spread: 50 });
-    } else {
-      if (handleSpendCoins(dog.price)) {
-        const next = [...unlockedDogSkins, dog.id];
-        setUnlockedDogSkins(next);
-        localStorage.setItem('caramelorun_unlocked_dog_skins', JSON.stringify(next));
-        setEquippedDogSkinId(dog.id);
-        localStorage.setItem('caramelorun_equipped_dog_skin', dog.id);
-        confetti({ particleCount: 65, spread: 80, origin: { y: 0.6 } });
-      } else {
-        alert('Moedas insuficientes!');
-      }
-    }
-  };
+  const selectedSpec = getMotoSpecById(selectedGarageMotoId);
+
+  // Filtragem de categorias na Garagem
+  const filteredMotos = MOTORCYCLES_CATALOG.filter((m) => {
+    if (garageCategoryFilter === 'all') return true;
+    if (garageCategoryFilter === 'street') return m.category.includes('Street') || m.category.includes('Utility') || m.category.includes('Cub');
+    if (garageCategoryFilter === 'trail') return m.category.includes('Trail') || m.category.includes('Off-Road') || m.category.includes('Adventure') || m.category.includes('Rally');
+    if (garageCategoryFilter === 'naked') return m.category.includes('Naked') || m.category.includes('Hyper') || m.category.includes('Sports');
+    if (garageCategoryFilter === 'custom') return m.category.includes('Custom') || m.category.includes('Clássica') || m.category.includes('Retrô');
+    return true;
+  });
 
   return (
     <div className="fixed inset-0 z-50 w-screen h-screen overflow-hidden select-none bg-slate-950 font-sans">
-      {/* 3D WebGL Canvas Vila Tropical */}
+      {/* 3D WebGL Canvas Vila Tropical com a Moto do Jogador */}
       <RunnerCanvas
         phase={gameState === 'IDLE' ? 'title' : phase}
         skyPreset={skyPreset}
         inspectedHouseId={null}
         runNonce={runNonce}
+        equippedMotoId={equippedMotoId}
         onHudUpdate={handleHudUpdate}
         onGameOver={handleGameOver}
         controlTriggerRef={controlTriggerRef}
@@ -495,7 +348,6 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
           ========================================================================= */}
       {gameState === 'IDLE' && (
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-between p-3 sm:p-6 text-center overflow-hidden pointer-events-none">
-          {/* Vinheta atmosférica suave */}
           <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-black/40 pointer-events-none" />
 
           {/* TOP BAR INTERATIVA */}
@@ -609,12 +461,13 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
             </button>
           </div>
 
-          {/* INFERIOR: 3 CARTÕES TRIDIMENSIONAIS (LOJA / GALERIA / CONFIGURAÇÕES) */}
+          {/* INFERIOR: 3 CARTÕES TRIDIMENSIONAIS (GARAGEM / GALERIA / CONFIGURAÇÕES) */}
           <div className="relative z-20 w-full max-w-4xl grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3.5 mt-auto mb-2 pointer-events-auto">
-            {/* CARTÃO 1: LOJA / GARAGEM (Laranja 3D) */}
+            {/* CARTÃO 1: GARAGEM DE MOTOS (Laranja 3D) */}
             <button
               onClick={() => {
                 sound.playClick();
+                setSelectedGarageMotoId(equippedMotoId);
                 setShowSkinsModal(true);
               }}
               className="group relative p-1.5 rounded-2xl cartoon-wood-board border-2 border-[#451a03] shadow-[0_8px_20px_rgba(0,0,0,0.85)] cursor-pointer hover:scale-[1.02] active:scale-95 transition-transform"
@@ -644,7 +497,7 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
                     GARAGEM
                   </span>
                   <span className="text-[11px] sm:text-xs font-extrabold text-[#fffbeb] drop-shadow leading-snug">
-                    Motos e skins 3D
+                    20 motos 3D brasileiras
                   </span>
                 </div>
               </div>
@@ -792,7 +645,7 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
               )}
             </div>
 
-            {/* Centro: Totalmente Limpo (sem letreiro nem ícone de clima por solicitação do usuário) */}
+            {/* Centro: Limpo sem letreiro por solicitação do usuário */}
             <div />
 
             {/* Direita: Moedas, Metros, Score + APENAS BOTÃO PAUSE E BOTÃO ENGRENAGEM */}
@@ -815,7 +668,6 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
 
               {/* Ações da gameplay: EXCLUSIVAMENTE PAUSE E ENGRENAGEM */}
               <div className="flex items-center gap-2">
-                {/* 1. BOTÃO DE PAUSA */}
                 <button
                   onClick={togglePause}
                   className="w-11 h-11 cartoon-btn-steel rounded-xl flex items-center justify-center cursor-pointer shadow-lg active:scale-95 transition-all"
@@ -829,7 +681,6 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
                   )}
                 </button>
 
-                {/* 2. BOTÃO DE ENGRENAGEM (CONFIGURAÇÕES) */}
                 <button
                   onClick={() => {
                     sound.playClick();
@@ -877,7 +728,7 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
                 <button
                   onPointerDown={() => controlTriggerRef.current?.jump()}
                   className="w-16 h-16 bg-gradient-to-br from-amber-500 to-orange-600 text-slate-950 font-black rounded-2xl border-2 border-amber-300 flex items-center justify-center shadow-2xl active:scale-90 transition-all touch-none"
-                  aria-label="Pular"
+                  aria-label="Pular / Grau"
                 >
                   <ArrowUp className="w-10 h-10 stroke-[3]" />
                 </button>
@@ -990,7 +841,6 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
           <div className="cartoon-wood-board max-w-lg w-full p-3.5 sm:p-5 relative text-left text-white max-h-[92vh] flex flex-col gap-3 my-auto shadow-2xl">
             <SteelCornerBrackets size="lg" />
 
-            {/* Cabeçalho de Madeira */}
             <div className="flex flex-col gap-1.5 pb-2 border-b-2 border-[#3d1e0d]">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
@@ -1009,7 +859,6 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
               </div>
             </div>
 
-            {/* 4 Abas 3D: CONTROLES / GRÁFICOS / ÁUDIO / CLIMA */}
             <div className="grid grid-cols-4 gap-1.5 p-1 bg-stone-950/70 rounded-2xl border-2 border-[#5f7d9c] shadow-inner">
               <button
                 onClick={() => setSettingsTab('gameplay')}
@@ -1060,9 +909,7 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
               </button>
             </div>
 
-            {/* Conteúdo da Aba */}
             <div className="space-y-3 overflow-y-auto flex-1 pr-1 scrollbar-thin">
-              {/* ABA 1: CONTROLES */}
               {settingsTab === 'gameplay' && (
                 <>
                   <div className="cartoon-wood-plank p-3 rounded-2xl relative shadow-md">
@@ -1195,7 +1042,6 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
                 </>
               )}
 
-              {/* ABA 2: GRÁFICOS */}
               {settingsTab === 'graphics' && (
                 <>
                   <div className="cartoon-wood-plank p-3 rounded-2xl relative shadow-md">
@@ -1280,7 +1126,6 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
                 </>
               )}
 
-              {/* ABA 3: ÁUDIO */}
               {settingsTab === 'audio' && (
                 <div className="cartoon-wood-plank p-4 rounded-2xl flex items-center justify-between relative shadow-md">
                   <SteelCornerBrackets size="sm" />
@@ -1289,7 +1134,7 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
                       {soundMuted ? <VolumeX className="w-5 h-5 text-red-400" /> : <Volume2 className="w-5 h-5 text-emerald-400" />}
                       <span className="text-sm font-black uppercase text-white cartoon-text-outline">ÁUDIO GERAL DO JOGO</span>
                     </div>
-                    <p className="text-[11px] text-amber-200/90 mt-0.5 cartoon-text-outline">Efeitos sonoros, passos, pulos, moedas e batidas</p>
+                    <p className="text-[11px] text-amber-200/90 mt-0.5 cartoon-text-outline">Efeitos sonoros, motor da moto, pulos e moedas</p>
                   </div>
                   <button
                     onClick={() => {
@@ -1305,7 +1150,6 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
                 </div>
               )}
 
-              {/* ABA 4: CLIMA */}
               {settingsTab === 'weather' && (
                 <div className="cartoon-wood-plank p-4 rounded-2xl relative shadow-md">
                   <SteelCornerBrackets size="sm" />
@@ -1361,7 +1205,6 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
               )}
             </div>
 
-            {/* Botão de Fechar */}
             <button
               onClick={() => setIsSettingsOpen(false)}
               className="cartoon-btn-green w-full py-3.5 px-4 rounded-2xl font-black text-sm sm:text-base uppercase tracking-wider flex items-center justify-center gap-2 shadow-2xl cursor-pointer hover:scale-[1.01] active:scale-95 transition-all relative mt-1"
@@ -1375,24 +1218,24 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
       )}
 
       {/* =========================================================================
-          6. MODAL DA GARAGEM & SKINS 3D
+          6. MODAL DA GARAGEM & SKINS 3D (20 MOTOS COM SHOWROOM 3D)
           ========================================================================= */}
       {showSkinsModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[70] flex flex-col items-center justify-center p-2 sm:p-4 text-center animate-fade-in overflow-y-auto">
-          <div className="cartoon-wood-board max-w-4xl w-full p-3 sm:p-5 relative text-left shadow-2xl flex flex-col gap-3 my-auto">
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[70] flex flex-col items-center justify-center p-2 sm:p-4 text-center animate-fade-in overflow-y-auto">
+          <div className="cartoon-wood-board max-w-6xl w-full p-3 sm:p-5 relative text-left shadow-2xl flex flex-col gap-3 my-auto max-h-[95vh] overflow-y-auto">
             <SteelCornerBrackets size="lg" />
 
             {/* Cabeçalho */}
-            <div className="cartoon-wood-header p-2.5 sm:p-3 rounded-2xl flex items-center justify-between relative">
+            <div className="cartoon-wood-header p-2.5 sm:p-3 rounded-2xl flex items-center justify-between relative flex-wrap gap-2">
               <SteelCornerBrackets size="sm" />
               <div className="flex items-center gap-3">
                 <OctagonIconBadge><span className="text-xl sm:text-2xl">🏍️</span></OctagonIconBadge>
                 <div>
                   <h3 className="cartoon-title-3d text-lg sm:text-2xl tracking-tight leading-tight">
-                    GARAGEM & SKINS 3D
+                    GARAGEM DE MOTOS 3D
                   </h3>
                   <p className="text-[11px] sm:text-xs font-bold text-amber-200/90 cartoon-text-outline hidden xs:block">
-                    Personalize sua moto e escolha seu estilo único nas ruas!
+                    20 Motos Brasileiras & Especiais Custom com controle total na corrida!
                   </p>
                 </div>
               </div>
@@ -1403,221 +1246,184 @@ export const TropicalVilaRunner: React.FC<TropicalVilaRunnerProps> = ({
               </div>
             </div>
 
-            {/* Abas */}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setSkinsTab('motoboy')}
-                className={`py-2 px-4 rounded-xl text-xs sm:text-sm font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 ${
-                  skinsTab === 'motoboy' ? 'cartoon-btn-gold shadow-lg' : 'cartoon-btn-steel'
-                }`}
-              >
-                <span>🏍️</span>
-                <span>MOTOS</span>
-              </button>
-              <button
-                onClick={() => setSkinsTab('caramelo')}
-                className={`py-2 px-4 rounded-xl text-xs sm:text-sm font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 ${
-                  skinsTab === 'caramelo' ? 'cartoon-btn-gold shadow-lg' : 'cartoon-btn-steel'
-                }`}
-              >
-                <span>🐕</span>
-                <span>CARAMELO</span>
-              </button>
+            {/* Filtros de Categoria */}
+            <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-1 scrollbar-none">
+              {(
+                [
+                  { id: 'all', label: 'TODAS (20)' },
+                  { id: 'street', label: 'URBANAS' },
+                  { id: 'trail', label: 'TRAILS & RALLY' },
+                  { id: 'naked', label: 'NAKEDS' },
+                  { id: 'custom', label: 'CUSTOM & CLÁSSICAS' },
+                ] as const
+              ).map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => {
+                    sound.playClick();
+                    setGarageCategoryFilter(cat.id);
+                  }}
+                  className={`py-1.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                    garageCategoryFilter === cat.id ? 'cartoon-btn-gold shadow-md' : 'cartoon-btn-steel opacity-80'
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
             </div>
 
-            {/* Conteúdo Garagem */}
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-stretch">
-              {/* Painel Esquerdo: Info da Skin Selecionada */}
-              <div className="md:col-span-5 cartoon-navy-panel p-3.5 flex flex-col justify-between">
+            {/* Layout Principal da Garagem: 3 Colunas (Specs + 3D Showroom + Grade de Seleção) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-stretch">
+              {/* COLUNA ESQUERDA: Ficha Técnica e Botão de Equipar */}
+              <div className="lg:col-span-4 cartoon-navy-panel p-3.5 flex flex-col justify-between">
                 <SteelCornerBrackets size="sm" />
                 <div>
-                  <div className="flex items-center gap-1.5 text-amber-400 text-xs font-black uppercase tracking-wider mb-1">
-                    <Award className="w-4 h-4 text-amber-400" />
-                    <span>{skinsTab === 'motoboy' ? 'MOTO SELECIONADA' : 'CARAMELO SELECIONADO'}</span>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-black uppercase text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/30">
+                      {selectedSpec.brand}
+                    </span>
+                    <span
+                      className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full border ${
+                        selectedSpec.rarity === 'Mítica'
+                          ? 'bg-rose-500/20 text-rose-300 border-rose-500/50'
+                          : selectedSpec.rarity === 'Lendária'
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                          : selectedSpec.rarity === 'Especial'
+                          ? 'bg-purple-500/20 text-purple-300 border-purple-500/50'
+                          : 'bg-sky-500/20 text-sky-300 border-sky-500/50'
+                      }`}
+                    >
+                      {selectedSpec.rarity}
+                    </span>
                   </div>
+
                   <h4 className="cartoon-title-3d text-base sm:text-lg text-white tracking-wide leading-tight">
-                    {skinsTab === 'motoboy' ? previewMotoSkin.name : previewDogSkin.name}
+                    {selectedSpec.name}
                   </h4>
-                  <p className="text-[11px] text-amber-200/90 font-bold mt-0.5 mb-3 leading-snug cartoon-text-outline">
-                    {skinsTab === 'motoboy' ? previewMotoSkin.subtitle : previewDogSkin.subtitle}
+                  <p className="text-[11px] text-amber-200/90 font-bold mt-0.5 mb-2.5 leading-snug cartoon-text-outline">
+                    {selectedSpec.category}
                   </p>
 
-                  {/* Barras de Estatísticas */}
-                  <div className="flex flex-col gap-2 mt-2">
-                    <div>
-                      <div className="flex items-center justify-between text-[10px] font-black uppercase text-amber-100 tracking-wider mb-1 cartoon-text-outline">
-                        <span>⚡ VELOCIDADE</span>
-                        <span className="font-mono text-amber-300">
-                          {skinsTab === 'motoboy' ? (previewMotoSkin.id === 'titan_dourada' ? '100%' : '85%') : '90%'}
-                        </span>
-                      </div>
-                      <div className="w-full h-2.5 rounded-full cartoon-wood-inset border border-[#d97706] p-[2px]">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-amber-500 to-yellow-300"
-                          style={{
-                            width: skinsTab === 'motoboy' ? (previewMotoSkin.id === 'titan_dourada' ? '100%' : '85%') : '90%',
-                          }}
-                        />
-                      </div>
+                  <div className="cartoon-wood-inset p-2.5 rounded-xl border border-amber-500/30 space-y-1.5 text-xs">
+                    <div className="flex justify-between items-center text-[11px]">
+                      <span className="text-amber-200/80 font-bold">Cilindradas:</span>
+                      <span className="text-white font-mono font-black">{selectedSpec.displacementCc} cc</span>
                     </div>
-
-                    <div>
-                      <div className="flex items-center justify-between text-[10px] font-black uppercase text-amber-100 tracking-wider mb-1 cartoon-text-outline">
-                        <span>🎯 CONTROLE</span>
-                        <span className="font-mono text-amber-300">
-                          {skinsTab === 'motoboy' ? '90%' : '95%'}
-                        </span>
-                      </div>
-                      <div className="w-full h-2.5 rounded-full cartoon-wood-inset border border-[#d97706] p-[2px]">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-sky-300"
-                          style={{ width: '90%' }}
-                        />
-                      </div>
+                    <div className="flex justify-between items-center text-[11px]">
+                      <span className="text-amber-200/80 font-bold">Potência:</span>
+                      <span className="text-white font-mono font-black">{selectedSpec.powerHp}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[11px]">
+                      <span className="text-amber-200/80 font-bold">Torque:</span>
+                      <span className="text-white font-mono font-black">{selectedSpec.torqueNm}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[11px]">
+                      <span className="text-amber-200/80 font-bold">Pintura:</span>
+                      <span className="text-amber-300 font-bold truncate max-w-[130px]">{selectedSpec.colorName}</span>
                     </div>
                   </div>
+
+                  <p className="text-[11px] text-amber-100/90 mt-2.5 italic leading-relaxed">
+                    "{selectedSpec.description}"
+                  </p>
                 </div>
 
-                {/* Ação: Equipar ou Comprar */}
-                <div className="mt-4 pt-3 border-t border-amber-500/20">
-                  {skinsTab === 'motoboy' ? (
-                    (() => {
-                      const isUnlocked = !previewMotoSkin.price || unlockedMotoSkins.includes(previewMotoSkin.id);
-                      const isEquipped = equippedMotoSkinId === previewMotoSkin.id;
-                      return (
-                        <button
-                          onClick={() => handleEquipOrBuyMoto(previewMotoSkin)}
-                          className={`w-full py-2.5 px-3 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                            isEquipped
-                              ? 'cartoon-btn-green'
-                              : isUnlocked
-                              ? 'cartoon-btn-gold'
-                              : 'cartoon-btn-steel'
-                          }`}
-                        >
-                          {isEquipped ? (
-                            <>
-                              <Check className="w-4 h-4" />
-                              <span>EQUIPADA</span>
-                            </>
-                          ) : isUnlocked ? (
-                            <span>EQUIPAR MOTO</span>
-                          ) : (
-                            <>
-                              <Lock className="w-4 h-4 text-amber-300" />
-                              <span>COMPRAR POR {previewMotoSkin.price} MOEDAS</span>
-                            </>
-                          )}
-                        </button>
-                      );
-                    })()
-                  ) : (
-                    (() => {
-                      const isUnlocked = !previewDogSkin.price || unlockedDogSkins.includes(previewDogSkin.id);
-                      const isEquipped = equippedDogSkinId === previewDogSkin.id;
-                      return (
-                        <button
-                          onClick={() => handleEquipOrBuyDog(previewDogSkin)}
-                          className={`w-full py-2.5 px-3 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                            isEquipped
-                              ? 'cartoon-btn-green'
-                              : isUnlocked
-                              ? 'cartoon-btn-gold'
-                              : 'cartoon-btn-steel'
-                          }`}
-                        >
-                          {isEquipped ? (
-                            <>
-                              <Check className="w-4 h-4" />
-                              <span>EQUIPADO</span>
-                            </>
-                          ) : isUnlocked ? (
-                            <span>EQUIPAR CARAMELO</span>
-                          ) : (
-                            <>
-                              <Lock className="w-4 h-4 text-amber-300" />
-                              <span>COMPRAR POR {previewDogSkin.price} MOEDAS</span>
-                            </>
-                          )}
-                        </button>
-                      );
-                    })()
-                  )}
+                {/* Botão de Ação: Equipar ou Comprar */}
+                <div className="mt-3 pt-3 border-t border-amber-500/20">
+                  {(() => {
+                    const isUnlocked = !selectedSpec.price || unlockedMotoIds.includes(selectedSpec.id);
+                    const isEquipped = equippedMotoId === selectedSpec.id;
+                    return (
+                      <button
+                        onClick={() => handleEquipOrBuyMoto(selectedSpec)}
+                        className={`w-full py-3 px-4 rounded-xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg active:scale-95 ${
+                          isEquipped
+                            ? 'cartoon-btn-green'
+                            : isUnlocked
+                            ? 'cartoon-btn-gold'
+                            : 'cartoon-btn-steel'
+                        }`}
+                      >
+                        {isEquipped ? (
+                          <>
+                            <Check className="w-4 h-4" />
+                            <span>MOTO EQUIPADA NA CORRIDA</span>
+                          </>
+                        ) : isUnlocked ? (
+                          <>
+                            <Zap className="w-4 h-4" />
+                            <span>EQUIPAR ESTA MOTO</span>
+                          </>
+                        ) : (
+                          <>
+                            <Lock className="w-4 h-4 text-amber-300" />
+                            <span>DESBLOQUEAR POR {selectedSpec.price.toLocaleString('pt-BR')} MOEDAS</span>
+                          </>
+                        )}
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
 
-              {/* Painel Direito: Grade de Itens */}
-              <div className="md:col-span-7 cartoon-navy-panel p-3.5 flex flex-col">
+              {/* COLUNA CENTRAL: Showroom 3D em Tempo Real com a Moto e Texturas */}
+              <div className="lg:col-span-5 relative rounded-2xl overflow-hidden border-2 border-amber-400/80 shadow-2xl bg-gradient-to-b from-[#1c1917] to-[#0c0a09] min-h-[280px] flex items-center justify-center">
                 <SteelCornerBrackets size="sm" />
-                <div className="text-xs font-black uppercase text-amber-300 mb-2 cartoon-text-outline">
-                  SELECIONE SEU MODELO
+                <Garage3DShowroom motoId={selectedGarageMotoId} />
+              </div>
+
+              {/* COLUNA DIREITA: Grade de Seleção das 20 Motos */}
+              <div className="lg:col-span-3 cartoon-navy-panel p-3 flex flex-col">
+                <SteelCornerBrackets size="sm" />
+                <div className="text-[11px] font-black uppercase text-amber-300 mb-2 cartoon-text-outline flex items-center justify-between">
+                  <span>ESCOLHA SEU MODELO</span>
+                  <span className="text-[9px] text-amber-400 font-mono">{filteredMotos.length} MOTOS</span>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 overflow-y-auto max-h-[280px] p-1 scrollbar-thin">
-                  {skinsTab === 'motoboy'
-                    ? MOTO_SKINS.map((moto) => {
-                        const isSelected = previewMotoSkin.id === moto.id;
-                        const isEquipped = equippedMotoSkinId === moto.id;
-                        const isUnlocked = !moto.price || unlockedMotoSkins.includes(moto.id);
-                        return (
-                          <button
-                            key={moto.id}
-                            onClick={() => {
-                              sound.playClick();
-                              setPreviewMotoSkin(moto);
-                            }}
-                            className={`p-2 rounded-xl border-2 flex flex-col items-center text-center transition-all cursor-pointer relative ${
-                              isSelected
-                                ? 'border-amber-300 bg-amber-600/30 scale-102 shadow-lg'
-                                : 'border-stone-700 bg-stone-900/60 hover:border-amber-400/50'
-                            }`}
-                          >
-                            <img
-                              src={moto.thumbnail}
-                              alt={moto.name}
-                              className="w-full h-16 object-cover rounded-lg mb-1.5"
-                              onError={(e) => {
-                                (e.currentTarget as HTMLImageElement).src = '/logo.png';
-                              }}
-                            />
-                            <div className="text-[11px] font-black text-white truncate w-full cartoon-text-outline">
-                              {moto.name}
-                            </div>
-                            <div className="text-[9px] font-bold text-amber-300">
+                <div className="grid grid-cols-2 lg:grid-cols-1 gap-2 overflow-y-auto max-h-[340px] pr-1 scrollbar-thin">
+                  {filteredMotos.map((moto) => {
+                    const isSelected = selectedGarageMotoId === moto.id;
+                    const isEquipped = equippedMotoId === moto.id;
+                    const isUnlocked = !moto.price || unlockedMotoIds.includes(moto.id);
+
+                    return (
+                      <button
+                        key={moto.id}
+                        onClick={() => {
+                          sound.playClick();
+                          setSelectedGarageMotoId(moto.id);
+                        }}
+                        className={`p-2 rounded-xl border-2 flex items-center gap-2.5 transition-all cursor-pointer text-left ${
+                          isSelected
+                            ? 'border-amber-400 bg-amber-500/20 shadow-md scale-[1.02]'
+                            : 'border-stone-800 bg-stone-900/60 hover:border-amber-400/50'
+                        }`}
+                      >
+                        <div
+                          className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 border"
+                          style={{
+                            backgroundColor: `${moto.primaryColor}25`,
+                            borderColor: moto.primaryColor,
+                          }}
+                        >
+                          <span className="text-lg">🏍️</span>
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-black text-white truncate cartoon-text-outline leading-tight">
+                            {moto.name}
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-0.5 text-[10px]">
+                            <span className="text-amber-300 font-mono font-bold">{moto.displacementCc}cc</span>
+                            <span className="text-stone-500">•</span>
+                            <span className="text-stone-300 font-bold truncate">
                               {isEquipped ? '✓ EQUIPADA' : isUnlocked ? 'LIBERADA' : `${moto.price} Moedas`}
-                            </div>
-                          </button>
-                        );
-                      })
-                    : CARAMELO_SKINS.map((dog) => {
-                        const isSelected = previewDogSkin.id === dog.id;
-                        const isEquipped = equippedDogSkinId === dog.id;
-                        const isUnlocked = !dog.price || unlockedDogSkins.includes(dog.id);
-                        return (
-                          <button
-                            key={dog.id}
-                            onClick={() => {
-                              sound.playClick();
-                              setPreviewDogSkin(dog);
-                            }}
-                            className={`p-2 rounded-xl border-2 flex flex-col items-center text-center transition-all cursor-pointer relative ${
-                              isSelected
-                                ? 'border-amber-300 bg-amber-600/30 scale-102 shadow-lg'
-                                : 'border-stone-700 bg-stone-900/60 hover:border-amber-400/50'
-                            }`}
-                          >
-                            <div className="w-full h-16 rounded-lg bg-stone-800 flex items-center justify-center text-3xl mb-1.5">
-                              {dog.icon}
-                            </div>
-                            <div className="text-[11px] font-black text-white truncate w-full cartoon-text-outline">
-                              {dog.name}
-                            </div>
-                            <div className="text-[9px] font-bold text-amber-300">
-                              {isEquipped ? '✓ EQUIPADO' : isUnlocked ? 'LIBERADO' : `${dog.price} Moedas`}
-                            </div>
-                          </button>
-                        );
-                      })}
+                            </span>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
