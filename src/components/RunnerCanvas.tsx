@@ -551,14 +551,14 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       });
     };
 
-    // Controles dinâmicos e movimentação livre da moto
+    // Controles dinâmicos e navegação livre entre as 3 ruas
     const keysDown = {
       left: false,
       right: false,
       wheelie: false,
     };
     let steerVelocityX = 0;
-    let freePlayerX = 0;
+    let holdSteerTimer = 0;
     let wheeliePulseTimer = 0;
     let smoothWheelieAmount = 0;
 
@@ -570,7 +570,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       camRollImpulse = 0;
       gaitCycle = 0;
       steerVelocityX = 0;
-      freePlayerX = 0;
+      holdSteerTimer = 0;
       wheeliePulseTimer = 0;
       smoothWheelieAmount = 0;
       keysDown.left = false;
@@ -582,10 +582,9 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     resetRunRef.current = resetRun;
     resetRun();
 
-    // 15. Camera Lane & Movement Controls (Sound & Shadow systems removed per user request!)
+    // 15. Camera Lane & Movement Controls (Navegação livre e precisa entre as 3 ruas)
     const doShiftLeft = () => {
       if (phaseRef.current !== 'playing') return;
-      steerVelocityX = Math.max(-8.5, steerVelocityX - 3.8);
       const prevLane = playerState.lane;
       playerState = shiftLane(playerState, -1);
       if (playerState.lane !== prevLane) {
@@ -595,7 +594,6 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
 
     const doShiftRight = () => {
       if (phaseRef.current !== 'playing') return;
-      steerVelocityX = Math.min(8.5, steerVelocityX + 3.8);
       const prevLane = playerState.lane;
       playerState = shiftLane(playerState, 1);
       if (playerState.lane !== prevLane) {
@@ -801,27 +799,28 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
         if (hitstopTimer > 0) {
           hitstopTimer = Math.max(0, hitstopTimer - dt);
         } else {
+          const prevPosX = playerState.x;
           playerState = stepPlayerPhysics(playerState, dt);
 
-          // Movimento livre e responsivo da moto (pilotagem solta e suave pela rua toda)
-          const steerAccel = 36.0;
-          const maxSteerSpeed = 8.6;
+          // Suporte contínuo para transição e navegação fluida entre as 3 ruas
           if (keysDown.left) {
-            steerVelocityX = Math.max(-maxSteerSpeed, steerVelocityX - steerAccel * dt);
+            holdSteerTimer += dt;
+            if (holdSteerTimer > 0.22 && playerState.lane > -1) {
+              doShiftLeft();
+              holdSteerTimer = 0;
+            }
           } else if (keysDown.right) {
-            steerVelocityX = Math.min(maxSteerSpeed, steerVelocityX + steerAccel * dt);
+            holdSteerTimer += dt;
+            if (holdSteerTimer > 0.22 && playerState.lane < 1) {
+              doShiftRight();
+              holdSteerTimer = 0;
+            }
           } else {
-            // Desaceleração suave por inércia quando solta a direção
-            steerVelocityX = THREE.MathUtils.lerp(steerVelocityX, 0, Math.min(1, 9.5 * dt));
+            holdSteerTimer = 0;
           }
 
-          freePlayerX = playerState.x + steerVelocityX * dt;
-          // Limites confortáveis do asfalto (rua de 11.6m, margem segura entre -4.75m e +4.75m)
-          freePlayerX = THREE.MathUtils.clamp(freePlayerX, -4.75, 4.75);
-          playerState.x = freePlayerX;
-
-          // Sincroniza a faixa lógica da moto para casas, placar e regras do jogo
-          playerState.lane = (freePlayerX < -1.5 ? -1 : freePlayerX > 1.5 ? 1 : 0) as LaneIndex;
+          const lateralVx = (playerState.x - prevPosX) / Math.max(0.001, dt);
+          steerVelocityX = THREE.MathUtils.lerp(steerVelocityX, lateralVx, Math.min(1, 14.0 * dt));
 
           const moveZ = playerState.speed * dt;
 
@@ -924,8 +923,8 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
           camera.updateProjectionMatrix();
         }
 
-        // Inclinação dinâmica realista: responde diretamente à velocidade lateral real da moto (mais solta e livre)
-        const steerLean = (steerVelocityX / 8.6) * 1.6;
+        // Inclinação dinâmica e fluida ao navegar entre as 3 ruas (Banking realista)
+        const steerLean = THREE.MathUtils.clamp((steerVelocityX / 5.5) * 1.5, -1.2, 1.2);
 
         // Grau no 'Q' bem suave (Wheelie progressivo contínuo ao segurar ou suave ao apertar)
         if (wheeliePulseTimer > 0) {

@@ -14,7 +14,7 @@ export default defineConfig(() => {
     server: {
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: {
-        ignored: ['**/*.glb', '**/public/assets/**', '**/*.mp4'],
+        ignored: ['**/*.glb', '**/*.fbx', '**/public/assets/**', '**/*.mp4'],
       },
     },
   };
