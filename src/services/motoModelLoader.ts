@@ -141,15 +141,21 @@ export async function createMotoInstance(
   let engineBob = 0;
 
   const update = (dt: number, speed: number, steerLean: number, pitchAngle: number) => {
-    // Rotação das rodas baseada na velocidade do veículo
+    // Rotação contínua das rodas para frente ao redor do eixo Z (eixo real das rodas no modelo 3D)
+    // No espaço local de cada moto: +X é a frente, +Y é para cima e o eixo da roda é o eixo Z.
+    // Uma rotação horária negativa (-wheelAngle) ao redor de Z gira a roda para frente no chão.
     const angularSpeed = (speed / 0.32) * dt; // raio aproximado da roda ~0.32m
-    wheelAngle += angularSpeed;
+    wheelAngle = (wheelAngle + angularSpeed) % (Math.PI * 2);
 
     if (frontWheel) {
-      frontWheel.rotation.x = wheelAngle;
+      frontWheel.rotation.x = 0;
+      frontWheel.rotation.y = 0;
+      frontWheel.rotation.z = -wheelAngle;
     }
     if (rearWheel) {
-      rearWheel.rotation.x = wheelAngle;
+      rearWheel.rotation.x = 0;
+      rearWheel.rotation.y = 0;
+      rearWheel.rotation.z = -wheelAngle;
     }
 
     // Esterçamento suave do guidão quando estiver mudando de faixa
