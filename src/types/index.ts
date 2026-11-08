@@ -54,9 +54,11 @@ export interface User {
   avatarUrl?: string;
   profilePhotoUrl?: string;
   ossoCoins: number;
+  hasInfiniteCoins?: boolean;
   notas10?: number;
   notas50?: number;
   notas100?: number;
+  notas200?: number;
   skinEquipadaId: string;
   status: AccountStatus;
   criadoEm: string;

@@ -1689,6 +1689,30 @@ export function buildBrazilianHouse(
   return houseGroup;
 }
 
+const streetlampNightConeMat = new THREE.MeshBasicMaterial({
+  color: 0xfde047,
+  transparent: true,
+  opacity: 0.0,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+  fog: false,
+});
+
+const streetlampNightBulbOrbMat = new THREE.MeshBasicMaterial({
+  color: 0xfffbeb,
+  transparent: true,
+  opacity: 0.0,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+  fog: false,
+});
+
+export function setNightStreetLightIntensity(nightFactor: number): void {
+  const n = THREE.MathUtils.clamp(nightFactor, 0, 1);
+  streetlampNightConeMat.opacity = n * 0.24;
+  streetlampNightBulbOrbMat.opacity = n * 0.85;
+}
+
 /**
  * Builds a Brazilian Sidewalk Concrete Utility Pole ("Poste de Concreto com Fios e Luminária")
  */
@@ -1755,6 +1779,20 @@ export function buildUtilityPoleWithWires(
   group.add(lampBulb);
 
   addCartoonOutlinesToGroup(group);
+
+  // Halo luminoso quente noturno nos postes (acende suavemente ao anoitecer — 0 custo durante o dia!)
+  const nightHalo = new THREE.Mesh(sharedGeos.cone, streetlampNightConeMat);
+  nightHalo.scale.set(1.35, 3.6, 1.35);
+  nightHalo.position.set(roadDir * 1.22, poleH - 2.15, 0);
+  nightHalo.userData.noCartoonOutline = true;
+  nightHalo.visible = true;
+  group.add(nightHalo);
+
+  const nightOrb = new THREE.Mesh(sharedGeos.sphere, streetlampNightBulbOrbMat);
+  nightOrb.scale.set(0.42, 0.28, 0.42);
+  nightOrb.position.set(roadDir * 1.22, poleH - 0.36, 0);
+  nightOrb.userData.noCartoonOutline = true;
+  group.add(nightOrb);
 
   // Clean longitudinal electrical wire bundle along the sidewalk (stays at y = 3.55 .. 4.15m so it never crosses billboards!)
   const wireOffsets = [-0.48, -0.16, 0.16, 0.48];
@@ -2442,20 +2480,29 @@ function addSoftBuildingOutlinesToGroup(root: THREE.Object3D): void {
 }
 
 /**
- * Builds a Radiant, Illustrated Cartoon Sunset Sun with Golden Sunbeams Passing Behind the Horizon Mountains & Skyline
- * ("deixe o ceu mais vivo tambem, o sol passando por tras bem lindo").
+ * Builds a Radiant, Illustrated Cartoon Sun with Golden Sunbeams Passing Behind the Horizon Mountains & Skyline,
+ * smoothly descending and reddening at sunset, then fading cleanly as Night & Aurora Borealis emerge!
  */
 export function buildRealisticHorizonSun(): {
   group: THREE.Group;
-  update: (elapsed: number) => void;
+  update: (
+    elapsed: number,
+    qualityMultiplier?: number,
+    sunVisibility?: number,
+    sunsetFactor?: number
+  ) => void;
 } {
   const group = new THREE.Group();
-  group.name = 'Cinematic_Horizon_Sunset_Sun';
+  group.name = 'Cinematic_High_Sky_Sun';
 
   const sunUniforms = {
     uTime: { value: 0 },
+    uQuality: { value: 1.0 },
+    uOpacity: { value: 1.0 },
+    uSunset: { value: 0.0 },
   };
 
+  // 1. Disco Solar Radiante + Halo Dourado / Coral de Pôr do Sol
   const coreShaderMat = new THREE.ShaderMaterial({
     uniforms: sunUniforms,
     transparent: true,
@@ -2472,74 +2519,241 @@ export function buildRealisticHorizonSun(): {
     `,
     fragmentShader: `
       uniform float uTime;
+      uniform float uQuality;
+      uniform float uOpacity;
+      uniform float uSunset;
       varying vec2 vUv;
       void main() {
+        if (uOpacity <= 0.005) discard;
         float r = length(vUv);
         if (r > 1.0) discard;
 
         float angle = atan(vUv.y, vUv.x);
 
-        // Cinematic anamorphic lens ratio for warm atmospheric horizon diffusion
-        float rAnamorphic = length(vec2(vUv.x * 0.72, vUv.y * 1.35));
+        float rayA = sin(angle * 10.0 - uTime * 0.18) * 0.5 + 0.5;
+        float rayB = cos(angle * 16.0 + uTime * 0.11) * 0.5 + 0.5;
+        float rayC = sin(angle * 6.0 + uTime * 0.06) * 0.5 + 0.5;
+        float godRays = (pow(rayA, 3.6) * 0.50 + pow(rayB, 4.5) * 0.30 + pow(rayC, 2.4) * 0.25)
+          * smoothstep(0.96, 0.14, r) * (0.26 + 0.14 * uQuality);
 
-        // Subtle, elegant crepuscular rays (god rays) radiating gently
-        float beam1 = sin(angle * 8.0 - uTime * 0.14) * 0.5 + 0.5;
-        float beam2 = cos(angle * 12.0 + uTime * 0.09) * 0.5 + 0.5;
-        float rays = (pow(beam1, 4.0) * 0.65 + pow(beam2, 3.2) * 0.35) * smoothstep(0.85, 0.22, r) * 0.18;
+        float streak = exp(-abs(vUv.y) * 26.0) * smoothstep(0.98, 0.05, abs(vUv.x)) * (0.34 + 0.18 * uQuality);
+        float lensRing = exp(-pow((r - 0.44) * 16.0, 2.0)) * 0.14 * uQuality;
 
-        // Compact, brilliant cinematic solar disc with soft golden hour corona
-        float coreDisc = smoothstep(0.24, 0.17, r);
-        float innerCorona = smoothstep(0.42, 0.19, r) * 0.72;
-        float midHalo = smoothstep(0.72, 0.26, rAnamorphic) * 0.38;
-        float outerAtmosphere = smoothstep(1.0, 0.42, rAnamorphic) * 0.20;
+        float coreDisc = smoothstep(0.19, 0.125, r);
+        float innerGlow = smoothstep(0.38, 0.13, r) * 0.85;
+        float midCorona = smoothstep(0.68, 0.20, r) * 0.45;
+        float outerAura = smoothstep(1.0, 0.32, r) * 0.24;
 
-        vec3 coreWhite = vec3(1.0, 0.99, 0.94);
-        vec3 goldCorona = vec3(1.0, 0.85, 0.32);
-        vec3 sunsetAmber = vec3(0.99, 0.55, 0.22);
-        vec3 twilightRose = vec3(0.95, 0.44, 0.30);
+        vec3 pureSolarWhite = mix(vec3(1.0, 0.995, 0.95), vec3(1.0, 0.92, 0.72), uSunset);
+        vec3 warmGold = mix(vec3(1.0, 0.88, 0.38), vec3(1.0, 0.58, 0.20), uSunset);
+        vec3 richAmber = mix(vec3(1.0, 0.62, 0.22), vec3(0.96, 0.32, 0.26), uSunset);
+        vec3 softPeach = mix(vec3(0.99, 0.48, 0.28), vec3(0.76, 0.22, 0.48), uSunset);
 
-        vec3 col = mix(twilightRose, sunsetAmber, smoothstep(0.90, 0.40, rAnamorphic));
-        col = mix(col, goldCorona, smoothstep(0.55, 0.22, r));
-        col = mix(col, coreWhite, coreDisc + rays * 0.6);
+        vec3 col = mix(softPeach, richAmber, smoothstep(0.95, 0.38, r));
+        col = mix(col, warmGold, smoothstep(0.52, 0.18, r) + lensRing);
+        col = mix(col, pureSolarWhite, clamp(coreDisc + streak * 0.75 + godRays * 0.55, 0.0, 1.0));
 
-        float alpha = clamp(coreDisc * 0.98 + innerCorona + midHalo + outerAtmosphere + rays, 0.0, 1.0);
+        float alpha = clamp(coreDisc + innerGlow + midCorona + outerAura + godRays + streak + lensRing, 0.0, 1.0) * uOpacity;
         gl_FragColor = vec4(col, alpha);
       }
     `,
   });
 
-  // Compact, cinematic sun plane (42x42 instead of 82x82)
-  const coreQuad = new THREE.Mesh(new THREE.PlaneGeometry(42, 42), coreShaderMat);
+  // 2. Feixes Solares Aditivos (Sunbeams / Lens Bloom Amplo no Alto do Céu)
+  const beamsShaderMat = new THREE.ShaderMaterial({
+    uniforms: sunUniforms,
+    transparent: true,
+    depthWrite: false,
+    fog: false,
+    toneMapped: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv * 2.0 - 1.0;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uQuality;
+      uniform float uOpacity;
+      uniform float uSunset;
+      varying vec2 vUv;
+      void main() {
+        if (uOpacity <= 0.005) discard;
+        float r = length(vUv);
+        if (r > 1.0) discard;
+        float angle = atan(vUv.y, vUv.x);
+        float shafts = pow(sin(angle * 7.0 + uTime * 0.08) * 0.5 + 0.5, 3.0) * smoothstep(1.0, 0.08, r);
+        float diagShaft = exp(-abs(vUv.x * 0.62 + vUv.y * 0.78) * 5.5) * step(vUv.y, 0.15) * smoothstep(1.0, 0.1, r);
+        float intensity = (shafts * 0.16 + diagShaft * 0.22 + smoothstep(0.65, 0.0, r) * 0.24) * (0.65 + 0.35 * uQuality) * uOpacity;
+        vec3 dayBeam = mix(vec3(1.0, 0.68, 0.25), vec3(1.0, 0.94, 0.68), smoothstep(0.7, 0.0, r));
+        vec3 sunsetBeam = mix(vec3(0.95, 0.30, 0.36), vec3(1.0, 0.68, 0.32), smoothstep(0.7, 0.0, r));
+        vec3 beamColor = mix(dayBeam, sunsetBeam, uSunset);
+        gl_FragColor = vec4(beamColor * intensity, intensity);
+      }
+    `,
+  });
+
+  const coreQuad = new THREE.Mesh(new THREE.PlaneGeometry(86, 86), coreShaderMat);
   coreQuad.position.set(0, 0, 0);
   group.add(coreQuad);
 
-  // Nestled gracefully behind the distant mountain saddle and Rio skyline (z = -185)
-  group.position.set(1.0, 32.5, -185.0);
+  const beamsQuad = new THREE.Mesh(new THREE.PlaneGeometry(148, 148), beamsShaderMat);
+  beamsQuad.position.set(4, -8, 0.5);
+  group.add(beamsQuad);
+
+  group.position.set(-18.5, 74.0, -182.0);
 
   return {
     group,
-    update: (elapsed: number) => {
+    update: (
+      elapsed: number,
+      qualityMultiplier = 1.0,
+      sunVisibility = 1.0,
+      sunsetFactor = 0.0
+    ) => {
+      const vis = THREE.MathUtils.clamp(sunVisibility, 0, 1);
+      group.visible = vis > 0.008;
+      if (!group.visible) return;
+
       sunUniforms.uTime.value = elapsed;
-      // Majestic, slow celestial drift in the horizon
-      group.position.x = 1.0 + Math.sin(elapsed * 0.05) * 5.0;
-      group.position.y = 32.5 + Math.cos(elapsed * 0.05) * 0.6;
+      sunUniforms.uQuality.value = qualityMultiplier;
+      sunUniforms.uOpacity.value = vis;
+      sunUniforms.uSunset.value = THREE.MathUtils.clamp(sunsetFactor, 0, 1);
+      beamsQuad.visible = qualityMultiplier >= 0.45 && vis > 0.04;
+
+      // Desce suavemente de y = 75m (dia alto) até y = 16m atrás das montanhas ao anoitecer!
+      group.position.x = -18.5 - (1.0 - vis) * 12.0 + Math.sin(elapsed * 0.04) * 2.0;
+      group.position.y = 16.0 + vis * 58.0 + Math.cos(elapsed * 0.04) * 0.6;
     },
   };
 }
 
 /**
- * Clean Sky System: No floating 3D smoke/fog cloud billboards!
- * All digital brushstrokes and illustrated clouds are integrated directly into the sky dome texture.
+ * Nuvens 3D Cartoon Estilizadas lá no Alto do Céu que mudam de cor suavemente
+ * conforme o ciclo Dia -> Pôr do Sol -> Noite Estrelada & Aurora Boreal!
  */
 export function buildPerspectiveSkyClouds(_maxAnisotropy = 4): {
   group: THREE.Group;
-  update: (dt: number, elapsed: number, playerSpeed: number, isPlaying: boolean) => void;
+  update: (
+    dt: number,
+    elapsed: number,
+    playerSpeed: number,
+    isPlaying: boolean,
+    sunsetMix?: number,
+    nightMix?: number
+  ) => void;
 } {
   const group = new THREE.Group();
-  group.name = 'Clean_Illustrated_Sky';
+  group.name = 'Cartoon_Dynamic_Sky_Clouds';
+
+  const cloudTopMat = new THREE.MeshBasicMaterial({
+    color: 0xfffbeb,
+    fog: false,
+  });
+  const cloudBellyMat = new THREE.MeshBasicMaterial({
+    color: 0xfde68a,
+    fog: false,
+  });
+  const cloudInkHullMat = new THREE.MeshBasicMaterial({
+    color: 0x1e1b4b,
+    side: THREE.BackSide,
+    transparent: true,
+    opacity: 0.35,
+    fog: false,
+  });
+
+  const puffGeo = new THREE.SphereGeometry(1.0, 12, 10);
+
+  interface CloudCluster {
+    root: THREE.Group;
+    baseX: number;
+    baseY: number;
+    baseZ: number;
+    driftSpeed: number;
+  }
+  const clusters: CloudCluster[] = [];
+
+  const cloudSpecs = [
+    { x: -58, y: 66, z: -156, s: 5.4, speed: 0.9 },
+    { x: 48, y: 72, z: -162, s: 6.2, speed: 0.72 },
+    { x: -16, y: 82, z: -168, s: 5.0, speed: 0.64 },
+    { x: 86, y: 58, z: -150, s: 4.8, speed: 1.05 },
+    { x: -92, y: 56, z: -148, s: 4.6, speed: 0.82 },
+  ];
+
+  const lobeLayout = [
+    { dx: 0, dy: 0.35, dz: 0, sx: 1.45, sy: 0.95, sz: 0.85, top: true },
+    { dx: -1.15, dy: 0.08, dz: 0.08, sx: 1.05, sy: 0.78, sz: 0.75, top: true },
+    { dx: 1.18, dy: 0.12, dz: -0.06, sx: 1.1, sy: 0.82, sz: 0.75, top: true },
+    { dx: 0, dy: -0.22, dz: 0.12, sx: 2.15, sy: 0.48, sz: 0.82, top: false },
+  ];
+
+  for (const spec of cloudSpecs) {
+    const cRoot = new THREE.Group();
+    cRoot.position.set(spec.x, spec.y, spec.z);
+    cRoot.scale.setScalar(spec.s);
+
+    for (const lobe of lobeLayout) {
+      const m = new THREE.Mesh(puffGeo, lobe.top ? cloudTopMat : cloudBellyMat);
+      m.position.set(lobe.dx, lobe.dy, lobe.dz);
+      m.scale.set(lobe.sx, lobe.sy, lobe.sz);
+
+      const hull = new THREE.Mesh(puffGeo, cloudInkHullMat);
+      hull.scale.setScalar(1.045);
+      m.add(hull);
+      cRoot.add(m);
+    }
+
+    group.add(cRoot);
+    clusters.push({
+      root: cRoot,
+      baseX: spec.x,
+      baseY: spec.y,
+      baseZ: spec.z,
+      driftSpeed: spec.speed,
+    });
+  }
+
+  const _dayTop = new THREE.Color('#fffef5');
+  const _dayBelly = new THREE.Color('#dbeafe');
+  const _sunsetTop = new THREE.Color('#fed7aa');
+  const _sunsetBelly = new THREE.Color('#f472b6');
+  const _nightTop = new THREE.Color('#2dd4bf'); // Reflexo turquesa suave da Aurora Boreal nas nuvens!
+  const _nightBelly = new THREE.Color('#1e1b4b'); // Azul índigo profundo da noite
+  const _tmpTop = new THREE.Color();
+  const _tmpBelly = new THREE.Color();
+
   return {
     group,
-    update: () => {},
+    update: (
+      dt: number,
+      elapsed: number,
+      _playerSpeed: number,
+      _isPlaying: boolean,
+      sunsetMix = 0,
+      nightMix = 0
+    ) => {
+      const sMix = THREE.MathUtils.clamp(sunsetMix, 0, 1);
+      const nMix = THREE.MathUtils.clamp(nightMix, 0, 1);
+
+      _tmpTop.copy(_dayTop).lerp(_sunsetTop, sMix).lerp(_nightTop, nMix * 0.72);
+      _tmpBelly.copy(_dayBelly).lerp(_sunsetBelly, sMix).lerp(_nightBelly, nMix);
+
+      cloudTopMat.color.copy(_tmpTop);
+      cloudBellyMat.color.copy(_tmpBelly);
+      cloudInkHullMat.opacity = THREE.MathUtils.lerp(0.28, 0.52, nMix);
+
+      for (let i = 0; i < clusters.length; i++) {
+        const cl = clusters[i];
+        cl.baseX += cl.driftSpeed * dt;
+        if (cl.baseX > 125) cl.baseX = -125;
+        cl.root.position.x = cl.baseX;
+        cl.root.position.y = cl.baseY + Math.sin(elapsed * 0.35 + i * 1.4) * 0.65;
+      }
+    },
   };
 }
 
@@ -3774,4 +3988,1997 @@ export function buildCoinMesh(): THREE.Group {
   applyWorldCurvatureToGroup(g);
   return g;
 }
+
+/**
+ * Domo de Céu Dinâmico 360° que transiciona suavemente entre Dia Tropical, Pôr do Sol Cinematográfico
+ * e Noite Estrelada — mantendo as nuvens pinceladas suaves iluminadas pelo luar e pela Aurora Boreal!
+ */
+export function createDynamicSkyDomeMaterial(
+  dayTex: THREE.Texture,
+  sunsetTex: THREE.Texture
+): {
+  material: THREE.ShaderMaterial;
+  setCycleWeights: (sunsetMix: number, nightMix: number, elapsed?: number) => void;
+} {
+  const uniforms = {
+    uDayTex: { value: dayTex },
+    uSunsetTex: { value: sunsetTex },
+    uSunsetMix: { value: 0.0 },
+    uNightMix: { value: 0.0 },
+    uTime: { value: 0.0 },
+  };
+
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    side: THREE.BackSide,
+    fog: false,
+    depthWrite: false,
+    vertexShader: `
+      varying vec2 vUv;
+      varying vec3 vDir;
+      void main() {
+        vUv = uv;
+        vDir = normalize(position);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D uDayTex;
+      uniform sampler2D uSunsetTex;
+      uniform float uSunsetMix;
+      uniform float uNightMix;
+      uniform float uTime;
+      varying vec2 vUv;
+      varying vec3 vDir;
+
+      void main() {
+        vec2 skyUv = vec2(fract(vUv.x + uTime * 0.0016), vUv.y);
+        vec3 dayCol = texture2D(uDayTex, skyUv).rgb;
+        vec3 sunsetCol = texture2D(uSunsetTex, skyUv).rgb;
+        vec3 baseSky = mix(dayCol, sunsetCol, clamp(uSunsetMix, 0.0, 1.0));
+
+        // Gradiente de céu noturno profundo cinematográfico (horizonte índigo -> zênite meia-noite)
+        float h = clamp(vDir.y * 1.35 + 0.12, 0.0, 1.0);
+        vec3 nightHorizon = vec3(0.062, 0.112, 0.240);
+        vec3 nightMid     = vec3(0.028, 0.055, 0.152);
+        vec3 nightZenith  = vec3(0.010, 0.020, 0.072);
+        vec3 nightSky = mix(nightHorizon, nightMid, smoothstep(0.0, 0.42, h));
+        nightSky = mix(nightSky, nightZenith, smoothstep(0.38, 0.92, h));
+
+        // Brilho atmosférico sutil da Aurora Boreal no alto da noite
+        float auroraGlow = smoothstep(0.14, 0.52, h) * smoothstep(0.95, 0.42, h);
+        nightSky += vec3(0.016, 0.078, 0.092) * auroraGlow;
+
+        // Preserva as Nuvens Pinceladas Suaves também à noite (banhadas por luar prateado e reflexo boreal!)
+        float brushCloudMask = smoothstep(0.34, 0.90, dayCol.r)
+                             * smoothstep(0.01, 0.24, h)
+                             * smoothstep(0.84, 0.34, h);
+        vec3 moonlitBrushCloud = mix(
+          vec3(0.13, 0.22, 0.38),
+          vec3(0.24, 0.38, 0.56) + vec3(0.05, 0.16, 0.18) * auroraGlow,
+          smoothstep(0.50, 0.95, dayCol.g)
+        );
+        nightSky = mix(nightSky, moonlitBrushCloud, brushCloudMask * 0.68);
+
+        vec3 finalCol = mix(baseSky, nightSky, clamp(uNightMix, 0.0, 1.0));
+        gl_FragColor = vec4(finalCol, 1.0);
+      }
+    `,
+  });
+
+  return {
+    material,
+    setCycleWeights: (sunsetMix: number, nightMix: number, elapsed = 0) => {
+      uniforms.uSunsetMix.value = THREE.MathUtils.clamp(sunsetMix, 0, 1);
+      uniforms.uNightMix.value = THREE.MathUtils.clamp(nightMix, 0, 1);
+      uniforms.uTime.value = elapsed;
+    },
+  };
+}
+
+/**
+ * Constrói o Céu Noturno Cinematográfico:
+ * 1. Campo de 340 estrelas cintilantes (`THREE.Points`, 1 draw call).
+ * 2. Lua cheia/crescente cartoon iluminada subindo no horizonte oposto ao sol.
+ * 3. Cortinas ondulantes de AURORA BOREAL (verde-esmeralda, ciano, violeta e magenta) em GLSL!
+ */
+export function buildNightSkyStarsAndAurora(): {
+  group: THREE.Group;
+  update: (elapsed: number, nightOpacity: number, qualityMultiplier?: number) => void;
+} {
+  const group = new THREE.Group();
+  group.name = 'Cinematic_Night_Stars_Moon_Aurora';
+  group.visible = false;
+
+  // 1. Campo de Estrelas Cintilantes (1 único draw call)
+  const STAR_COUNT = 340;
+  const starPositions = new Float32Array(STAR_COUNT * 3);
+  const starColors = new Float32Array(STAR_COUNT * 3);
+  const starPhases = new Float32Array(STAR_COUNT);
+  const starSizes = new Float32Array(STAR_COUNT);
+
+  const starPalette = [
+    new THREE.Color('#ffffff'),
+    new THREE.Color('#e0f2fe'),
+    new THREE.Color('#fef08a'),
+    new THREE.Color('#c4b5fd'),
+    new THREE.Color('#99f6e4'),
+  ];
+
+  for (let i = 0; i < STAR_COUNT; i++) {
+    // Distribui no hemisfério frontal/superior visível da câmera
+    const theta = (Math.random() - 0.5) * Math.PI * 1.25; // ângulo horizontal amplo
+    const elev = 0.14 + Math.random() * 0.78; // sempre acima do horizonte
+    const radius = 195 + Math.random() * 25;
+
+    const sx = Math.sin(theta) * Math.cos(elev) * radius;
+    const sy = Math.sin(elev) * radius + 12.0;
+    const sz = -Math.cos(theta) * Math.cos(elev) * radius - 18.0;
+
+    starPositions[i * 3 + 0] = sx;
+    starPositions[i * 3 + 1] = sy;
+    starPositions[i * 3 + 2] = sz;
+
+    const c = starPalette[i % starPalette.length];
+    starColors[i * 3 + 0] = c.r;
+    starColors[i * 3 + 1] = c.g;
+    starColors[i * 3 + 2] = c.b;
+
+    starPhases[i] = Math.random() * Math.PI * 2;
+    starSizes[i] = 2.2 + Math.pow(Math.random(), 2.2) * 4.6;
+  }
+
+  const starGeo = new THREE.BufferGeometry();
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+  starGeo.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
+  starGeo.setAttribute('aPhase', new THREE.BufferAttribute(starPhases, 1));
+  starGeo.setAttribute('aSize', new THREE.BufferAttribute(starSizes, 1));
+
+  const sharedNightUniforms = {
+    uTime: { value: 0 },
+    uOpacity: { value: 0 },
+    uQuality: { value: 1.0 },
+  };
+
+  const starMat = new THREE.ShaderMaterial({
+    uniforms: sharedNightUniforms,
+    vertexColors: true,
+    transparent: true,
+    depthWrite: false,
+    fog: false,
+    toneMapped: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `
+      uniform float uTime;
+      uniform float uOpacity;
+      attribute float aPhase;
+      attribute float aSize;
+      varying vec3 vColor;
+      varying float vTwinkle;
+      void main() {
+        vColor = color;
+        vTwinkle = 0.52 + 0.48 * sin(uTime * (2.1 + mod(aPhase, 2.3)) + aPhase * 3.0);
+        vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = aSize * (0.75 + 0.45 * vTwinkle) * (220.0 / max(40.0, -mvPos.z));
+        gl_Position = projectionMatrix * mvPos;
+      }
+    `,
+    fragmentShader: `
+      uniform float uOpacity;
+      varying vec3 vColor;
+      varying float vTwinkle;
+      void main() {
+        vec2 p = gl_PointCoord * 2.0 - 1.0;
+        float r = length(p);
+        if (r > 1.0) discard;
+        // Brilho estelar suave com pequeno reflexo em cruz
+        float core = exp(-r * r * 7.5);
+        float crossFlare = exp(-abs(p.x) * 12.0) * exp(-abs(p.y) * 2.6)
+                         + exp(-abs(p.y) * 12.0) * exp(-abs(p.x) * 2.6);
+        float alpha = clamp(core + crossFlare * 0.35, 0.0, 1.0) * vTwinkle * uOpacity;
+        gl_FragColor = vec4(vColor, alpha);
+      }
+    `,
+  });
+
+  const starPoints = new THREE.Points(starGeo, starMat);
+  starPoints.frustumCulled = false;
+  group.add(starPoints);
+
+  // 2. Lua Luminosa Cinematográfica no alto direito do céu noturno
+  const moonMat = new THREE.ShaderMaterial({
+    uniforms: sharedNightUniforms,
+    transparent: true,
+    depthWrite: false,
+    fog: false,
+    toneMapped: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv * 2.0 - 1.0;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uOpacity;
+      varying vec2 vUv;
+      void main() {
+        float r = length(vUv);
+        if (r > 1.0) discard;
+        float disc = smoothstep(0.24, 0.215, r);
+        // Sutil textura de crateras cartoon na superfície lunar
+        float crater1 = smoothstep(0.08, 0.04, length(vUv - vec2(-0.06, 0.05))) * 0.14;
+        float crater2 = smoothstep(0.06, 0.03, length(vUv - vec2(0.07, -0.04))) * 0.12;
+        float halo = smoothstep(1.0, 0.20, r) * 0.38 + smoothstep(0.52, 0.21, r) * 0.42;
+        vec3 moonCore = vec3(0.96, 0.99, 1.0) - vec3(crater1 + crater2);
+        vec3 haloCol = vec3(0.45, 0.82, 0.98);
+        vec3 col = mix(haloCol, moonCore, disc);
+        float alpha = clamp(disc + halo, 0.0, 1.0) * uOpacity;
+        gl_FragColor = vec4(col, alpha);
+      }
+    `,
+  });
+  const moonQuad = new THREE.Mesh(new THREE.PlaneGeometry(44, 44), moonMat);
+  moonQuad.position.set(36.0, 74.0, -180.0);
+  group.add(moonQuad);
+
+  // 3. Cortinas Etéreas, Suaves e Fluidas de AURORA BOREAL Cinematográfica (3 véus de luz no céu!)
+  const createCurvedAuroraRibbonGeo = (
+    width: number,
+    height: number,
+    arcDepth: number,
+    waveFreq: number
+  ): THREE.BufferGeometry => {
+    const geo = new THREE.PlaneGeometry(width, height, 96, 24);
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const y = pos.getY(i);
+      const u = x / (width * 0.5); // -1 .. +1
+      const v = y / height + 0.5; // 0 (base) .. 1 (topo)
+      // Curva orgânica suave abraçando a abóbada celeste + inclinação magnética natural no topo
+      const zCurve = -Math.cos(u * 1.28) * arcDepth + Math.sin(u * waveFreq) * 8.2 + v * -15.0;
+      const yArch = Math.cos(u * 1.05) * 7.5 + Math.sin(u * 2.15) * 3.0;
+      pos.setXYZ(i, x, y + yArch, zCurve);
+    }
+    geo.computeVertexNormals();
+    return geo;
+  };
+
+  const auroraMat = new THREE.ShaderMaterial({
+    uniforms: sharedNightUniforms,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    fog: false,
+    toneMapped: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `
+      uniform float uTime;
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        vec3 p = position;
+        // Movimento de seda calmo, fluido e hipnótico no vento solar
+        float sway = sin(uv.x * 6.5 + uTime * 0.22) * 4.2
+                   + cos(uv.x * 12.0 - uTime * 0.15) * 2.1;
+        p.z += sway * (0.25 + 0.75 * uv.y);
+        p.y += sin(uv.x * 4.8 - uTime * 0.18) * 1.6;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uOpacity;
+      uniform float uQuality;
+      varying vec2 vUv;
+
+      void main() {
+        if (uOpacity <= 0.005) discard;
+
+        // Desbotamento lateral ultra-suave em sino (zero bordas retas!)
+        float horizBell = pow(max(0.0, sin(vUv.x * 3.14159265)), 1.35);
+
+        // Dobra orgânica serena na base luminosa da cortina boreal
+        float baseFold = sin(vUv.x * 9.5 + uTime * 0.24) * 0.048
+                       + cos(vUv.x * 17.5 - uTime * 0.17) * 0.025
+                       + sin(vUv.x * 4.2 + uTime * 0.11) * 0.032;
+        float yShifted = clamp(vUv.y + baseFold, 0.0, 1.0);
+
+        // Perfil vertical aveludado: base brilhante suave que se dissolve em plumas altas no céu
+        float softBottom = smoothstep(0.02, 0.28, yShifted);
+        float softTopPlume = pow(max(0.0, 1.0 - smoothstep(0.14, 0.99, yShifted)), 1.85);
+        float verticalVeil = softBottom * softTopPlume;
+
+        // Raios magnéticos verticais sedosos e agradáveis (sem listras duras)
+        float drift1 = sin(vUv.x * 6.0 + uTime * 0.19) * 2.4;
+        float drift2 = cos(vUv.x * 9.0 - uTime * 0.14) * 1.8;
+        float rayA = sin(vUv.x * 32.0 + drift1 - uTime * 0.34) * 0.5 + 0.5;
+        float rayB = sin(vUv.x * 54.0 - drift2 + uTime * 0.26) * 0.5 + 0.5;
+        float rayC = sin(vUv.x * 19.0 + uTime * 0.15) * 0.5 + 0.5;
+        float silkyRays = mix(
+          0.56,
+          1.14,
+          smoothstep(0.15, 0.92, rayA) * 0.45 +
+          smoothstep(0.20, 0.95, rayB) * 0.30 +
+          rayC * 0.25
+        );
+
+        // Paleta Cinematográfica Suave (igual à referência real):
+        // Verde-Esmeralda luminoso na base -> Turquesa/Ciano no meio -> Lavanda/Violeta e Rosa suave nas pontas altas!
+        vec3 emeraldBase   = vec3(0.16, 0.94, 0.56);
+        vec3 aquaTurquoise = vec3(0.14, 0.84, 0.86);
+        vec3 softViolet    = vec3(0.60, 0.34, 0.90);
+        vec3 roseAurora    = vec3(0.86, 0.34, 0.70);
+
+        float hueFlow = sin(vUv.x * 4.5 - uTime * 0.14) * 0.5 + 0.5;
+        vec3 lowerCurtain = mix(emeraldBase, aquaTurquoise, hueFlow * 0.42);
+        vec3 midCurtain   = mix(lowerCurtain, aquaTurquoise, smoothstep(0.16, 0.48, yShifted));
+        vec3 upperPlume   = mix(softViolet, roseAurora, hueFlow * 0.55);
+        vec3 auroraCol    = mix(midCurtain, upperPlume, smoothstep(0.36, 0.84, yShifted));
+
+        float alpha = verticalVeil * silkyRays * horizBell * (0.52 + 0.20 * uQuality) * uOpacity;
+        gl_FragColor = vec4(auroraCol * alpha, alpha);
+      }
+    `,
+  });
+
+  const ribbonPrimary = new THREE.Mesh(createCurvedAuroraRibbonGeo(270, 52, 26, 2.8), auroraMat);
+  ribbonPrimary.position.set(0, 72.0, -150.0);
+  ribbonPrimary.frustumCulled = false;
+  group.add(ribbonPrimary);
+
+  const ribbonSecondary = new THREE.Mesh(createCurvedAuroraRibbonGeo(235, 44, 20, 3.6), auroraMat);
+  ribbonSecondary.position.set(-18, 86.0, -168.0);
+  ribbonSecondary.rotation.z = 0.045;
+  ribbonSecondary.frustumCulled = false;
+  group.add(ribbonSecondary);
+
+  const ribbonTertiary = new THREE.Mesh(createCurvedAuroraRibbonGeo(210, 40, 18, 2.3), auroraMat);
+  ribbonTertiary.position.set(22, 81.0, -162.0);
+  ribbonTertiary.rotation.z = -0.04;
+  ribbonTertiary.frustumCulled = false;
+  group.add(ribbonTertiary);
+
+  return {
+    group,
+    update: (elapsed: number, nightOpacity: number, qualityMultiplier = 1.0) => {
+      const op = THREE.MathUtils.clamp(nightOpacity, 0, 1);
+      group.visible = op > 0.01;
+      if (!group.visible) return;
+
+      sharedNightUniforms.uTime.value = elapsed;
+      sharedNightUniforms.uOpacity.value = op;
+      sharedNightUniforms.uQuality.value = qualityMultiplier;
+
+      // A Lua sobe suavemente enquanto a noite se aprofunda
+      moonQuad.position.y = 28.0 + op * 48.0;
+      ribbonSecondary.visible = qualityMultiplier >= 0.4;
+      ribbonTertiary.visible = qualityMultiplier >= 0.65;
+    },
+  };
+}
+
+/**
+ * Denominações oficiais das notas brasileiras espalhadas pelo mapa:
+ * - R$ 10: Vermelha rosada
+ * - R$ 50: Meio alaranjada
+ * - R$ 100: Azulada
+ * - R$ 200: Bordô (Mais rara — aparece com maior frequência no modo Difícil!)
+ */
+export type CashDenomination = 10 | 50 | 100 | 200;
+
+interface CashPaletteSpec {
+  outerFill: string;
+  innerFill: string;
+  darkAccent: string;
+  cornerText: string;
+  strapBorder: string;
+  strapBg: string;
+  strapText: string;
+  sideColorHex: number;
+  glowColorHex: number;
+}
+
+const CASH_PALETTES: Record<CashDenomination, CashPaletteSpec> = {
+  10: {
+    outerFill: '#fda4af',
+    innerFill: '#f43f5e',
+    darkAccent: '#9f1239',
+    cornerText: '#ffe4e6',
+    strapBorder: '#e11d48',
+    strapBg: '#fff1f2',
+    strapText: '#881337',
+    sideColorHex: 0xe11d48,
+    glowColorHex: 0xfb7185,
+  },
+  50: {
+    outerFill: '#fdba74',
+    innerFill: '#f97316',
+    darkAccent: '#9a3412',
+    cornerText: '#ffedd5',
+    strapBorder: '#ea580c',
+    strapBg: '#fffbeb',
+    strapText: '#7c2d12',
+    sideColorHex: 0xea580c,
+    glowColorHex: 0xfb923c,
+  },
+  100: {
+    outerFill: '#7dd3fc',
+    innerFill: '#0ea5e9',
+    darkAccent: '#075985',
+    cornerText: '#e0f2fe',
+    strapBorder: '#0284c7',
+    strapBg: '#f0f9ff',
+    strapText: '#0c4a6e',
+    sideColorHex: 0x0284c7,
+    glowColorHex: 0x38bdf8,
+  },
+  200: {
+    outerFill: '#e11d48',
+    innerFill: '#881337',
+    darkAccent: '#4c0519',
+    cornerText: '#fef08a',
+    strapBorder: '#eab308',
+    strapBg: '#fef9c3',
+    strapText: '#881337',
+    sideColorHex: 0x881337,
+    glowColorHex: 0xbe123c,
+  },
+};
+
+const cashStackTexCache = new Map<CashDenomination, THREE.CanvasTexture>();
+
+function getCartoonBrazilianCashTexture(denomination: CashDenomination): THREE.CanvasTexture {
+  const cached = cashStackTexCache.get(denomination);
+  if (cached) return cached;
+
+  const p = CASH_PALETTES[denomination] || CASH_PALETTES[50];
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 144;
+  const ctx = canvas.getContext('2d')!;
+
+  // Fundo externo da cédula na paleta brasileira correspondente
+  ctx.fillStyle = p.outerFill;
+  ctx.fillRect(0, 0, 256, 144);
+
+  // Moldura interna escura cartoon
+  ctx.strokeStyle = p.darkAccent;
+  ctx.lineWidth = 9;
+  ctx.strokeRect(14, 14, 228, 116);
+
+  ctx.fillStyle = p.innerFill;
+  ctx.fillRect(22, 22, 212, 100);
+
+  // Detalhes circulares nos cantos e medalhão central
+  ctx.fillStyle = p.darkAccent;
+  for (const [cx, cy] of [
+    [34, 34],
+    [222, 34],
+    [34, 110],
+    [222, 110],
+  ]) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, 13, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.beginPath();
+  ctx.arc(58, 72, 12, 0, Math.PI * 2);
+  ctx.arc(198, 72, 12, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Medalhão central (com aro dourado especial na nota rara bordô de R$ 200!)
+  ctx.beginPath();
+  ctx.arc(128, 72, 32, 0, Math.PI * 2);
+  ctx.fill();
+  if (denomination === 200) {
+    ctx.strokeStyle = '#fde047';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+  }
+
+  // Valor nítido nos cantos da cédula
+  ctx.fillStyle = p.cornerText;
+  ctx.font = '900 20px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`${denomination}`, 62, 38);
+  ctx.fillText(`${denomination}`, 194, 106);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  cashStackTexCache.set(denomination, tex);
+  return tex;
+}
+
+const cashStrapTexCache = new Map<CashDenomination, THREE.CanvasTexture>();
+
+function getCartoonCashStrapTexture(denomination: CashDenomination): THREE.CanvasTexture {
+  const cached = cashStrapTexCache.get(denomination);
+  if (cached) return cached;
+
+  const p = CASH_PALETTES[denomination] || CASH_PALETTES[50];
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 160;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = p.strapBorder;
+  ctx.fillRect(0, 0, 128, 160);
+  ctx.fillStyle = p.strapBg;
+  ctx.fillRect(10, 0, 108, 160);
+
+  ctx.fillStyle = p.strapText;
+  ctx.font = '900 54px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('$', 64, 64);
+
+  ctx.font = '900 24px sans-serif';
+  ctx.fillText(`R$${denomination}`, 64, 120);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  cashStrapTexCache.set(denomination, tex);
+  return tex;
+}
+
+interface CachedCashMatSet {
+  billMaterials: THREE.Material[];
+  strapMaterials: THREE.Material[];
+  glowRingMat: THREE.MeshBasicMaterial;
+}
+
+const cashMatSetCache = new Map<CashDenomination, CachedCashMatSet>();
+let sharedCashRingGeo: THREE.RingGeometry | null = null;
+
+function getCashMatSet(denomination: CashDenomination): CachedCashMatSet {
+  const cached = cashMatSetCache.get(denomination);
+  if (cached) return cached;
+
+  const p = CASH_PALETTES[denomination] || CASH_PALETTES[50];
+  const sideMat = new THREE.MeshToonMaterial({ color: p.sideColorHex });
+  const faceMat = new THREE.MeshToonMaterial({
+    map: getCartoonBrazilianCashTexture(denomination),
+    color: 0xffffff,
+  });
+  const strapTopMat = new THREE.MeshToonMaterial({
+    map: getCartoonCashStrapTexture(denomination),
+    color: 0xffffff,
+  });
+  const strapSideMat = new THREE.MeshToonMaterial({ color: p.strapBg });
+  const glowRingMat = new THREE.MeshBasicMaterial({
+    color: p.glowColorHex,
+    transparent: true,
+    opacity: denomination === 200 ? 0.56 : 0.44,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+
+  const set: CachedCashMatSet = {
+    billMaterials: [sideMat, sideMat, faceMat, faceMat, sideMat, sideMat],
+    strapMaterials: [strapSideMat, strapSideMat, strapTopMat, strapSideMat, strapSideMat, strapSideMat],
+    glowRingMat,
+  };
+  cashMatSetCache.set(denomination, set);
+  return set;
+}
+
+/**
+ * Constrói o Maço 3D de Notas de Dinheiro Brasileiro Cartoon:
+ * - R$ 10 (Vermelha rosada), R$ 50 (Alaranjada), R$ 100 (Azulada), R$ 200 (Bordô Rara!)
+ */
+export function buildCartoonCashStackMesh(denomination: CashDenomination = 50): THREE.Group {
+  const root = new THREE.Group();
+  root.name = `CartoonCashStack_${denomination}`;
+
+  const matSet = getCashMatSet(denomination);
+  if (!sharedCashRingGeo) {
+    sharedCashRingGeo = new THREE.RingGeometry(0.32, 0.58, 20);
+  }
+
+  const shadow = new THREE.Mesh(sharedGeos.contactShadow, sharedMats.contactShadow);
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.scale.set(0.64, 0.64, 1);
+  shadow.position.set(0, 0.018, 0);
+  root.add(shadow);
+
+  const glowRing = new THREE.Mesh(sharedCashRingGeo, matSet.glowRingMat);
+  glowRing.rotation.x = -Math.PI / 2;
+  glowRing.position.set(0, 0.026, 0);
+  glowRing.userData.noCartoonOutline = true;
+  root.add(glowRing);
+
+  const holder = new THREE.Group();
+  holder.name = 'CashVisualSpinHolder';
+  holder.position.set(0, 0.54, 0);
+  holder.rotation.x = 0.44;
+  holder.rotation.z = -0.16;
+  if (denomination === 200) {
+    // Leve destaque extra de escala na nota rara de R$ 200!
+    holder.scale.setScalar(1.08);
+  }
+
+  const fanAngles = [-0.13, -0.02, 0.09];
+  for (let i = 0; i < 3; i++) {
+    const bill = new THREE.Mesh(sharedGeos.unitBox, matSet.billMaterials);
+    bill.scale.set(0.88, 0.068, 0.50);
+    bill.position.set(0, (i - 1) * 0.078, 0);
+    bill.rotation.y = fanAngles[i];
+    holder.add(bill);
+  }
+
+  const strap = new THREE.Mesh(sharedGeos.unitBox, matSet.strapMaterials);
+  strap.scale.set(0.24, 0.255, 0.535);
+  strap.position.set(0, 0, 0);
+  strap.rotation.y = 0.02;
+  holder.add(strap);
+
+  addCartoonOutlinesToGroup(holder);
+  root.add(holder);
+
+  applyWorldCurvatureToGroup(root);
+  return root;
+}
+
+/**
+ * Geometria 3D Unificada de Nuvem de Fumaça Cartoon com Contorno Preto Embutido (1 Único Draw Call via InstancedMesh!):
+ * Combina 3 lóbulos esféricos macios (cor de vértice clara cel-shaded) + casca externa inflada com normais/faces invertidas
+ * (cor de vértice grafite/preta cartoon), permitindo desenhar dezenas de nuvens de fumaça cartoon no escapamento com ZERO custo extra!
+ */
+export function createCartoonSmokePuffGeometry(): THREE.BufferGeometry {
+  const lobes = [
+    { r: 0.095, x: 0.0, y: 0.0, z: 0.0 },
+    { r: 0.072, x: 0.055, y: 0.032, z: -0.025 },
+    { r: 0.068, x: -0.052, y: -0.018, z: 0.028 },
+  ];
+
+  const baseSpheres = lobes.map((l) => {
+    const g = new THREE.IcosahedronGeometry(l.r, 1);
+    g.translate(l.x, l.y, l.z);
+    return g;
+  });
+
+  let singleVerts = 0;
+  let singleIndices = 0;
+  for (const g of baseSpheres) {
+    const p = g.attributes.position;
+    singleVerts += p.count;
+    singleIndices += g.index ? g.index.count : p.count;
+  }
+
+  // Camada interna clara + Camada externa invertida preta (2x vértices e índices na mesma geometria)
+  const totalVerts = singleVerts * 2;
+  const totalIndices = singleIndices * 2;
+
+  const positions = new Float32Array(totalVerts * 3);
+  const normals = new Float32Array(totalVerts * 3);
+  const colors = new Float32Array(totalVerts * 3);
+  const indices = new Uint16Array(totalIndices);
+
+  let vOff = 0;
+  let iOff = 0;
+
+  // 1ª Passada: Lóbulos brancos/creme da fumaça cartoon
+  for (const g of baseSpheres) {
+    const pos = g.attributes.position;
+    const norm = g.attributes.normal;
+    for (let i = 0; i < pos.count; i++) {
+      const k = (vOff + i) * 3;
+      positions[k + 0] = pos.getX(i);
+      positions[k + 1] = pos.getY(i);
+      positions[k + 2] = pos.getZ(i);
+
+      normals[k + 0] = norm.getX(i);
+      normals[k + 1] = norm.getY(i);
+      normals[k + 2] = norm.getZ(i);
+
+      // Branco quente / cinza perolado cartoon
+      const shade = 0.94 + (pos.getY(i) > 0 ? 0.06 : -0.04);
+      colors[k + 0] = shade;
+      colors[k + 1] = shade;
+      colors[k + 2] = Math.min(1.0, shade + 0.02);
+    }
+
+    if (g.index) {
+      for (let j = 0; j < g.index.count; j++) {
+        indices[iOff + j] = vOff + g.index.getX(j);
+      }
+      iOff += g.index.count;
+    } else {
+      for (let j = 0; j < pos.count; j++) {
+        indices[iOff + j] = vOff + j;
+      }
+      iOff += pos.count;
+    }
+    vOff += pos.count;
+  }
+
+  // 2ª Passada: Casca externa inflada (+0.015m) com winding invertido para contorno preto cartoon!
+  const outlineThickness = 0.015;
+  for (const g of baseSpheres) {
+    const pos = g.attributes.position;
+    const norm = g.attributes.normal;
+    for (let i = 0; i < pos.count; i++) {
+      const k = (vOff + i) * 3;
+      const nx = norm.getX(i);
+      const ny = norm.getY(i);
+      const nz = norm.getZ(i);
+
+      positions[k + 0] = pos.getX(i) + nx * outlineThickness;
+      positions[k + 1] = pos.getY(i) + ny * outlineThickness;
+      positions[k + 2] = pos.getZ(i) + nz * outlineThickness;
+
+      normals[k + 0] = -nx;
+      normals[k + 1] = -ny;
+      normals[k + 2] = -nz;
+
+      // Borda grafite-escura cartoon
+      colors[k + 0] = 0.11;
+      colors[k + 1] = 0.12;
+      colors[k + 2] = 0.15;
+    }
+
+    if (g.index) {
+      for (let j = 0; j < g.index.count; j += 3) {
+        indices[iOff + j + 0] = vOff + g.index.getX(j + 0);
+        indices[iOff + j + 1] = vOff + g.index.getX(j + 2); // Winding invertido!
+        indices[iOff + j + 2] = vOff + g.index.getX(j + 1);
+      }
+      iOff += g.index.count;
+    } else {
+      for (let j = 0; j < pos.count; j += 3) {
+        indices[iOff + j + 0] = vOff + j + 0;
+        indices[iOff + j + 1] = vOff + j + 2; // Winding invertido!
+        indices[iOff + j + 2] = vOff + j + 1;
+      }
+      iOff += pos.count;
+    }
+    vOff += pos.count;
+    g.dispose();
+  }
+
+  const outGeo = new THREE.BufferGeometry();
+  outGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  outGeo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  outGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  outGeo.setIndex(new THREE.BufferAttribute(indices, 1));
+  outGeo.computeBoundingSphere();
+  return outGeo;
+}
+
+export interface CartoonManholeHazardRig {
+  root: THREE.Group;
+  warningRing: THREE.Mesh;
+  exclamationGroup: THREE.Group;
+  lidGroup: THREE.Group;
+  geyserGroup: THREE.Group;
+  coreColumn: THREE.Mesh;
+  foamCrown: THREE.Mesh;
+  baseSplashRing: THREE.Mesh;
+  sideDroplets: THREE.Mesh[];
+}
+
+let cachedManholeShared: {
+  rimGeo: THREE.CylinderGeometry;
+  holeGeo: THREE.CircleGeometry;
+  warnRingGeo: THREE.RingGeometry;
+  lidGeo: THREE.CylinderGeometry;
+  lidInnerGeo: THREE.CylinderGeometry;
+  exclBarGeo: THREE.CylinderGeometry;
+  exclDotGeo: THREE.SphereGeometry;
+  coreWaterGeo: THREE.CylinderGeometry;
+  outerWaterGeo: THREE.CylinderGeometry;
+  crownFoamGeo: THREE.IcosahedronGeometry;
+  dropletGeo: THREE.SphereGeometry;
+  splashRingGeo: THREE.RingGeometry;
+  ironDarkMat: THREE.MeshToonMaterial;
+  ironLidMat: THREE.MeshToonMaterial;
+  abyssMat: THREE.MeshBasicMaterial;
+  warnRedMat: THREE.MeshBasicMaterial;
+  exclRedMat: THREE.MeshToonMaterial;
+  waterCyanMat: THREE.MeshToonMaterial;
+  waterLightMat: THREE.MeshBasicMaterial;
+  foamWhiteMat: THREE.MeshBasicMaterial;
+  outlineBlackMat: THREE.MeshBasicMaterial;
+  outlineWhiteMat: THREE.MeshBasicMaterial;
+} | null = null;
+
+/**
+ * Constrói a Tampa de Bueiro Explosiva Cartoon na rua:
+ * - Antes de estourar: tampa de ferro no asfalto + anel vermelho + Ponto de Exclamação (!) vermelho 3D pulsando acima!
+ * - Quando o jogador se aproxima: a tampa voa girando pros ares e um jato de água cartoon jorra alto espirrando gotas pros lados!
+ */
+export function buildCartoonManholeHazard(): CartoonManholeHazardRig {
+  if (!cachedManholeShared) {
+    const rimGeo = new THREE.CylinderGeometry(0.68, 0.72, 0.045, 20);
+    const holeGeo = new THREE.CircleGeometry(0.58, 20);
+    holeGeo.rotateX(-Math.PI / 2);
+
+    const warnRingGeo = new THREE.RingGeometry(0.74, 0.92, 24);
+    warnRingGeo.rotateX(-Math.PI / 2);
+
+    const lidGeo = new THREE.CylinderGeometry(0.58, 0.58, 0.055, 18);
+    const lidInnerGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.068, 14);
+
+    // Ponto de Exclamação 3D Vermelho Cartoon (!)
+    const exclBarGeo = new THREE.CylinderGeometry(0.135, 0.075, 0.68, 10);
+    const exclDotGeo = new THREE.SphereGeometry(0.125, 10, 8);
+
+    // Coluna de água cônica com pivô na base (y = 0 -> y = 1)
+    const coreWaterGeo = new THREE.CylinderGeometry(0.36, 0.24, 1.0, 14, 1, true);
+    coreWaterGeo.translate(0, 0.5, 0);
+
+    const outerWaterGeo = new THREE.CylinderGeometry(0.52, 0.30, 0.92, 12, 1, true);
+    outerWaterGeo.translate(0, 0.46, 0);
+
+    const crownFoamGeo = new THREE.IcosahedronGeometry(0.42, 1);
+    const dropletGeo = new THREE.SphereGeometry(0.115, 8, 6);
+    dropletGeo.scale(0.85, 1.35, 0.85);
+
+    const splashRingGeo = new THREE.RingGeometry(0.32, 0.96, 20);
+    splashRingGeo.rotateX(-Math.PI / 2);
+
+    cachedManholeShared = {
+      rimGeo,
+      holeGeo,
+      warnRingGeo,
+      lidGeo,
+      lidInnerGeo,
+      exclBarGeo,
+      exclDotGeo,
+      coreWaterGeo,
+      outerWaterGeo,
+      crownFoamGeo,
+      dropletGeo,
+      splashRingGeo,
+      ironDarkMat: new THREE.MeshToonMaterial({ color: 0x1e293b }),
+      ironLidMat: new THREE.MeshToonMaterial({ color: 0x475569 }),
+      abyssMat: new THREE.MeshBasicMaterial({ color: 0x090d16 }),
+      warnRedMat: new THREE.MeshBasicMaterial({
+        color: 0xef4444,
+        transparent: true,
+        opacity: 0.85,
+        depthWrite: false,
+      }),
+      exclRedMat: new THREE.MeshToonMaterial({
+        color: 0xff1e27,
+        emissive: new THREE.Color(0x991b1b),
+        emissiveIntensity: 0.45,
+      }),
+      waterCyanMat: new THREE.MeshToonMaterial({
+        color: 0x38bdf8,
+        emissive: new THREE.Color(0x0284c7),
+        emissiveIntensity: 0.35,
+        transparent: true,
+        opacity: 0.92,
+        side: THREE.DoubleSide,
+      }),
+      waterLightMat: new THREE.MeshBasicMaterial({
+        color: 0xbae6fd,
+        transparent: true,
+        opacity: 0.78,
+        side: THREE.DoubleSide,
+      }),
+      foamWhiteMat: new THREE.MeshBasicMaterial({
+        color: 0xf8fafc,
+      }),
+      outlineBlackMat: new THREE.MeshBasicMaterial({
+        color: 0x0d0b0a,
+        side: THREE.BackSide,
+      }),
+      outlineWhiteMat: new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        side: THREE.BackSide,
+      }),
+    };
+  }
+
+  const s = cachedManholeShared;
+  const root = new THREE.Group();
+  root.name = 'CartoonManholeHazard';
+
+  // 1. Aro metálico fixo no asfalto + buraco escuro do bueiro
+  const rimMesh = new THREE.Mesh(s.rimGeo, s.ironDarkMat);
+  rimMesh.position.y = 0.022;
+  const rimOutline = new THREE.Mesh(s.rimGeo, s.outlineBlackMat);
+  rimOutline.scale.set(1.05, 1.15, 1.05);
+  rimMesh.add(rimOutline);
+  root.add(rimMesh);
+
+  const holeMesh = new THREE.Mesh(s.holeGeo, s.abyssMat);
+  holeMesh.position.y = 0.046;
+  root.add(holeMesh);
+
+  // 2. Anel vermelho de alerta pulsando no chão
+  const warningRing = new THREE.Mesh(s.warnRingGeo, s.warnRedMat);
+  warningRing.position.y = 0.03;
+  root.add(warningRing);
+
+  // 3. Tampa de ferro destacável que voa pros ares quando estoura!
+  const lidGroup = new THREE.Group();
+  lidGroup.position.set(0, 0.052, 0);
+  const lidMain = new THREE.Mesh(s.lidGeo, s.ironLidMat);
+  const lidHull = new THREE.Mesh(s.lidGeo, s.outlineBlackMat);
+  lidHull.scale.set(1.06, 1.22, 1.06);
+  lidMain.add(lidHull);
+  lidGroup.add(lidMain);
+
+  const lidCenter = new THREE.Mesh(s.lidInnerGeo, s.ironDarkMat);
+  lidGroup.add(lidCenter);
+  root.add(lidGroup);
+
+  // 4. Ponto de Exclamação Vermelho Cartoon (!) flutuando acima da tampa
+  const exclamationGroup = new THREE.Group();
+  exclamationGroup.position.set(0, 1.55, 0);
+
+  const barMesh = new THREE.Mesh(s.exclBarGeo, s.exclRedMat);
+  barMesh.position.y = 0.24;
+  const barWhiteHull = new THREE.Mesh(s.exclBarGeo, s.outlineWhiteMat);
+  barWhiteHull.scale.set(1.18, 1.06, 1.18);
+  const barBlackHull = new THREE.Mesh(s.exclBarGeo, s.outlineBlackMat);
+  barBlackHull.scale.set(1.34, 1.12, 1.34);
+  barMesh.add(barWhiteHull, barBlackHull);
+  exclamationGroup.add(barMesh);
+
+  const dotMesh = new THREE.Mesh(s.exclDotGeo, s.exclRedMat);
+  dotMesh.position.y = -0.28;
+  const dotWhiteHull = new THREE.Mesh(s.exclDotGeo, s.outlineWhiteMat);
+  dotWhiteHull.scale.setScalar(1.18);
+  const dotBlackHull = new THREE.Mesh(s.exclDotGeo, s.outlineBlackMat);
+  dotBlackHull.scale.setScalar(1.34);
+  dotMesh.add(dotWhiteHull, dotBlackHull);
+  exclamationGroup.add(dotMesh);
+
+  root.add(exclamationGroup);
+
+  // 5. Jato de Água Cartoon Dinâmico + Gotas Espirrando pros Lados!
+  const geyserGroup = new THREE.Group();
+  geyserGroup.visible = false;
+
+  const coreColumn = new THREE.Mesh(s.coreWaterGeo, s.waterCyanMat);
+  const outerColumn = new THREE.Mesh(s.outerWaterGeo, s.waterLightMat);
+  coreColumn.add(outerColumn);
+  geyserGroup.add(coreColumn);
+
+  const foamCrown = new THREE.Mesh(s.crownFoamGeo, s.foamWhiteMat);
+  const crownOutline = new THREE.Mesh(s.crownFoamGeo, s.outlineBlackMat);
+  crownOutline.scale.setScalar(1.09);
+  foamCrown.add(crownOutline);
+  geyserGroup.add(foamCrown);
+
+  const baseSplashRing = new THREE.Mesh(s.splashRingGeo, s.foamWhiteMat);
+  baseSplashRing.position.y = 0.06;
+  geyserGroup.add(baseSplashRing);
+
+  const sideDroplets: THREE.Mesh[] = [];
+  for (let i = 0; i < 10; i++) {
+    const drop = new THREE.Mesh(s.dropletGeo, i % 2 === 0 ? s.foamWhiteMat : s.waterCyanMat);
+    const dOut = new THREE.Mesh(s.dropletGeo, s.outlineBlackMat);
+    dOut.scale.setScalar(1.16);
+    drop.add(dOut);
+    geyserGroup.add(drop);
+    sideDroplets.push(drop);
+  }
+
+  root.add(geyserGroup);
+  applyWorldCurvatureToGroup(root);
+
+  return {
+    root,
+    warningRing,
+    exclamationGroup,
+    lidGroup,
+    geyserGroup,
+    coreColumn,
+    foamCrown,
+    baseSplashRing,
+    sideDroplets,
+  };
+}
+
+// ============================================================================
+// NOVOS ATIVOS 3D CARTOON: OSSO BRANCO, CARNE VERMELHA E INDICADOR DE ATAQUE
+// ============================================================================
+interface SharedDogCollectibleResources {
+  boneShaftGeo: THREE.CylinderGeometry;
+  boneKnobGeo: THREE.SphereGeometry;
+  boneWhiteMat: THREE.MeshToonMaterial;
+  boneShadowRingGeo: THREE.RingGeometry;
+  boneShadowRingMat: THREE.MeshBasicMaterial;
+  meatBodyGeo: THREE.CylinderGeometry;
+  meatFatRimGeo: THREE.CylinderGeometry;
+  meatMarrowBoneGeo: THREE.CylinderGeometry;
+  meatMarrowCoreGeo: THREE.CylinderGeometry;
+  meatRubyMat: THREE.MeshToonMaterial;
+  meatCreamFatMat: THREE.MeshToonMaterial;
+  meatMarrowPinkMat: THREE.MeshToonMaterial;
+  meatAuraRingGeo: THREE.RingGeometry;
+  meatAuraRingMat: THREE.MeshBasicMaterial;
+  outlineBlackMat: THREE.MeshBasicMaterial;
+  warnBadgeGeo: THREE.BoxGeometry;
+  warnBarGeo: THREE.CylinderGeometry;
+  warnDotGeo: THREE.SphereGeometry;
+  warnFangGeo: THREE.ConeGeometry;
+  warnYellowMat: THREE.MeshBasicMaterial;
+  warnRedMat: THREE.MeshBasicMaterial;
+  warnWhiteMat: THREE.MeshBasicMaterial;
+}
+
+let _sharedDogCollectibleRes: SharedDogCollectibleResources | null = null;
+
+function getSharedDogCollectibleRes(): SharedDogCollectibleResources {
+  if (_sharedDogCollectibleRes) return _sharedDogCollectibleRes;
+
+  const boneShaftGeo = new THREE.CylinderGeometry(0.072, 0.072, 0.56, 10);
+  boneShaftGeo.rotateZ(Math.PI * 0.5);
+
+  const boneKnobGeo = new THREE.SphereGeometry(0.118, 10, 8);
+
+  const boneWhiteMat = new THREE.MeshToonMaterial({
+    color: 0xfefce8,
+    emissive: 0xfef3c7,
+    emissiveIntensity: 0.22,
+  });
+
+  const boneShadowRingGeo = new THREE.RingGeometry(0.16, 0.38, 18);
+  boneShadowRingGeo.rotateX(-Math.PI * 0.5);
+  const boneShadowRingMat = new THREE.MeshBasicMaterial({
+    color: 0xfde047,
+    transparent: true,
+    opacity: 0.52,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+
+  // Carne Vermelha suculenta estilo desenho animado (bife alto marmorizado c/ osso central!)
+  const meatBodyGeo = new THREE.CylinderGeometry(0.36, 0.38, 0.19, 14);
+  meatBodyGeo.scale(1.22, 1.0, 0.88);
+
+  const meatFatRimGeo = new THREE.CylinderGeometry(0.395, 0.41, 0.15, 14);
+  meatFatRimGeo.scale(1.22, 1.0, 0.88);
+
+  const meatMarrowBoneGeo = new THREE.CylinderGeometry(0.095, 0.095, 0.215, 12);
+  const meatMarrowCoreGeo = new THREE.CylinderGeometry(0.052, 0.052, 0.225, 10);
+
+  const meatRubyMat = new THREE.MeshToonMaterial({
+    color: 0xdc2626,
+    emissive: 0x991b1b,
+    emissiveIntensity: 0.28,
+  });
+
+  const meatCreamFatMat = new THREE.MeshToonMaterial({
+    color: 0xfef3c7,
+    emissive: 0xfde68a,
+    emissiveIntensity: 0.18,
+  });
+
+  const meatMarrowPinkMat = new THREE.MeshToonMaterial({
+    color: 0xfca5a5,
+  });
+
+  const meatAuraRingGeo = new THREE.RingGeometry(0.32, 0.58, 22);
+  meatAuraRingGeo.rotateX(-Math.PI * 0.5);
+  const meatAuraRingMat = new THREE.MeshBasicMaterial({
+    color: 0xf97316,
+    transparent: true,
+    opacity: 0.68,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+
+  const outlineBlackMat = new THREE.MeshBasicMaterial({
+    color: 0x110c08,
+    side: THREE.BackSide,
+  });
+
+  const warnBadgeGeo = new THREE.BoxGeometry(0.46, 0.46, 0.08);
+  warnBadgeGeo.rotateZ(Math.PI * 0.25); // Losango cômico estilo quadrinhos!
+  const warnBarGeo = new THREE.CylinderGeometry(0.058, 0.036, 0.24, 8);
+  const warnDotGeo = new THREE.SphereGeometry(0.052, 8, 8);
+  const warnFangGeo = new THREE.ConeGeometry(0.055, 0.14, 6);
+
+  const warnYellowMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
+  const warnRedMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+  const warnWhiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+  _sharedDogCollectibleRes = {
+    boneShaftGeo,
+    boneKnobGeo,
+    boneWhiteMat,
+    boneShadowRingGeo,
+    boneShadowRingMat,
+    meatBodyGeo,
+    meatFatRimGeo,
+    meatMarrowBoneGeo,
+    meatMarrowCoreGeo,
+    meatRubyMat,
+    meatCreamFatMat,
+    meatMarrowPinkMat,
+    meatAuraRingGeo,
+    meatAuraRingMat,
+    outlineBlackMat,
+    warnBadgeGeo,
+    warnBarGeo,
+    warnDotGeo,
+    warnFangGeo,
+    warnYellowMat,
+    warnRedMat,
+    warnWhiteMat,
+  };
+  return _sharedDogCollectibleRes;
+}
+
+/**
+ * Constrói um Osso Branco 3D Cartoon (com contorno preto e halo dourado suave no asfalto)
+ * para substituir as cédulas de dinheiro quando jogando no Modo Caramelo!
+ */
+export function buildCartoonWhiteBoneMesh(): { root: THREE.Group; spinVisual: THREE.Group } {
+  const res = getSharedDogCollectibleRes();
+  const root = new THREE.Group();
+  root.name = 'CartoonWhiteBone';
+
+  const groundHalo = new THREE.Mesh(res.boneShadowRingGeo, res.boneShadowRingMat);
+  groundHalo.position.y = 0.04;
+  root.add(groundHalo);
+
+  const spinVisual = new THREE.Group();
+  spinVisual.position.y = 0.56;
+  spinVisual.rotation.z = 0.22;
+
+  const shaft = new THREE.Mesh(res.boneShaftGeo, res.boneWhiteMat);
+  const shaftOut = new THREE.Mesh(res.boneShaftGeo, res.outlineBlackMat);
+  shaftOut.scale.set(1.04, 1.24, 1.24);
+  shaft.add(shaftOut);
+  spinVisual.add(shaft);
+
+  const knobOffsets: Array<[number, number, number]> = [
+    [-0.27, 0.065, 0.035],
+    [-0.27, -0.065, -0.035],
+    [0.27, 0.065, -0.035],
+    [0.27, -0.065, 0.035],
+  ];
+  for (let i = 0; i < knobOffsets.length; i++) {
+    const [kx, ky, kz] = knobOffsets[i];
+    const knob = new THREE.Mesh(res.boneKnobGeo, res.boneWhiteMat);
+    knob.position.set(kx, ky, kz);
+    const knobOut = new THREE.Mesh(res.boneKnobGeo, res.outlineBlackMat);
+    knobOut.scale.setScalar(1.18);
+    knob.add(knobOut);
+    spinVisual.add(knob);
+  }
+
+  root.add(spinVisual);
+  applyWorldCurvatureToGroup(root);
+  return { root, spinVisual };
+}
+
+/**
+ * Constrói uma Peça Suculenta de Carne Vermelha 3D Cartoon (bife grosso com borda creme e osso branco central)
+ * espalhada estrategicamente pela rua no Modo Caramelo para recuperar Estamina + Turbo!
+ */
+export function buildCartoonMeatMesh(): { root: THREE.Group; spinVisual: THREE.Group } {
+  const res = getSharedDogCollectibleRes();
+  const root = new THREE.Group();
+  root.name = 'CartoonRedMeat';
+
+  const aura = new THREE.Mesh(res.meatAuraRingGeo, res.meatAuraRingMat);
+  aura.position.y = 0.045;
+  root.add(aura);
+
+  const spinVisual = new THREE.Group();
+  spinVisual.position.y = 0.62;
+  spinVisual.rotation.x = 0.36;
+  spinVisual.rotation.z = -0.18;
+
+  // Borda de gordura creme + contorno preto externo
+  const fatRim = new THREE.Mesh(res.meatFatRimGeo, res.meatCreamFatMat);
+  const fatOut = new THREE.Mesh(res.meatFatRimGeo, res.outlineBlackMat);
+  fatOut.scale.set(1.07, 1.18, 1.07);
+  fatRim.add(fatOut);
+  spinVisual.add(fatRim);
+
+  // Miolo vermelho rubi suculento
+  const meatCore = new THREE.Mesh(res.meatBodyGeo, res.meatRubyMat);
+  spinVisual.add(meatCore);
+
+  // Osso branco redondo central com tutano rosado (clássico desenho animado!)
+  const marrowBone = new THREE.Mesh(res.meatMarrowBoneGeo, res.boneWhiteMat);
+  marrowBone.position.set(0.11, 0, 0.04);
+  const marrowCenter = new THREE.Mesh(res.meatMarrowCoreGeo, res.meatMarrowPinkMat);
+  marrowBone.add(marrowCenter);
+  spinVisual.add(marrowBone);
+
+  root.add(spinVisual);
+  applyWorldCurvatureToGroup(root);
+  return { root, spinVisual };
+}
+
+/**
+ * Constrói o Indicador Cômico e Diagonal ("!" + presas de quadrinho inclinado na diagonal)
+ * exibido acima da cabeça do Caramelo momentos antes dele saltar nas costas do Motoboy!
+ */
+export function buildCarameloAttackIndicator(): {
+  root: THREE.Group;
+  diagonalBadge: THREE.Group;
+} {
+  const res = getSharedDogCollectibleRes();
+  const root = new THREE.Group();
+  root.name = 'CarameloDiagonalAttackIndicator';
+  root.visible = false;
+
+  const diagonalBadge = new THREE.Group();
+  // Inclinação cômica diagonal (-28 graus) estilo mangá/cartoon!
+  diagonalBadge.rotation.z = -0.49;
+
+  // Losango amarelo vibrante com bordas branca e preta
+  const diamond = new THREE.Mesh(res.warnBadgeGeo, res.warnYellowMat);
+  const diamondBlack = new THREE.Mesh(res.warnBadgeGeo, res.outlineBlackMat);
+  diamondBlack.scale.set(1.16, 1.16, 1.3);
+  diamond.add(diamondBlack);
+  diagonalBadge.add(diamond);
+
+  // Ponto de exclamação vermelho gigante no centro
+  const bar = new THREE.Mesh(res.warnBarGeo, res.warnRedMat);
+  bar.position.set(0, 0.075, 0.055);
+  const barWhite = new THREE.Mesh(res.warnBarGeo, res.warnWhiteMat);
+  barWhite.scale.set(1.25, 1.08, 1.1);
+  barWhite.position.z = -0.01;
+  bar.add(barWhite);
+  diagonalBadge.add(bar);
+
+  const dot = new THREE.Mesh(res.warnDotGeo, res.warnRedMat);
+  dot.position.set(0, -0.115, 0.055);
+  diagonalBadge.add(dot);
+
+  // Duas presinhas brancas cômicas nas pontas inferiores do alerta!
+  for (const side of [-1, 1]) {
+    const fang = new THREE.Mesh(res.warnFangGeo, res.warnWhiteMat);
+    fang.rotation.z = Math.PI + side * 0.22;
+    fang.position.set(side * 0.14, -0.26, 0.03);
+    const fangOut = new THREE.Mesh(res.warnFangGeo, res.outlineBlackMat);
+    fangOut.scale.setScalar(1.24);
+    fang.add(fangOut);
+    diagonalBadge.add(fang);
+  }
+
+  root.add(diagonalBadge);
+  return { root, diagonalBadge };
+}
+
+/**
+ * Item 5: Faixa Vermelha Piscante de Zona de Perigo no Chão (Modo Motoboy)
+ * Indica exatamente a área onde o bote do Caramelo vai atingir, piscando cada vez mais rápido!
+ */
+export interface DangerGroundStripRig {
+  root: THREE.Group;
+  fillMat: THREE.MeshBasicMaterial;
+  borderMat: THREE.MeshBasicMaterial;
+  chevronMat: THREE.MeshBasicMaterial;
+}
+
+export function buildDangerLaneGroundStrip(): DangerGroundStripRig {
+  const root = new THREE.Group();
+  root.name = 'CarameloDangerGroundStrip';
+  root.visible = false;
+
+  const stripW = 2.36;
+  const stripL = 6.2;
+
+  const fillMat = new THREE.MeshBasicMaterial({
+    color: 0xef4444,
+    transparent: true,
+    opacity: 0.42,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  });
+  applyWorldCurvatureToMaterial(fillMat);
+
+  const borderMat = new THREE.MeshBasicMaterial({
+    color: 0xff2a2a,
+    transparent: true,
+    opacity: 0.92,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -3,
+    polygonOffsetUnits: -3,
+  });
+  applyWorldCurvatureToMaterial(borderMat);
+
+  const chevronMat = new THREE.MeshBasicMaterial({
+    color: 0xfef08a,
+    transparent: true,
+    opacity: 0.88,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -4,
+  });
+  applyWorldCurvatureToMaterial(chevronMat);
+
+  const fillGeo = new THREE.PlaneGeometry(stripW, stripL, 2, 8);
+  fillGeo.rotateX(-Math.PI / 2);
+  const fillMesh = new THREE.Mesh(fillGeo, fillMat);
+  fillMesh.position.y = 0.034;
+  root.add(fillMesh);
+
+  // Bordas laterais e frontais demarcando nitidamente a zona real de impacto
+  const sideGeo = new THREE.PlaneGeometry(0.14, stripL, 1, 8);
+  sideGeo.rotateX(-Math.PI / 2);
+  for (const s of [-1, 1]) {
+    const rail = new THREE.Mesh(sideGeo, borderMat);
+    rail.position.set(s * (stripW * 0.5 - 0.07), 0.036, 0);
+    root.add(rail);
+  }
+
+  const capGeo = new THREE.PlaneGeometry(stripW, 0.16);
+  capGeo.rotateX(-Math.PI / 2);
+  for (const zCap of [-stripL * 0.5 + 0.08, stripL * 0.5 - 0.08]) {
+    const cap = new THREE.Mesh(capGeo, borderMat);
+    cap.position.set(0, 0.036, zCap);
+    root.add(cap);
+  }
+
+  // Chevrons diagonais de alerta dentro da faixa de perigo
+  const chevArmGeo = new THREE.PlaneGeometry(0.95, 0.18);
+  chevArmGeo.rotateX(-Math.PI / 2);
+  for (const zOff of [-1.85, 0.0, 1.85]) {
+    const chevGroup = new THREE.Group();
+    chevGroup.position.set(0, 0.038, zOff);
+    const leftArm = new THREE.Mesh(chevArmGeo, chevronMat);
+    leftArm.position.set(-0.36, 0, 0);
+    leftArm.rotation.y = 0.48;
+    const rightArm = new THREE.Mesh(chevArmGeo, chevronMat);
+    rightArm.position.set(0.36, 0, 0);
+    rightArm.rotation.y = -0.48;
+    chevGroup.add(leftArm, rightArm);
+    root.add(chevGroup);
+  }
+
+  return { root, fillMat, borderMat, chevronMat };
+}
+
+/**
+ * Item 7: Cédula 3D Individual Flutuante Acima da Cabeça do Motoboy na Coleta
+ * Sobe suavemente com rotação leve e desaparece gradualmente (fade-out limpo)!
+ */
+export interface FloatingHeadBanknoteRig {
+  root: THREE.Group;
+  setAppearance: (hexColor: number, opacity: number) => void;
+}
+
+let _sharedFloatingNoteGeos: {
+  noteGeo: THREE.BoxGeometry;
+  bandGeo: THREE.BoxGeometry;
+  outGeo: THREE.BoxGeometry;
+} | null = null;
+
+export function buildFloatingHeadBanknote(): FloatingHeadBanknoteRig {
+  if (!_sharedFloatingNoteGeos) {
+    _sharedFloatingNoteGeos = {
+      noteGeo: new THREE.BoxGeometry(0.44, 0.018, 0.23),
+      bandGeo: new THREE.BoxGeometry(0.11, 0.022, 0.236),
+      outGeo: new THREE.BoxGeometry(0.475, 0.032, 0.262),
+    };
+  }
+  const root = new THREE.Group();
+  root.visible = false;
+
+  const noteMat = new THREE.MeshBasicMaterial({
+    color: 0x34d399,
+    transparent: true,
+    opacity: 1.0,
+    depthWrite: false,
+    fog: false,
+  });
+  const bandMat = new THREE.MeshBasicMaterial({
+    color: 0xfef3c7,
+    transparent: true,
+    opacity: 1.0,
+    depthWrite: false,
+    fog: false,
+  });
+  const outMat = new THREE.MeshBasicMaterial({
+    color: 0x0d0b0a,
+    side: THREE.BackSide,
+    transparent: true,
+    opacity: 1.0,
+    depthWrite: false,
+    fog: false,
+  });
+
+  const noteMesh = new THREE.Mesh(_sharedFloatingNoteGeos.noteGeo, noteMat);
+  const bandMesh = new THREE.Mesh(_sharedFloatingNoteGeos.bandGeo, bandMat);
+  const outMesh = new THREE.Mesh(_sharedFloatingNoteGeos.outGeo, outMat);
+  root.add(noteMesh, bandMesh, outMesh);
+
+  const setAppearance = (hexColor: number, opacity: number) => {
+    const a = THREE.MathUtils.clamp(opacity, 0, 1);
+    noteMat.color.setHex(hexColor);
+    noteMat.opacity = a;
+    bandMat.opacity = a;
+    outMat.opacity = a * 0.92;
+  };
+
+  return { root, setAppearance };
+}
+
+/**
+ * Item 6: Sequência Final Cômica e Cinematográfica (Briga Cartoon na Nuvem de Poeira Branca + Peças da Moto Voando!)
+ */
+export interface BrawlFlyingPart {
+  group: THREE.Group;
+  kind: 'wheel_front' | 'wheel_rear' | 'crate' | 'handlebar' | 'muffler' | 'fender';
+  radius: number;
+  restitution: number;
+}
+
+export interface CartoonBrawlFinaleRig {
+  root: THREE.Group;
+  dustCloudGroup: THREE.Group;
+  dustPuffs: Array<{
+    group: THREE.Group;
+    mat: THREE.MeshToonMaterial;
+    outMat: THREE.MeshBasicMaterial;
+    orbitAngle: number;
+    orbitRadius: number;
+    orbitHeight: number;
+    speed: number;
+    baseScale: number;
+  }>;
+  comicSpikes: THREE.Mesh[];
+  flyingParts: BrawlFlyingPart[];
+}
+
+export function buildCartoonBrawlFinaleRig(): CartoonBrawlFinaleRig {
+  const res = getSharedDogCollectibleRes();
+  const root = new THREE.Group();
+  root.name = 'CartoonBrawlFinaleRig';
+  root.visible = false;
+
+  const dustCloudGroup = new THREE.Group();
+  root.add(dustCloudGroup);
+
+  const puffGeo = new THREE.SphereGeometry(0.62, 14, 12);
+  const puffOutGeo = new THREE.SphereGeometry(0.68, 12, 10);
+  const dustColors = [0xffffff, 0xf8fafc, 0xfffbeb, 0xf1f5f9];
+  const dustPuffs: CartoonBrawlFinaleRig['dustPuffs'] = [];
+
+  for (let i = 0; i < 16; i++) {
+    const pGroup = new THREE.Group();
+    const mat = new THREE.MeshToonMaterial({
+      color: dustColors[i % dustColors.length],
+      transparent: true,
+      opacity: 1.0,
+    });
+    const outMat = new THREE.MeshBasicMaterial({
+      color: 0x0d0b0a,
+      side: THREE.BackSide,
+      transparent: true,
+      opacity: 1.0,
+    });
+    const m = new THREE.Mesh(puffGeo, mat);
+    const o = new THREE.Mesh(puffOutGeo, outMat);
+    pGroup.add(m, o);
+    dustCloudGroup.add(pGroup);
+    dustPuffs.push({
+      group: pGroup,
+      mat,
+      outMat,
+      orbitAngle: (i / 16) * Math.PI * 2,
+      orbitRadius: i < 4 ? 0.28 : 0.65 + (i % 4) * 0.24,
+      orbitHeight: 0.42 + (i % 5) * 0.22,
+      speed: (i % 2 === 0 ? 1 : -1) * (4.8 + (i % 4) * 1.3),
+      baseScale: i < 4 ? 1.35 : 0.78 + (i % 3) * 0.24,
+    });
+  }
+
+  // Estrelas / Faíscas de Impacto Cartoon + Onomatopeias "POW!", "BAM!", "BIF!" + Punhos/Botas (Referência 1!)
+  const spikeGeo = new THREE.OctahedronGeometry(0.20, 0);
+  const spikePalette = [0xfde047, 0xf97316, 0x38bdf8, 0xf43f5e];
+  const comicSpikes: THREE.Mesh[] = [];
+  for (let s = 0; s < 6; s++) {
+    const sMat = new THREE.MeshBasicMaterial({ color: spikePalette[s % spikePalette.length] });
+    const sMesh = new THREE.Mesh(spikeGeo, sMat);
+    const sOut = new THREE.Mesh(spikeGeo, res.outlineBlackMat);
+    sOut.scale.setScalar(1.22);
+    sMesh.add(sOut);
+    dustCloudGroup.add(sMesh);
+    comicSpikes.push(sMesh);
+  }
+
+  // Onomatopeias cômicas "POW!", "BAM!", "BIF!" (Referência 1) saltando ao redor da nuvem de pancadaria!
+  const createComicWordBadge = (word: string, bgHex: string, textHex: string): THREE.Mesh => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d')!;
+    ctx.clearRect(0, 0, 256, 128);
+
+    // Explosão estrelada de fundo estilo quadrinhos
+    ctx.save();
+    ctx.translate(128, 64);
+    ctx.beginPath();
+    const pts = 14;
+    for (let i = 0; i < pts * 2; i++) {
+      const r = i % 2 === 0 ? 112 : 76;
+      const a = (i * Math.PI) / pts;
+      const x = Math.cos(a) * r;
+      const y = Math.sin(a) * (r * 0.52);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = bgHex;
+    ctx.fill();
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = '#0d0b0a';
+    ctx.stroke();
+
+    ctx.font = 'italic 900 54px Impact, Arial Black, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 12;
+    ctx.strokeStyle = '#0d0b0a';
+    ctx.strokeText(word, 0, 4);
+    ctx.fillStyle = textHex;
+    ctx.fillText(word, 0, 4);
+    ctx.restore();
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.MeshBasicMaterial({
+      map: tex,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    return new THREE.Mesh(new THREE.PlaneGeometry(1.18, 0.59), mat);
+  };
+
+  const powBadge = createComicWordBadge('POW!', '#fef08a', '#ef4444');
+  const bamBadge = createComicWordBadge('BAM!', '#bbf7d0', '#16a34a');
+  const bifBadge = createComicWordBadge('BIF!', '#fed7aa', '#f59e0b');
+  dustCloudGroup.add(powBadge, bamBadge, bifBadge);
+  comicSpikes.push(powBadge, bamBadge, bifBadge);
+
+  // Punhos e botas cartoon saindo da nuvem de poeira (Referência 1!)
+  const bootMat = new THREE.MeshToonMaterial({ color: 0x78350f });
+  const skinFistMat = new THREE.MeshToonMaterial({ color: 0xfdba74 });
+  for (let lIdx = 0; lIdx < 2; lIdx++) {
+    const limbMesh = new THREE.Mesh(
+      lIdx === 0
+        ? new THREE.BoxGeometry(0.32, 0.22, 0.44)
+        : new THREE.SphereGeometry(0.20, 10, 8),
+      lIdx === 0 ? bootMat : skinFistMat
+    );
+    const lOut = new THREE.Mesh(limbMesh.geometry, res.outlineBlackMat);
+    lOut.scale.setScalar(1.14);
+    limbMesh.add(lOut);
+    dustCloudGroup.add(limbMesh);
+    comicSpikes.push(limbMesh);
+  }
+
+  // Peças Icônicas da Moto Voando com Direção e Quique Convincente!
+  const tireMat = new THREE.MeshToonMaterial({ color: 0x1e293b });
+  const chromeMat = new THREE.MeshToonMaterial({ color: 0xe2e8f0 });
+  const crateRedMat = new THREE.MeshToonMaterial({ color: 0xef4444 });
+  const crateYellowMat = new THREE.MeshToonMaterial({ color: 0xfacc15 });
+  const fenderBlueMat = new THREE.MeshToonMaterial({ color: 0x2563eb });
+
+  const addPartOutline = (mesh: THREE.Mesh, scale = 1.12) => {
+    const out = new THREE.Mesh(mesh.geometry, res.outlineBlackMat);
+    out.scale.setScalar(scale);
+    mesh.add(out);
+  };
+
+  const buildWheelPart = (kind: 'wheel_front' | 'wheel_rear'): BrawlFlyingPart => {
+    const g = new THREE.Group();
+    const tire = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.10, 10, 20), tireMat);
+    addPartOutline(tire, 1.10);
+    const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.21, 0.08, 12), chromeMat);
+    rim.rotation.x = Math.PI / 2;
+    g.add(tire, rim);
+    root.add(g);
+    return { group: g, kind, radius: 0.38, restitution: 0.68 };
+  };
+
+  const crateG = new THREE.Group();
+  const crateBody = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.42, 0.48), crateRedMat);
+  addPartOutline(crateBody, 1.09);
+  const crateLid = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.09, 0.52), crateYellowMat);
+  crateLid.position.y = 0.24;
+  addPartOutline(crateLid, 1.09);
+  crateG.add(crateBody, crateLid);
+  root.add(crateG);
+
+  const barG = new THREE.Group();
+  const barTube = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.78, 8), chromeMat);
+  barTube.rotation.z = Math.PI / 2;
+  addPartOutline(barTube, 1.18);
+  for (const side of [-1, 1]) {
+    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.046, 0.16, 8), tireMat);
+    grip.rotation.z = Math.PI / 2;
+    grip.position.x = side * 0.34;
+    barG.add(grip);
+  }
+  barG.add(barTube);
+  root.add(barG);
+
+  const mufflerG = new THREE.Group();
+  const mufflerBody = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.068, 0.56, 10), chromeMat);
+  mufflerBody.rotation.z = Math.PI / 2;
+  addPartOutline(mufflerBody, 1.12);
+  mufflerG.add(mufflerBody);
+  root.add(mufflerG);
+
+  const fenderG = new THREE.Group();
+  const fenderBody = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.14, 0.46), fenderBlueMat);
+  addPartOutline(fenderBody, 1.12);
+  fenderG.add(fenderBody);
+  root.add(fenderG);
+
+  const flyingParts: BrawlFlyingPart[] = [
+    buildWheelPart('wheel_front'),
+    buildWheelPart('wheel_rear'),
+    { group: crateG, kind: 'crate', radius: 0.26, restitution: 0.52 },
+    { group: barG, kind: 'handlebar', radius: 0.16, restitution: 0.56 },
+    { group: mufflerG, kind: 'muffler', radius: 0.14, restitution: 0.50 },
+    { group: fenderG, kind: 'fender', radius: 0.14, restitution: 0.48 },
+  ];
+
+  return { root, dustCloudGroup, dustPuffs, comicSpikes, flyingParts };
+}
+
+/**
+ * Item 11: Caramelo Ambiente Cartoon Esparso nas Calçadas (apenas 2 unidades bem espaçadas no mapa,
+ * preservando a presença charmosa deles no bairro sem jamais agrupar vários cachorros!)
+ */
+export function buildSparseSidewalkCarameloProp(): { root: THREE.Group; tailPivot: THREE.Group } {
+  const root = new THREE.Group();
+  root.name = 'SparseSidewalkCaramelo';
+
+  const whiteOutlineMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    side: THREE.BackSide,
+  });
+  const coatMat = new THREE.MeshToonMaterial({ color: 0xd97706 });
+  const chestMat = new THREE.MeshToonMaterial({ color: 0xfbbf24 });
+  const noseMat = new THREE.MeshToonMaterial({ color: 0x1e293b });
+
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.15, 0.28, 6, 10), coatMat);
+  body.position.set(0, 0.28, 0);
+  body.rotation.x = -0.52;
+  const bodyOut = new THREE.Mesh(body.geometry, whiteOutlineMat);
+  bodyOut.scale.setScalar(1.10);
+  body.add(bodyOut);
+  root.add(body);
+
+  const chest = new THREE.Mesh(new THREE.SphereGeometry(0.135, 10, 8), chestMat);
+  chest.position.set(0, 0.34, 0.10);
+  root.add(chest);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.145, 12, 10), coatMat);
+  head.position.set(0, 0.52, 0.14);
+  const headOut = new THREE.Mesh(head.geometry, whiteOutlineMat);
+  headOut.scale.setScalar(1.10);
+  head.add(headOut);
+  root.add(head);
+
+  const snout = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.09, 6, 8), chestMat);
+  snout.rotation.x = Math.PI / 2;
+  snout.position.set(0, 0.49, 0.27);
+  root.add(snout);
+
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.032, 8, 6), noseMat);
+  nose.position.set(0, 0.51, 0.34);
+  root.add(nose);
+
+  for (const s of [-1, 1]) {
+    const ear = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.11, 0.05), coatMat);
+    ear.position.set(s * 0.12, 0.59, 0.11);
+    ear.rotation.z = s * 0.42;
+    root.add(ear);
+
+    const fLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.038, 0.26, 8), coatMat);
+    fLeg.position.set(s * 0.085, 0.13, 0.14);
+    root.add(fLeg);
+  }
+
+  const tailPivot = new THREE.Group();
+  tailPivot.position.set(0, 0.22, -0.16);
+  const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.04, 0.24, 6), coatMat);
+  tail.position.set(0, 0.10, -0.06);
+  tail.rotation.x = -0.65;
+  tailPivot.add(tail);
+  root.add(tailPivot);
+
+  applyWorldCurvatureToGroup(root);
+  return { root, tailPivot };
+}
+
+// ============================================================================
+// ITEM 8: NOVO SISTEMA DE MISSÕES — ZONA VERDE PISCANTE NO CHÃO + NPC CLIENTE
+// ============================================================================
+
+export interface PizzaDeliveryZoneRig {
+  root: THREE.Group;
+  floorZoneGroup: THREE.Group;
+  floorFillMat: THREE.MeshBasicMaterial;
+  floorBorderMat: THREE.MeshBasicMaterial;
+  floorBeaconMat: THREE.MeshBasicMaterial;
+  npcGroup: THREE.Group;
+  wavingArmPivot: THREE.Group;
+  catchingArmPivot: THREE.Group;
+  orderBadgeMesh: THREE.Mesh;
+  deliveredBadgeMesh: THREE.Mesh;
+}
+
+let sharedPizzaZoneBadges: {
+  orderMat: THREE.MeshBasicMaterial;
+  deliveredMat: THREE.MeshBasicMaterial;
+} | null = null;
+
+function getSharedPizzaZoneBadges() {
+  if (sharedPizzaZoneBadges) return sharedPizzaZoneBadges;
+
+  const makeBadgeTex = (topText: string, subText: string, bgStart: string, bgEnd: string) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 320;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d')!;
+    ctx.clearRect(0, 0, 320, 128);
+
+    const grad = ctx.createLinearGradient(0, 8, 0, 120);
+    grad.addColorStop(0, bgStart);
+    grad.addColorStop(1, bgEnd);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.roundRect(10, 10, 300, 108, 28);
+    ctx.fill();
+
+    ctx.lineWidth = 7;
+    ctx.strokeStyle = '#ffffff';
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '900 34px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.strokeStyle = '#0d0b0a';
+    ctx.lineWidth = 7;
+    ctx.strokeText(topText, 160, 48);
+    ctx.fillText(topText, 160, 48);
+
+    ctx.fillStyle = '#fef08a';
+    ctx.font = '900 24px sans-serif';
+    ctx.strokeText(subText, 160, 88);
+    ctx.fillText(subText, 160, 88);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return new THREE.MeshBasicMaterial({
+      map: tex,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+  };
+
+  sharedPizzaZoneBadges = {
+    orderMat: makeBadgeTex('🍕 PEDIDO AQUI!', 'ENTREGAR PIZZA', '#22c55e', '#15803d'),
+    deliveredMat: makeBadgeTex('🍕 ENTREGUE!', '+BÔNUS VIP!', '#f59e0b', '#b45309'),
+  };
+  return sharedPizzaZoneBadges;
+}
+
+export function buildPizzaDeliveryZoneRig(
+  side: 'left' | 'right',
+  variantIdx = 0
+): PizzaDeliveryZoneRig {
+  const root = new THREE.Group();
+  root.name = `PizzaDeliveryZone_${side}_${variantIdx}`;
+  root.visible = false;
+
+  const sideSign = side === 'left' ? -1 : 1;
+  // 1) Área Verde Piscante no Chão na faixa da rua próxima à casa (x = ±3.15m)
+  const floorZoneGroup = new THREE.Group();
+  floorZoneGroup.position.set(sideSign * 3.15, 0.032, 0);
+  root.add(floorZoneGroup);
+
+  const floorFillMat = new THREE.MeshBasicMaterial({
+    color: 0x22c55e,
+    transparent: true,
+    opacity: 0.42,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const floorBorderMat = new THREE.MeshBasicMaterial({
+    color: 0x86efac,
+    transparent: true,
+    opacity: 0.92,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const floorBeaconMat = new THREE.MeshBasicMaterial({
+    color: 0x4ade80,
+    transparent: true,
+    opacity: 0.22,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+
+  const zoneW = 2.85;
+  const zoneL = 6.2;
+  const fillPlane = new THREE.Mesh(new THREE.PlaneGeometry(zoneW, zoneL), floorFillMat);
+  fillPlane.rotation.x = -Math.PI * 0.5;
+  floorZoneGroup.add(fillPlane);
+
+  // Moldura verde luminosa piscante no asfalto
+  const bThick = 0.16;
+  const leftEdge = new THREE.Mesh(new THREE.PlaneGeometry(bThick, zoneL), floorBorderMat);
+  leftEdge.rotation.x = -Math.PI * 0.5;
+  leftEdge.position.set(-zoneW * 0.5, 0.004, 0);
+  const rightEdge = new THREE.Mesh(new THREE.PlaneGeometry(bThick, zoneL), floorBorderMat);
+  rightEdge.rotation.x = -Math.PI * 0.5;
+  rightEdge.position.set(zoneW * 0.5, 0.004, 0);
+  const frontEdge = new THREE.Mesh(new THREE.PlaneGeometry(zoneW, bThick), floorBorderMat);
+  frontEdge.rotation.x = -Math.PI * 0.5;
+  frontEdge.position.set(0, 0.004, zoneL * 0.5);
+  const backEdge = new THREE.Mesh(new THREE.PlaneGeometry(zoneW, bThick), floorBorderMat);
+  backEdge.rotation.x = -Math.PI * 0.5;
+  backEdge.position.set(0, 0.004, -zoneL * 0.5);
+  floorZoneGroup.add(leftEdge, rightEdge, frontEdge, backEdge);
+
+  // Halo vertical suave demarcando a área de entrega
+  const beaconCylinder = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.25, 1.35, 1.15, 18, 1, true),
+    floorBeaconMat
+  );
+  beaconCylinder.position.set(0, 0.58, 0);
+  floorZoneGroup.add(beaconCylinder);
+
+  // 2) NPC Cliente Cartoon esperando na calçada em frente à casa (com BORDAS BRANCAS estilo cartoon!)
+  const npcGroup = new THREE.Group();
+  npcGroup.position.set(sideSign * 5.65, 0.16, 0);
+  // Olha em direção à rua e ao motoboy que vem se aproximando
+  npcGroup.rotation.y = side === 'left' ? Math.PI * 0.35 : -Math.PI * 0.35;
+  root.add(npcGroup);
+
+  const whiteOutlineMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    side: THREE.BackSide,
+  });
+
+  const shirtPalette = [0xef4444, 0x3b82f6, 0xf59e0b, 0xec4899, 0x8b5cf6, 0x10b981];
+  const pantsPalette = [0x1e3a8a, 0x334155, 0x475569, 0x78350f];
+  const skinPalette = [0xfdba74, 0xd97706, 0xfed7aa, 0x92400e];
+
+  const shirtMat = new THREE.MeshToonMaterial({
+    color: shirtPalette[variantIdx % shirtPalette.length],
+  });
+  const pantsMat = new THREE.MeshToonMaterial({
+    color: pantsPalette[variantIdx % pantsPalette.length],
+  });
+  const skinMat = new THREE.MeshToonMaterial({
+    color: skinPalette[variantIdx % skinPalette.length],
+  });
+  const hairMat = new THREE.MeshToonMaterial({ color: 0x1e1b18 });
+  const shoeMat = new THREE.MeshToonMaterial({ color: 0xf8fafc });
+
+  const addWhiteOutlinedMesh = (
+    geo: THREE.BufferGeometry,
+    mat: THREE.Material,
+    parent: THREE.Object3D,
+    outScale = 1.12
+  ) => {
+    const m = new THREE.Mesh(geo, mat);
+    const hull = new THREE.Mesh(geo, whiteOutlineMat);
+    hull.scale.setScalar(outScale);
+    m.add(hull);
+    parent.add(m);
+    return m;
+  };
+
+  // Pernas e tênis
+  for (const s of [-1, 1]) {
+    const leg = addWhiteOutlinedMesh(
+      new THREE.CapsuleGeometry(0.085, 0.42, 6, 8),
+      pantsMat,
+      npcGroup
+    );
+    leg.position.set(s * 0.12, 0.36, 0);
+
+    const shoe = addWhiteOutlinedMesh(
+      new THREE.BoxGeometry(0.14, 0.10, 0.24),
+      shoeMat,
+      npcGroup
+    );
+    shoe.position.set(s * 0.12, 0.06, 0.04);
+  }
+
+  // Tronco
+  const torso = addWhiteOutlinedMesh(
+    new THREE.CapsuleGeometry(0.19, 0.38, 8, 12),
+    shirtMat,
+    npcGroup,
+    1.10
+  );
+  torso.position.set(0, 0.88, 0);
+
+  // Cabeça e Cabelo/Boné
+  const head = addWhiteOutlinedMesh(
+    new THREE.SphereGeometry(0.185, 12, 10),
+    skinMat,
+    npcGroup,
+    1.11
+  );
+  head.position.set(0, 1.34, 0);
+
+  const hair = addWhiteOutlinedMesh(
+    new THREE.SphereGeometry(0.192, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.56),
+    hairMat,
+    npcGroup,
+    1.08
+  );
+  hair.position.set(0, 1.36, -0.01);
+
+  // Braço que acena pedindo a pizza!
+  const wavingArmPivot = new THREE.Group();
+  wavingArmPivot.position.set(-sideSign * 0.24, 1.06, 0);
+  npcGroup.add(wavingArmPivot);
+  const waveArm = addWhiteOutlinedMesh(
+    new THREE.CapsuleGeometry(0.068, 0.34, 6, 8),
+    skinMat,
+    wavingArmPivot
+  );
+  waveArm.position.set(0, 0.20, 0);
+
+  // Segundo braço pronto para receber a caixa de pizza
+  const catchingArmPivot = new THREE.Group();
+  catchingArmPivot.position.set(sideSign * 0.24, 1.04, 0);
+  npcGroup.add(catchingArmPivot);
+  const catchArm = addWhiteOutlinedMesh(
+    new THREE.CapsuleGeometry(0.068, 0.32, 6, 8),
+    skinMat,
+    catchingArmPivot
+  );
+  catchArm.position.set(0, -0.14, 0.10);
+  catchArm.rotation.x = -0.65;
+
+  // Placa Flutuante de Pedido / Entrega Concluída acima do NPC
+  const badges = getSharedPizzaZoneBadges();
+  const badgePlaneGeo = new THREE.PlaneGeometry(1.55, 0.62);
+  const orderBadgeMesh = new THREE.Mesh(badgePlaneGeo, badges.orderMat);
+  orderBadgeMesh.position.set(sideSign * 4.85, 2.25, 0);
+  root.add(orderBadgeMesh);
+
+  const deliveredBadgeMesh = new THREE.Mesh(badgePlaneGeo, badges.deliveredMat);
+  deliveredBadgeMesh.position.set(sideSign * 4.85, 2.35, 0);
+  deliveredBadgeMesh.visible = false;
+  root.add(deliveredBadgeMesh);
+
+  applyWorldCurvatureToGroup(root);
+
+  return {
+    root,
+    floorZoneGroup,
+    floorFillMat,
+    floorBorderMat,
+    floorBeaconMat,
+    npcGroup,
+    wavingArmPivot,
+    catchingArmPivot,
+    orderBadgeMesh,
+    deliveredBadgeMesh,
+  };
+}
+
+
+
 

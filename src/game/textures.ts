@@ -580,25 +580,50 @@ export function createStreetRoadTexture(maxAnisotropy = 4): THREE.CanvasTexture 
   drawCrackNetwork(265, 310, 7, 1);
   drawCrackNetwork(65, 330, 7, 1);
 
-  // 6. Weathered Yellow Edge Drainage Lines near sidewalk curbs
-  ctx.fillStyle = '#EAB308';
-  ctx.fillRect(14, 0, 8, 512);
-  ctx.fillRect(490, 0, 8, 512);
+  // 6. Trilhas longitudinais de pneu & juntas transversais de asfalto para forte sensação de velocidade na rua
+  const laneCenters = [86, 256, 426];
+  for (const lx of laneCenters) {
+    ctx.fillStyle = 'rgba(15, 18, 24, 0.28)';
+    ctx.fillRect(lx - 26, 0, 14, 512);
+    ctx.fillRect(lx + 12, 0, 14, 512);
+  }
 
-  // 7. White Dashed Lane Dividers separating the 3 lanes
-  ctx.fillStyle = '#F1F5F9';
+  // Juntas de piche transversais sutis que passam rápido sob a moto
+  ctx.fillStyle = 'rgba(12, 14, 19, 0.48)';
+  ctx.fillRect(18, 126, 476, 4);
+  ctx.fillRect(18, 382, 476, 4);
+  ctx.fillStyle = 'rgba(203, 213, 225, 0.12)';
+  ctx.fillRect(18, 130, 476, 2);
+  ctx.fillRect(18, 386, 476, 2);
+
+  // Faixas amarelas duplas/laterais vivas junto ao meio-fio
+  ctx.fillStyle = '#111827';
+  ctx.fillRect(11, 0, 14, 512);
+  ctx.fillRect(487, 0, 14, 512);
+  ctx.fillStyle = '#FACC15';
+  ctx.fillRect(13, 0, 10, 512);
+  ctx.fillRect(489, 0, 10, 512);
+
+  // 7. Faixas Brancas Tracejadas de Alto Contraste separando as 3 ruas (8 faixas por ciclo para leitura veloz!)
   const lane1X = Math.round(512 * 0.34);
   const lane2X = Math.round(512 * 0.66);
-  for (let y = 24; y < 512; y += 128) {
+  for (let y = 8; y < 512; y += 64) {
+    // Contorno escuro estilo cartoon na pintura de solo
+    ctx.fillStyle = '#0F172A';
     ctx.beginPath();
-    ctx.roundRect(lane1X - 5, y, 10, 68, 4);
-    ctx.roundRect(lane2X - 5, y, 10, 68, 4);
+    ctx.roundRect(lane1X - 8, y - 2, 16, 38, 5);
+    ctx.roundRect(lane2X - 8, y - 2, 16, 38, 5);
     ctx.fill();
 
-    ctx.fillStyle = '#333945';
-    ctx.fillRect(lane1X - 6, y + 26, 12, 4);
-    ctx.fillRect(lane2X - 6, y + 44, 12, 3);
-    ctx.fillStyle = '#F1F5F9';
+    ctx.fillStyle = '#F8FAFC';
+    ctx.beginPath();
+    ctx.roundRect(lane1X - 6, y, 12, 34, 4);
+    ctx.roundRect(lane2X - 6, y, 12, 34, 4);
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(51, 57, 69, 0.55)';
+    ctx.fillRect(lane1X - 6, y + 15, 12, 2.5);
+    ctx.fillRect(lane2X - 6, y + 22, 12, 2.5);
   }
 
   const tex = new THREE.CanvasTexture(canvas);
@@ -1102,88 +1127,152 @@ export function createPainterlySkyTexture(
     drawFluidBrushStroke(sx, sy, len, thick, angle, col, 0.24 + rand() * 0.18);
   }
 
-  // 2. Crisp, Sunlit Cartoon Cloud Banks with Warm Golden-Amber Rim Highlights
-  const drawIllustratedCloudBank = (
+  // 2. Nuvens Pinceladas Suaves (Gouache / Aquarela Digital Sem Bolhas Redondas!)
+  // Camadas orgânicas esfumadas com degradê vertical e pontas afiladas sedosas
+  const drawSoftBrushCloudCluster = (
     cx: number,
     baseY: number,
     scale: number,
-    fillColor: string,
-    shadowColor: string,
-    rimColor: string,
+    topHighlightHex: string,
+    midBodyHex: string,
+    underBellyHex: string,
     alpha: number,
   ) => {
-    const puffs = [
-      { dx: -115, dy: 8, r: 44 },
-      { dx: -72, dy: -12, r: 58 },
-      { dx: -18, dy: -32, r: 74 },
-      { dx: 42, dy: -18, r: 62 },
-      { dx: 96, dy: 2, r: 48 },
-      { dx: 132, dy: 14, r: 34 },
+    const strokes = [
+      { dx: -120, dy: 14, len: 290, thick: 22, tilt: -0.025, w: 0.55 },
+      { dx: -35, dy: -6, len: 360, thick: 30, tilt: 0.015, w: 0.78 },
+      { dx: 15, dy: -22, len: 270, thick: 26, tilt: -0.012, w: 0.88 },
+      { dx: 85, dy: 2, len: 310, thick: 24, tilt: 0.022, w: 0.68 },
+      { dx: -10, dy: 18, len: 410, thick: 18, tilt: 0.005, w: 0.50 },
     ];
+
     for (const ox of [-W, 0, W]) {
       const px = cx + ox;
-      if (px + 220 * scale < 0 || px - 220 * scale > W) continue;
+      if (px + 320 * scale < 0 || px - 320 * scale > W) continue;
+
       ctx.save();
       ctx.translate(px, baseY);
-      ctx.scale(scale, scale * 0.68);
+      ctx.scale(scale, scale * 0.74);
 
-      // Radiant golden-sunlit top rim highlight
-      ctx.globalAlpha = alpha * 0.95;
-      ctx.fillStyle = rimColor;
-      ctx.beginPath();
-      ctx.moveTo(-155, 32);
-      for (const p of puffs) {
-        ctx.arc(p.dx, p.dy - 6, p.r + 4, Math.PI * 0.85, Math.PI * 0.15, false);
-      }
-      ctx.lineTo(165, 32);
-      ctx.closePath();
-      ctx.fill();
+      for (const s of strokes) {
+        ctx.save();
+        ctx.translate(s.dx, s.dy);
+        ctx.rotate(s.tilt);
 
-      // Main luminous cartoon cloud body
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = fillColor;
-      ctx.beginPath();
-      ctx.moveTo(-152, 32);
-      for (const p of puffs) {
-        ctx.arc(p.dx, p.dy, p.r, Math.PI * 0.9, Math.PI * 0.1, false);
-      }
-      ctx.lineTo(162, 32);
-      ctx.quadraticCurveTo(0, 44, -152, 32);
-      ctx.closePath();
-      ctx.fill();
+        // Gradiente vertical suave de luz dourada/creme no topo até sombra rosada/lavanda na base
+        const vGrad = ctx.createLinearGradient(0, -s.thick * 1.15, 0, s.thick * 1.15);
+        vGrad.addColorStop(0.0, topHighlightHex);
+        vGrad.addColorStop(0.48, midBodyHex);
+        vGrad.addColorStop(1.0, underBellyHex);
 
-      // Soft warm violet/coral shadow band inside the cloud belly
-      ctx.globalAlpha = alpha * 0.62;
-      ctx.fillStyle = shadowColor;
-      ctx.beginPath();
-      ctx.moveTo(-140, 28);
-      for (const p of puffs) {
-        ctx.arc(p.dx, p.dy + 16, p.r * 0.78, Math.PI * 0.95, Math.PI * 0.05, false);
+        // Passagem externa ultra-suave esfumada (halo de pincel úmido)
+        ctx.globalAlpha = alpha * s.w * 0.42;
+        ctx.fillStyle = vGrad;
+        ctx.beginPath();
+        const extLen = s.len * 1.24;
+        const extThick = s.thick * 1.45;
+        ctx.moveTo(-extLen * 0.5, 0);
+        ctx.bezierCurveTo(
+          -extLen * 0.24,
+          -extThick,
+          extLen * 0.20,
+          -extThick * 0.82,
+          extLen * 0.5,
+          0,
+        );
+        ctx.bezierCurveTo(
+          extLen * 0.22,
+          extThick * 0.72,
+          -extLen * 0.24,
+          extThick * 0.88,
+          -extLen * 0.5,
+          0,
+        );
+        ctx.closePath();
+        ctx.fill();
+
+        // Passagem central de pincelada sedosa
+        ctx.globalAlpha = alpha * s.w * 0.78;
+        ctx.beginPath();
+        ctx.moveTo(-s.len * 0.5, 0);
+        ctx.bezierCurveTo(
+          -s.len * 0.20,
+          -s.thick * 0.95,
+          s.len * 0.18,
+          -s.thick * 0.75,
+          s.len * 0.5,
+          -s.thick * 0.06,
+        );
+        ctx.bezierCurveTo(
+          s.len * 0.22,
+          s.thick * 0.62,
+          -s.len * 0.22,
+          s.thick * 0.78,
+          -s.len * 0.5,
+          0,
+        );
+        ctx.closePath();
+        ctx.fill();
+
+        // Filete luminoso de pincel no topo da nuvem
+        ctx.globalAlpha = alpha * s.w * 0.55;
+        ctx.fillStyle = topHighlightHex;
+        ctx.beginPath();
+        const rimLen = s.len * 0.82;
+        const rimThick = s.thick * 0.38;
+        ctx.moveTo(-rimLen * 0.5, -s.thick * 0.34);
+        ctx.bezierCurveTo(
+          -rimLen * 0.18,
+          -s.thick * 0.88,
+          rimLen * 0.18,
+          -s.thick * 0.76,
+          rimLen * 0.5,
+          -s.thick * 0.28,
+        );
+        ctx.bezierCurveTo(
+          rimLen * 0.16,
+          -s.thick * 0.28 + rimThick,
+          -rimLen * 0.18,
+          -s.thick * 0.34 + rimThick,
+          -rimLen * 0.5,
+          -s.thick * 0.34,
+        );
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
       }
-      ctx.lineTo(148, 30);
-      ctx.quadraticCurveTo(0, 42, -140, 28);
-      ctx.closePath();
-      ctx.fill();
 
       ctx.restore();
     }
   };
 
-  const cloudFill = preset === 'tropical_morning' ? '#FFFBEB' : '#FFF1F2';
-  const cloudShadow = preset === 'tropical_morning' ? '#FDE68A' : '#F472B6';
-  const cloudRim = '#FEF08A';
+  const cloudTop = preset === 'tropical_morning' ? '#FFFDF7' : '#FEF9C3';
+  const cloudMid = preset === 'tropical_morning' ? '#FFFBEB' : '#FFE4E6';
+  const cloudBelly = preset === 'tropical_morning' ? '#BAE6FD' : '#DDD6FE';
 
-  const numCloudClusters = 14;
-  for (let c = 0; c < numCloudClusters; c++) {
-    const cx = (c / numCloudClusters) * W + (rand() - 0.5) * 55;
-    const cy = 365 + (c % 3) * 36 + rand() * 24;
-    const sc = 0.68 + (c % 3) * 0.22 + rand() * 0.18;
-    drawIllustratedCloudBank(cx, cy, sc, cloudFill, cloudShadow, cloudRim, 0.65 + (c % 2) * 0.16);
+  // Duas faixas de altitude de nuvens pinceladas suaves e arejadas pelo horizonte e meio-céu
+  const numBrushClusters = 16;
+  for (let c = 0; c < numBrushClusters; c++) {
+    const cx = (c / numBrushClusters) * W + (rand() - 0.5) * 68;
+    const cy = 255 + (c % 4) * 52 + rand() * 28;
+    const sc = 0.72 + (c % 3) * 0.24 + rand() * 0.18;
+    drawSoftBrushCloudCluster(
+      cx,
+      cy,
+      sc,
+      cloudTop,
+      cloudMid,
+      cloudBelly,
+      0.56 + (c % 3) * 0.12,
+    );
   }
 
   ctx.globalAlpha = 1.0;
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
   tex.needsUpdate = true;
   return tex;
 }
@@ -1470,7 +1559,7 @@ export function createBillboardAdTexture(
   variant = 0,
   maxAnisotropy = 4,
 ): THREE.CanvasTexture {
-  const v = variant % 2;
+  const v = ((variant % 3) + 3) % 3;
   const cached = billboardTexCache.get(v);
   if (cached) return cached;
 
@@ -1499,9 +1588,9 @@ export function createBillboardAdTexture(
     ctx.stroke();
   }
 
-  // 2. Dynamic Purple & Black Comic Speed Spikes in the Corners (Matching Reference Image 1)
-  const accentPrimary = v === 0 ? '#7E22CE' : '#1D4ED8';
-  const accentBright = v === 0 ? '#A855F7' : '#38BDF8';
+  // 2. Dynamic Purple/Blue/Orange & Black Comic Speed Spikes in the Corners
+  const accentPrimary = v === 0 ? '#7E22CE' : v === 1 ? '#1D4ED8' : '#EA580C';
+  const accentBright = v === 0 ? '#A855F7' : v === 1 ? '#38BDF8' : '#FACC15';
 
   const drawCornerSpikes = () => {
     // Top-left spikes
@@ -1584,126 +1673,170 @@ export function createBillboardAdTexture(
   };
   drawCornerSpikes();
 
-  // 3. Left-Side Illustrated Cartoon Vira-Lata Caramelo Mascot (Matching Reference Image 1)
+  // 3. Left-Side Illustrated Emblem: Caramelo Mascot only on 1 in 3 billboards (natural balanced distribution without clustering!),
+  // while other billboards feature a Cartoon Motoboy Helmet & Speed Emblem!
+  const showCarameloMascot = v === 0;
   ctx.save();
   ctx.translate(92, 142);
 
-  // Dust cloud puff under paws
-  ctx.fillStyle = '#D6C7B2';
-  ctx.beginPath();
-  ctx.ellipse(-8, 56, 58, 22, -0.1, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Warm Caramel Body & Shoulders
-  ctx.fillStyle = '#D97706';
-  ctx.strokeStyle = '#0F172A';
-  ctx.lineWidth = 4.0;
-  ctx.beginPath();
-  ctx.ellipse(-12, 16, 46, 38, -0.2, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-
-  // Floppy Caramel Ears
-  for (const [ex, ey, rot] of [
-    [-38, -36, -0.55],
-    [32, -32, 0.55],
-  ]) {
-    ctx.save();
-    ctx.translate(ex, ey);
-    ctx.rotate(rot);
-    ctx.fillStyle = '#B45309';
+  if (showCarameloMascot) {
+    // Dust cloud puff under paws
+    ctx.fillStyle = '#D6C7B2';
     ctx.beginPath();
-    ctx.ellipse(0, 0, 18, 10, 0, 0, Math.PI * 2);
+    ctx.ellipse(-8, 56, 58, 22, -0.1, 0, Math.PI * 2);
     ctx.fill();
-    ctx.stroke();
-    ctx.restore();
-  }
 
-  // Caramel Head
-  ctx.fillStyle = '#F59E0B';
-  ctx.beginPath();
-  ctx.arc(0, -18, 34, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-
-  // Expressive Cartoon Eyes
-  for (const ox of [-11, 11]) {
-    ctx.fillStyle = '#FFFFFF';
+    // Warm Caramel Body & Shoulders
+    ctx.fillStyle = '#D97706';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 4.0;
     ctx.beginPath();
-    ctx.ellipse(ox, -26, 9, 11, 0, 0, Math.PI * 2);
+    ctx.ellipse(-12, 16, 46, 38, -0.2, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = '#0F172A';
-    ctx.beginPath();
-    ctx.arc(ox + 2, -25, 4.2, 0, Math.PI * 2);
-    ctx.fill();
-  }
+    // Floppy Caramel Ears
+    for (const [ex, ey, rot] of [
+      [-38, -36, -0.55],
+      [32, -32, 0.55],
+    ]) {
+      ctx.save();
+      ctx.translate(ex, ey);
+      ctx.rotate(rot);
+      ctx.fillStyle = '#B45309';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 18, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
 
-  // Snout & Happy Open Barking Mouth + Black Nose
-  ctx.fillStyle = '#FBBF24';
-  ctx.beginPath();
-  ctx.ellipse(6, -6, 20, 14, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = '#7F1D1D';
-  ctx.beginPath();
-  ctx.arc(4, 2, 12, 0, Math.PI);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = '#FB7185';
-  ctx.beginPath();
-  ctx.arc(4, 6, 7, 0, Math.PI);
-  ctx.fill();
-
-  ctx.fillStyle = '#0F172A';
-  ctx.beginPath();
-  ctx.ellipse(14, -12, 8, 6, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Lunging Front Caramel Paws with Black Paw Pads
-  for (const [px, py] of [
-    [-22, 42],
-    [20, 46],
-  ]) {
+    // Caramel Head
     ctx.fillStyle = '#F59E0B';
     ctx.beginPath();
-    ctx.ellipse(px, py, 18, 14, 0, 0, Math.PI * 2);
+    ctx.arc(0, -18, 34, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
 
+    // Expressive Cartoon Eyes
+    for (const ox of [-11, 11]) {
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.ellipse(ox, -26, 9, 11, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#0F172A';
+      ctx.beginPath();
+      ctx.arc(ox + 2, -25, 4.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Snout & Happy Open Barking Mouth + Black Nose
+    ctx.fillStyle = '#FBBF24';
+    ctx.beginPath();
+    ctx.ellipse(6, -6, 20, 14, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#7F1D1D';
+    ctx.beginPath();
+    ctx.arc(4, 2, 12, 0, Math.PI);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#FB7185';
+    ctx.beginPath();
+    ctx.arc(4, 6, 7, 0, Math.PI);
+    ctx.fill();
+
     ctx.fillStyle = '#0F172A';
     ctx.beginPath();
-    ctx.arc(px, py + 3, 6.5, 0, Math.PI * 2);
+    ctx.ellipse(14, -12, 8, 6, 0, 0, Math.PI * 2);
     ctx.fill();
+
+    // Lunging Front Caramel Paws with Black Paw Pads
+    for (const [px, py] of [
+      [-22, 42],
+      [20, 46],
+    ]) {
+      ctx.fillStyle = '#F59E0B';
+      ctx.beginPath();
+      ctx.ellipse(px, py, 18, 14, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#0F172A';
+      ctx.beginPath();
+      ctx.arc(px, py + 3, 6.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else {
+    // Stylized Cartoon Racing Helmet / Megaphone Star Emblem for varied Vila Tropical ads!
+    ctx.fillStyle = '#FDE047';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 4.5;
+    ctx.beginPath();
+    ctx.arc(-2, 4, 48, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Helmet shell
+    ctx.fillStyle = accentPrimary;
+    ctx.beginPath();
+    ctx.arc(0, 2, 34, Math.PI * 0.85, Math.PI * 2.15);
+    ctx.lineTo(28, 26);
+    ctx.lineTo(-28, 26);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Tinted visor
+    ctx.fillStyle = '#0EA5E9';
+    ctx.beginPath();
+    ctx.moveTo(-4, -8);
+    ctx.lineTo(31, -4);
+    ctx.lineTo(27, 14);
+    ctx.lineTo(-8, 10);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Visor shine streak
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 3.2;
+    ctx.beginPath();
+    ctx.moveTo(2, -3);
+    ctx.lineTo(22, -1);
+    ctx.stroke();
   }
   ctx.restore();
 
-  // 4. Black Paw Print Stamps (Left-Center & Far-Right, matching Reference Image 1)
-  const drawPawStamp = (px: number, py: number, scale: number) => {
-    ctx.save();
-    ctx.translate(px, py);
-    ctx.scale(scale, scale);
-    ctx.fillStyle = '#0F172A';
-    ctx.beginPath();
-    ctx.ellipse(0, 4, 8, 6.5, 0, 0, Math.PI * 2);
-    ctx.fill();
-    for (const [tx, ty] of [
-      [-9, -5],
-      [-3, -9],
-      [4, -9],
-      [9, -4],
-    ]) {
+  // 4. Stamp Accents
+  if (showCarameloMascot) {
+    const drawPawStamp = (px: number, py: number, scale: number) => {
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.scale(scale, scale);
+      ctx.fillStyle = '#0F172A';
       ctx.beginPath();
-      ctx.arc(tx, ty, 3.4, 0, Math.PI * 2);
+      ctx.ellipse(0, 4, 8, 6.5, 0, 0, Math.PI * 2);
       ctx.fill();
-    }
-    ctx.restore();
-  };
-  drawPawStamp(174, 146, 1.05);
-  drawPawStamp(478, 98, 1.15);
+      for (const [tx, ty] of [
+        [-9, -5],
+        [-3, -9],
+        [4, -9],
+        [9, -4],
+      ]) {
+        ctx.beginPath();
+        ctx.arc(tx, ty, 3.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    };
+    drawPawStamp(174, 146, 1.05);
+    drawPawStamp(478, 98, 1.15);
+  }
 
   // 5. Tilted Purple Cartoon Crown Above Top Headline (Matching Reference Image 1)
   ctx.save();

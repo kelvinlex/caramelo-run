@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { User } from '../types';
 import { sound } from '../services/soundEffects';
-import { storage } from '../services/storageService';
+import { storage, isInfiniteMoneyUser } from '../services/storageService';
 import { ProfilePhotoSelectorModal } from './player/ProfilePhotoSelectorModal';
 
 interface NavbarProps {
@@ -218,18 +218,27 @@ export const Navbar: React.FC<NavbarProps> = ({
                   className="hidden md:flex items-center gap-2.5 cartoon-steel-pill px-3 py-1 text-xs font-black font-mono cursor-pointer hover:brightness-110 transition-all shadow-md"
                   title="Seu saldo de notas (Clique para ver loja)"
                 >
-                  <div className="flex items-center gap-1">
-                    <img src="/dinheiro/icone_10_cutout.png" alt="10" className="w-4 h-3 object-contain drop-shadow" />
-                    <span className="text-emerald-300">{(currentUser.notas10 ?? 0).toLocaleString('pt-BR')}</span>
-                  </div>
-                  <div className="flex items-center gap-1 border-l border-[#3a5375] pl-2">
-                    <img src="/dinheiro/icone_50_roxo_cutout.png" alt="50" className="w-4 h-3 object-contain drop-shadow" />
-                    <span className="text-purple-300">{(currentUser.notas50 ?? 0).toLocaleString('pt-BR')}</span>
-                  </div>
-                  <div className="flex items-center gap-1 border-l border-[#3a5375] pl-2">
-                    <img src="/dinheiro/icone_100_vermelho_cutout.png" alt="100" className="w-4 h-3 object-contain drop-shadow" />
-                    <span className="text-cyan-300">{(currentUser.notas100 ?? 0).toLocaleString('pt-BR')}</span>
-                  </div>
+                  {isInfiniteMoneyUser(currentUser) ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-yellow-300 font-black">👑 ADM</span>
+                      <span className="text-emerald-400 font-black text-sm">∞ INFINITO</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-1">
+                        <img src="/dinheiro/icone_10_cutout.png" alt="10" className="w-4 h-3 object-contain drop-shadow" />
+                        <span className="text-emerald-300">{(currentUser.notas10 ?? 0).toLocaleString('pt-BR')}</span>
+                      </div>
+                      <div className="flex items-center gap-1 border-l border-[#3a5375] pl-2">
+                        <img src="/dinheiro/icone_50_roxo_cutout.png" alt="50" className="w-4 h-3 object-contain drop-shadow" />
+                        <span className="text-purple-300">{(currentUser.notas50 ?? 0).toLocaleString('pt-BR')}</span>
+                      </div>
+                      <div className="flex items-center gap-1 border-l border-[#3a5375] pl-2">
+                        <img src="/dinheiro/icone_100_vermelho_cutout.png" alt="100" className="w-4 h-3 object-contain drop-shadow" />
+                        <span className="text-cyan-300">{(currentUser.notas100 ?? 0).toLocaleString('pt-BR')}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* 📸 Foto de Perfil Clicável (Abre seletor de fotos) */}

@@ -660,6 +660,84 @@ class SoundManager {
     } catch {}
   }
 
+  playWaterGeyserBurst() {
+    if (!this.enabled) return;
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+
+      // 1. Batida metálica oca da tampa de bueiro voando
+      const clangOsc = ctx.createOscillator();
+      const clangGain = ctx.createGain();
+      clangOsc.type = 'triangle';
+      clangOsc.frequency.setValueAtTime(520, now);
+      clangOsc.frequency.exponentialRampToValueAtTime(165, now + 0.16);
+      clangGain.gain.setValueAtTime(0.28, now);
+      clangGain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+      clangOsc.connect(clangGain);
+      clangGain.connect(ctx.destination);
+      clangOsc.start(now);
+      clangOsc.stop(now + 0.19);
+
+      // 2. Jato pressurizado de água espirrando (ruído filtrado ascendente)
+      const dur = 0.48;
+      const bufSize = Math.floor(ctx.sampleRate * dur);
+      const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+      const ch = buf.getChannelData(0);
+      for (let i = 0; i < bufSize; i++) {
+        const t = i / bufSize;
+        ch[i] = (Math.random() * 2 - 1) * Math.sin(Math.min(1, t * 5) * Math.PI * 0.5) * (1 - t * 0.78);
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(650, now);
+      filter.frequency.exponentialRampToValueAtTime(1850, now + 0.14);
+      filter.frequency.exponentialRampToValueAtTime(780, now + dur);
+      filter.Q.setValueAtTime(1.3, now);
+
+      const sprayGain = ctx.createGain();
+      sprayGain.gain.setValueAtTime(0.32, now);
+      sprayGain.gain.exponentialRampToValueAtTime(0.008, now + dur);
+      src.connect(filter);
+      filter.connect(sprayGain);
+      sprayGain.connect(ctx.destination);
+      src.start(now);
+    } catch {}
+  }
+
+  playCashPickup(denomination = 50) {
+    if (!this.enabled) return;
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+      const baseFreq =
+        denomination >= 200 ? 784 : denomination >= 100 ? 698.46 : denomination >= 50 ? 622.25 : 523.25;
+      const chord = denomination >= 200 ? [1, 1.25, 1.5, 2.0] : [1, 1.25, 1.5];
+
+      chord.forEach((mult, idx) => {
+        const t0 = now + idx * 0.042;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = idx === chord.length - 1 ? 'sine' : 'triangle';
+        osc.frequency.setValueAtTime(baseFreq * mult, t0);
+        osc.frequency.exponentialRampToValueAtTime(baseFreq * mult * 1.03, t0 + 0.14);
+        gain.gain.setValueAtTime(0.001, t0);
+        gain.gain.linearRampToValueAtTime(0.2, t0 + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.22);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(t0);
+        osc.stop(t0 + 0.23);
+      });
+    } catch {}
+  }
+
   playStumble() {
     if (!this.enabled) return;
     try {
@@ -744,6 +822,506 @@ class SoundManager {
 
       osc.start(this.ctx.currentTime);
       osc.stop(this.ctx.currentTime + 0.23);
+    } catch {}
+  }
+
+  /**
+   * Som cômico e crocante ao coletar Osso Branco no modo Caramelo (+ boing de barriga inflando!)
+   */
+  playBoneCrunch() {
+    if (!this.enabled) return;
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+
+      // 1. Crocância estalada cartoon
+      const crunchOsc = ctx.createOscillator();
+      const crunchGain = ctx.createGain();
+      crunchOsc.type = 'square';
+      crunchOsc.frequency.setValueAtTime(360, now);
+      crunchOsc.frequency.exponentialRampToValueAtTime(720, now + 0.045);
+      crunchGain.gain.setValueAtTime(0.16, now);
+      crunchGain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+      crunchOsc.connect(crunchGain);
+      crunchGain.connect(ctx.destination);
+      crunchOsc.start(now);
+      crunchOsc.stop(now + 0.065);
+
+      // 2. Boing elástico cômico do corpo inflando
+      const boingOsc = ctx.createOscillator();
+      const boingGain = ctx.createGain();
+      boingOsc.type = 'sine';
+      boingOsc.frequency.setValueAtTime(240, now + 0.035);
+      boingOsc.frequency.exponentialRampToValueAtTime(590, now + 0.16);
+      boingOsc.frequency.exponentialRampToValueAtTime(440, now + 0.26);
+      boingGain.gain.setValueAtTime(0.001, now + 0.035);
+      boingGain.gain.linearRampToValueAtTime(0.24, now + 0.06);
+      boingGain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+      boingOsc.connect(boingGain);
+      boingGain.connect(ctx.destination);
+      boingOsc.start(now + 0.035);
+      boingOsc.stop(now + 0.29);
+    } catch {}
+  }
+
+  /**
+   * Som suculento + turbo ascendente ao pegar Carne Vermelha na rua
+   */
+  playMeatPowerup() {
+    if (!this.enabled) return;
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+
+      const notes = [392.0, 523.25, 659.25, 880.0, 1046.5];
+      notes.forEach((freq, idx) => {
+        const t0 = now + idx * 0.045;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = idx % 2 === 0 ? 'triangle' : 'sawtooth';
+        osc.frequency.setValueAtTime(freq, t0);
+        osc.frequency.exponentialRampToValueAtTime(freq * 1.08, t0 + 0.16);
+        gain.gain.setValueAtTime(0.001, t0);
+        gain.gain.linearRampToValueAtTime(idx % 2 === 0 ? 0.22 : 0.12, t0 + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.24);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(t0);
+        osc.stop(t0 + 0.25);
+      });
+    } catch {}
+  }
+
+  /**
+   * Alerta cômico diagonal antes do Caramelo pular nas costas do Motoboy
+   */
+  playAttackWarning() {
+    if (!this.enabled) return;
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+
+      [0, 0.13].forEach((offset, idx) => {
+        const t0 = now + offset;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        const fStart = idx === 0 ? 580 : 740;
+        osc.frequency.setValueAtTime(fStart, t0);
+        osc.frequency.exponentialRampToValueAtTime(fStart * 1.42, t0 + 0.095);
+        gain.gain.setValueAtTime(0.001, t0);
+        gain.gain.linearRampToValueAtTime(0.24, t0 + 0.014);
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.115);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(t0);
+        osc.stop(t0 + 0.12);
+      });
+    } catch {}
+  }
+
+  /**
+   * Som sincronizado de Mordida Cartoon (nhac + impacto cômico!)
+   */
+  playBiteAttack() {
+    if (!this.enabled) return;
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+
+      // 1. Estalo forte de mandíbula ("NHAC!")
+      const snapOsc = ctx.createOscillator();
+      const snapGain = ctx.createGain();
+      snapOsc.type = 'sawtooth';
+      snapOsc.frequency.setValueAtTime(480, now);
+      snapOsc.frequency.exponentialRampToValueAtTime(95, now + 0.085);
+      snapGain.gain.setValueAtTime(0.32, now);
+      snapGain.gain.exponentialRampToValueAtTime(0.001, now + 0.095);
+      snapOsc.connect(snapGain);
+      snapGain.connect(ctx.destination);
+      snapOsc.start(now);
+      snapOsc.stop(now + 0.1);
+
+      // 2. Impacto grave cartoon + segunda mordidinha rápida
+      const thudOsc = ctx.createOscillator();
+      const thudGain = ctx.createGain();
+      thudOsc.type = 'triangle';
+      thudOsc.frequency.setValueAtTime(210, now + 0.09);
+      thudOsc.frequency.exponentialRampToValueAtTime(75, now + 0.22);
+      thudGain.gain.setValueAtTime(0.26, now + 0.09);
+      thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+      thudOsc.connect(thudGain);
+      thudGain.connect(ctx.destination);
+      thudOsc.start(now + 0.09);
+      thudOsc.stop(now + 0.25);
+    } catch {}
+  }
+
+  /**
+   * Som sincronizado de confirmação do Desafio de Precisão da Mordida (Vermelho / Laranja / Amarelo / Verde!)
+   */
+  playBitePrecisionConfirm(quality: 'miss' | 'weak' | 'good' | 'perfect') {
+    if (!this.enabled) return;
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+
+      if (quality === 'miss') {
+        // Mordida no vento + descida cômica ("whiff!")
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(340, now);
+        osc.frequency.exponentialRampToValueAtTime(115, now + 0.22);
+        gain.gain.setValueAtTime(0.22, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.25);
+        return;
+      }
+
+      // 1. Mordida firme ("NHAC!") + achatamento cômico do Motoboy ("BOING-SQUASH!")
+      this.playBiteAttack();
+
+      const squashOsc = ctx.createOscillator();
+      const squashGain = ctx.createGain();
+      squashOsc.type = 'sine';
+      const peakFreq = quality === 'perfect' ? 620 : quality === 'good' ? 490 : 390;
+      squashOsc.frequency.setValueAtTime(150, now + 0.04);
+      squashOsc.frequency.exponentialRampToValueAtTime(peakFreq, now + 0.14);
+      squashOsc.frequency.exponentialRampToValueAtTime(210, now + 0.28);
+      squashGain.gain.setValueAtTime(0.28, now + 0.04);
+      squashGain.gain.exponentialRampToValueAtTime(0.001, now + 0.30);
+      squashOsc.connect(squashGain);
+      squashGain.connect(ctx.destination);
+      squashOsc.start(now + 0.04);
+      squashOsc.stop(now + 0.31);
+
+      // 2. Acorde brilhante extra para Bom / Perfeito!
+      const notes =
+        quality === 'perfect' ? [587.33, 880, 1174.66] : quality === 'good' ? [523.25, 783.99] : [440];
+      notes.forEach((freq, idx) => {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'triangle';
+        const t0 = now + 0.05 + idx * 0.045;
+        o.frequency.setValueAtTime(freq, t0);
+        g.gain.setValueAtTime(0.001, t0);
+        g.gain.linearRampToValueAtTime(quality === 'perfect' ? 0.22 : 0.15, t0 + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.22);
+        o.connect(g);
+        g.connect(ctx.destination);
+        o.start(t0);
+        o.stop(t0 + 0.24);
+      });
+    } catch {}
+  }
+
+  /**
+   * Feedback sonoro satisfatório ao esquivar da faixa vermelha de ataque do Caramelo!
+   */
+  playCartoonDodgeSuccess() {
+    if (!this.enabled) return;
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+      this.playWhoosh();
+      [659.25, 987.77].forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        const t0 = now + idx * 0.055;
+        osc.frequency.setValueAtTime(freq, t0);
+        osc.frequency.exponentialRampToValueAtTime(freq * 1.12, t0 + 0.14);
+        gain.gain.setValueAtTime(0.18, t0);
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.16);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(t0);
+        osc.stop(t0 + 0.17);
+      });
+    } catch {}
+  }
+
+  /**
+   * Sequência sonora cômica estilo desenho animado para a Briga Final na Nuvem de Poeira (0 vidas)!
+   */
+  playCartoonBrawlFinale() {
+    if (!this.enabled) return;
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+
+      // 1. Assobio ascendente do grande salto do Caramelo (0.0s -> 0.36s)
+      const leapOsc = ctx.createOscillator();
+      const leapGain = ctx.createGain();
+      leapOsc.type = 'sine';
+      leapOsc.frequency.setValueAtTime(280, now);
+      leapOsc.frequency.exponentialRampToValueAtTime(1120, now + 0.34);
+      leapGain.gain.setValueAtTime(0.24, now);
+      leapGain.gain.exponentialRampToValueAtTime(0.001, now + 0.37);
+      leapOsc.connect(leapGain);
+      leapGain.connect(ctx.destination);
+      leapOsc.start(now);
+      leapOsc.stop(now + 0.38);
+
+      // 2. Sequência ritmada de pancadas cômicas, molas ("boing!") e peças metálicas quicando (0.38s -> 2.55s)
+      const hits = [0.38, 0.58, 0.78, 0.98, 1.18, 1.40, 1.62, 1.86, 2.10, 2.34];
+      hits.forEach((offset, idx) => {
+        const t0 = now + offset;
+        const thud = ctx.createOscillator();
+        const thudG = ctx.createGain();
+        thud.type = idx % 2 === 0 ? 'triangle' : 'sine';
+        if (idx % 3 === 1) {
+          // Mola cartoon ("BOING!") quando roda/peça salta
+          thud.frequency.setValueAtTime(190, t0);
+          thud.frequency.exponentialRampToValueAtTime(640, t0 + 0.16);
+        } else {
+          // Pancada cartoon na nuvem de poeira + tilintar metálico
+          thud.frequency.setValueAtTime(idx % 2 === 0 ? 220 : 880, t0);
+          thud.frequency.exponentialRampToValueAtTime(idx % 2 === 0 ? 52 : 340, t0 + 0.14);
+        }
+        thudG.gain.setValueAtTime(0.28, t0);
+        thudG.gain.exponentialRampToValueAtTime(0.001, t0 + 0.18);
+        thud.connect(thudG);
+        thudG.connect(ctx.destination);
+        thud.start(t0);
+        thud.stop(t0 + 0.19);
+      });
+    } catch {}
+  }
+
+  /**
+   * Item 3: Som específico de atração magnética e coleta de Notas de Dinheiro
+   */
+  playCashMagnetCollect(denom: 10 | 50 | 100 | 200 = 10) {
+    if (!this.enabled) return;
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+
+      // Sopro magnético curto ascendente + tilintar da nota
+      const magOsc = ctx.createOscillator();
+      const magGain = ctx.createGain();
+      magOsc.type = 'sine';
+      magOsc.frequency.setValueAtTime(320, now);
+      magOsc.frequency.exponentialRampToValueAtTime(840, now + 0.08);
+      magGain.gain.setValueAtTime(0.14, now);
+      magGain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+      magOsc.connect(magGain);
+      magGain.connect(ctx.destination);
+      magOsc.start(now);
+      magOsc.stop(now + 0.095);
+
+      this.playCashPickup(denom);
+    } catch {}
+  }
+
+  /**
+   * Item 3: Som específico de atração e coleta satisfatória de Ossos no Modo Caramelo
+   */
+  playBoneMagnetCollect() {
+    if (!this.enabled) return;
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+
+      // Pop magnético + crocância cômica do osso
+      const popOsc = ctx.createOscillator();
+      const popGain = ctx.createGain();
+      popOsc.type = 'triangle';
+      popOsc.frequency.setValueAtTime(290, now);
+      popOsc.frequency.exponentialRampToValueAtTime(760, now + 0.065);
+      popGain.gain.setValueAtTime(0.22, now);
+      popGain.gain.exponentialRampToValueAtTime(0.001, now + 0.075);
+      popOsc.connect(popGain);
+      popGain.connect(ctx.destination);
+      popOsc.start(now);
+      popOsc.stop(now + 0.08);
+
+      this.playBoneCrunch();
+    } catch {}
+  }
+
+  /**
+   * Item 6 & 7: Grito vocal cômico e engraçado do Motoboy ao cair do Grau / entrar na nuvem de pancadaria!
+   */
+  playMotoboyFunnyScream() {
+    if (!this.enabled) return;
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+
+      // Formante vocal estilo desenho animado ("UAAAAH-HAAA-UI!") com vibrato cômico
+      const carrier = ctx.createOscillator();
+      const vibrato = ctx.createOscillator();
+      const vibratoGain = ctx.createGain();
+      const formantFilter = ctx.createBiquadFilter();
+      const mainGain = ctx.createGain();
+
+      carrier.type = 'sawtooth';
+      carrier.frequency.setValueAtTime(340, now);
+      carrier.frequency.exponentialRampToValueAtTime(690, now + 0.18);
+      carrier.frequency.exponentialRampToValueAtTime(520, now + 0.42);
+      carrier.frequency.exponentialRampToValueAtTime(240, now + 0.68);
+
+      vibrato.type = 'sine';
+      vibrato.frequency.setValueAtTime(16.0, now);
+      vibratoGain.gain.setValueAtTime(38.0, now);
+      vibrato.connect(vibratoGain);
+      vibratoGain.connect(carrier.frequency);
+
+      formantFilter.type = 'bandpass';
+      formantFilter.frequency.setValueAtTime(920, now);
+      formantFilter.frequency.linearRampToValueAtTime(1280, now + 0.22);
+      formantFilter.frequency.linearRampToValueAtTime(740, now + 0.65);
+      formantFilter.Q.setValueAtTime(3.2, now);
+
+      mainGain.gain.setValueAtTime(0.001, now);
+      mainGain.gain.linearRampToValueAtTime(0.32, now + 0.04);
+      mainGain.gain.setValueAtTime(0.28, now + 0.42);
+      mainGain.gain.exponentialRampToValueAtTime(0.001, now + 0.72);
+
+      carrier.connect(formantFilter);
+      formantFilter.connect(mainGain);
+      mainGain.connect(ctx.destination);
+
+      carrier.start(now);
+      vibrato.start(now);
+      carrier.stop(now + 0.74);
+      vibrato.stop(now + 0.74);
+    } catch {}
+  }
+
+  /**
+   * Item 7: Som cômico exclusivo de derrota do Caramelo (0 vidas)
+   */
+  playCarameloComicalDefeat() {
+    if (!this.enabled) return;
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+
+      const notes = [520, 440, 350, 220];
+      notes.forEach((freq, idx) => {
+        const t0 = now + idx * 0.14;
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, t0);
+        osc.frequency.exponentialRampToValueAtTime(freq * 0.78, t0 + 0.12);
+        g.gain.setValueAtTime(0.24, t0);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.14);
+        osc.connect(g);
+        g.connect(ctx.destination);
+        osc.start(t0);
+        osc.stop(t0 + 0.15);
+      });
+    } catch {}
+  }
+
+  /**
+   * Item 8: Som de arremesso da caixa de pizza com uma mão
+   */
+  playPizzaThrowWhoosh() {
+    if (!this.enabled) return;
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(260, now);
+      osc.frequency.exponentialRampToValueAtTime(680, now + 0.11);
+      osc.frequency.exponentialRampToValueAtTime(320, now + 0.21);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.24, now + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.23);
+    } catch {}
+  }
+
+  /**
+   * Item 8: Sino alegre de Pizzaria + confirmação cartoon quando o cliente recebe a pizza!
+   */
+  playPizzaDeliveredChime() {
+    if (!this.enabled) return;
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+
+      const notes = [587.33, 783.99, 1046.5, 1318.5];
+      notes.forEach((freq, idx) => {
+        const t0 = now + idx * 0.055;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = idx === notes.length - 1 ? 'sine' : 'triangle';
+        osc.frequency.setValueAtTime(freq, t0);
+        gain.gain.setValueAtTime(0.001, t0);
+        gain.gain.linearRampToValueAtTime(0.26, t0 + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.28);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(t0);
+        osc.stop(t0 + 0.30);
+      });
+    } catch {}
+  }
+
+  /**
+   * Item 2: Efeito sonoro de transição para Câmera Lenta Cinematográfica do Tutorial Inicial
+   */
+  playSlowMoTransition(entering: boolean) {
+    if (!this.enabled) return;
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(entering ? 420 : 160, now);
+      osc.frequency.exponentialRampToValueAtTime(entering ? 130 : 540, now + 0.32);
+      gain.gain.setValueAtTime(0.22, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.36);
     } catch {}
   }
 }

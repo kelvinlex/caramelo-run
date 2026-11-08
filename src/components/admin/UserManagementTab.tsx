@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Search, Shield, Ban, CheckCircle, Coins, Award, UserCheck, AlertTriangle } from 'lucide-react';
-import { storage } from '../../services/storageService';
+import { Search, Shield, Ban, CheckCircle, Coins, Award, UserCheck, AlertTriangle, Sparkles, Infinity as InfinityIcon } from 'lucide-react';
+import { storage, isInfiniteMoneyUser } from '../../services/storageService';
 import { sound } from '../../services/soundEffects';
 import { API_BASE_URL } from '../../services/apiService';
 import { User, UserRole, AccountStatus } from '../../types';
@@ -19,26 +19,42 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({ currentUse
   const [banReason, setBanReason] = useState('');
   const [showBanModal, setShowBanModal] = useState(false);
 
-  const [users, setUsers] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>(() => {
+    return storage.getUsers().map((u: any) => ({
+      ...u,
+      stats: {
+        maiorPontuacao: u.stats?.maiorPontuacao || 0,
+        motoqueirosMordidos: u.stats?.motoqueirosMordidos || 0,
+        chinelosDesviados: u.stats?.chinelosDesviados || 0,
+        distanciaKm: u.stats?.distanciaKm || 0,
+        statusQuebrada: u.stats?.statusQuebrada || 'Filhote'
+      }
+    }));
+  });
 
   React.useEffect(() => {
     fetch(`${API_BASE_URL}/admin/users`)
       .then(res => res.json())
       .then(data => {
-        // Formatar stats igual no front
-        const formatted = data.map((u: any) => ({
-          ...u,
-          stats: {
-            maiorPontuacao: u.maiorPontuacao || 0,
-            motoqueirosMordidos: u.motoqueirosMordidos || 0,
-            chinelosDesviados: u.chinelosDesviados || 0,
-            distanciaKm: u.distanciaKm || 0,
-            statusQuebrada: u.statusQuebrada || 'Filhote'
-          }
-        }));
-        setUsers(formatted);
+        if (Array.isArray(data) && data.length > 0) {
+          const formatted = data.map((u: any) => ({
+            ...u,
+            hasInfiniteCoins: u.hasInfiniteCoins ?? isInfiniteMoneyUser(u),
+            ossoCoins: isInfiniteMoneyUser(u) ? 999999999 : (u.ossoCoins ?? 0),
+            stats: {
+              maiorPontuacao: u.maiorPontuacao || 0,
+              motoqueirosMordidos: u.motoqueirosMordidos || 0,
+              chinelosDesviados: u.chinelosDesviados || 0,
+              distanciaKm: u.distanciaKm || 0,
+              statusQuebrada: u.statusQuebrada || 'Filhote'
+            }
+          }));
+          setUsers(formatted);
+        }
       })
-      .catch(err => console.error(err));
+      .catch(err => {
+        // Fallback no storage local já carregado
+      });
   }, []);
 
   const filteredUsers = users.filter((u) => {
@@ -93,6 +109,60 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({ currentUse
 
   return (
     <div className="space-y-6 animate-in fade-in">
+      {/* Barra de Destaque MODO ADM — Valdir, Kelvin e Gui com Dinheiro Infinito */}
+      <div className="bg-gradient-to-r from-amber-950/90 via-stone-900 to-emerald-950/90 border-2 border-amber-500/70 p-4 rounded-2xl shadow-2xl flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+          <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border-2 border-amber-400 flex items-center justify-center text-2xl shadow-inner flex-shrink-0">
+            👑
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-sm sm:text-base font-black text-amber-200 uppercase tracking-wide">
+                MODO ADM — DINHEIRO INFINITO ATIVO
+              </h3>
+              <span className="px-2 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 border border-emerald-400/50 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                <InfinityIcon className="w-3 h-3" /> ATIVADO
+              </span>
+            </div>
+            <p className="text-xs text-amber-100/80 font-medium mt-0.5">
+              As contas de desenvolvimento <strong className="text-amber-300 font-bold">Valdir</strong>, <strong className="text-amber-300 font-bold">Kelvin</strong> e <strong className="text-amber-300 font-bold">Gui (Guilherme)</strong> possuem Saldo Infinito (999.999.999), todas as notas e cargo Administrador.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
+          {[
+            { id: 'usr-valdir-01', label: 'Valdir' },
+            { id: 'usr-kelvin-01', label: 'Kelvin' },
+            { id: 'usr-guilherme-01', label: 'Gui' },
+          ].map((item) => {
+            const admUser = users.find((u) => u.id === item.id);
+            const isCurrent = currentUser?.id === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+                  sound.playClick();
+                  storage.loginAsUser(item.id);
+                  window.location.reload();
+                }}
+                className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md cursor-pointer ${
+                  isCurrent
+                    ? 'bg-emerald-600 text-white border-2 border-emerald-300 scale-105'
+                    : 'bg-amber-900/60 hover:bg-amber-800 text-amber-200 border border-amber-600/70 hover:scale-[1.02]'
+                }`}
+                title={`Entrar na conta de ${item.label} com Dinheiro Infinito`}
+              >
+                <span>{isCurrent ? '✓' : '👤'}</span>
+                <span>{item.label}</span>
+                <span className="text-[11px] font-mono text-yellow-300 font-black">∞</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Controls Bar */}
       <div className="bg-stone-900/90 border border-stone-800 p-4 rounded-2xl flex flex-col md:flex-row gap-4 items-center justify-between">
         <div className="relative w-full md:w-80">
@@ -220,26 +290,67 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({ currentUse
                     </td>
 
                     <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-1.5 font-mono font-bold text-yellow-400">
-                        <span>🦴</span>
-                        <span>{user.ossoCoins.toLocaleString('pt-BR')}</span>
-                      </div>
-                      <div className="flex items-center gap-1 mt-1">
-                        <button
-                          onClick={() => handleAddCoins(user.id, 500)}
-                          className="px-1.5 py-0.5 bg-yellow-900/40 hover:bg-yellow-800/60 text-yellow-300 border border-yellow-700/50 rounded text-[10px] font-bold"
-                          title="Adicionar 500 OssoCoins"
-                        >
-                          +500
-                        </button>
-                        <button
-                          onClick={() => handleAddCoins(user.id, -500)}
-                          className="px-1.5 py-0.5 bg-stone-800 hover:bg-stone-700 text-stone-400 border border-stone-700 rounded text-[10px]"
-                          title="Remover 500 OssoCoins"
-                        >
-                          -500
-                        </button>
-                      </div>
+                      {user.hasInfiniteCoins || isInfiniteMoneyUser(user) ? (
+                        <div>
+                          <div className="flex items-center gap-1.5 font-mono font-black text-sm">
+                            <span>🦴</span>
+                            <span className="bg-gradient-to-r from-yellow-300 via-amber-200 to-emerald-400 bg-clip-text text-transparent drop-shadow">
+                              ∞ INFINITO
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-yellow-300 border border-amber-400/50 text-[9px] font-black uppercase">
+                              ADM
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-emerald-300/90 font-mono mt-0.5">
+                            R$ 999.999.999
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              sound.playClick();
+                              const next = storage.toggleInfiniteCoins(user.id);
+                              setUsers(prev => prev.map(u => u.id === user.id ? { ...u, hasInfiniteCoins: next, ossoCoins: next ? 999999999 : 50000 } : u));
+                            }}
+                            className="mt-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 border border-emerald-700 transition-all cursor-pointer block"
+                          >
+                            ⚡ Infinito Ativo
+                          </button>
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="flex items-center gap-1.5 font-mono font-bold text-yellow-400">
+                            <span>🦴</span>
+                            <span>{user.ossoCoins.toLocaleString('pt-BR')}</span>
+                          </div>
+                          <div className="flex items-center gap-1 mt-1">
+                            <button
+                              onClick={() => handleAddCoins(user.id, 500)}
+                              className="px-1.5 py-0.5 bg-yellow-900/40 hover:bg-yellow-800/60 text-yellow-300 border border-yellow-700/50 rounded text-[10px] font-bold"
+                              title="Adicionar 500 OssoCoins"
+                            >
+                              +500
+                            </button>
+                            <button
+                              onClick={() => handleAddCoins(user.id, -500)}
+                              className="px-1.5 py-0.5 bg-stone-800 hover:bg-stone-700 text-stone-400 border border-stone-700 rounded text-[10px]"
+                              title="Remover 500 OssoCoins"
+                            >
+                              -500
+                            </button>
+                            <button
+                              onClick={() => {
+                                sound.playClick();
+                                const next = storage.toggleInfiniteCoins(user.id);
+                                setUsers(prev => prev.map(u => u.id === user.id ? { ...u, hasInfiniteCoins: next, ossoCoins: next ? 999999999 : 50000 } : u));
+                              }}
+                              className="px-1.5 py-0.5 bg-stone-800 hover:bg-amber-900/50 text-amber-300 border border-amber-700/60 rounded text-[10px] font-bold"
+                              title="Dar Dinheiro Infinito a este usuário"
+                            >
+                              ∞ Infinito
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </td>
 
                     <td className="py-3.5 px-4">
@@ -261,6 +372,19 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({ currentUse
 
                     <td className="py-3.5 px-4 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            sound.playClick();
+                            storage.loginAsUser(user.id);
+                            window.location.reload();
+                          }}
+                          className="px-2.5 py-1 bg-amber-900/60 hover:bg-amber-800 text-amber-200 border border-amber-600/70 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                          title="Alternar sessão para este usuário"
+                        >
+                          👤 Entrar
+                        </button>
+
                         {onInspectUser && (
                           <button
                             onClick={() => onInspectUser(user)}

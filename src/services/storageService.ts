@@ -21,6 +21,29 @@ const GAMEOVER_IMAGES_KEY = 'viralata_gameover_images_v1';
 const PINNED_GAMEOVER_IMAGE_KEY = 'viralata_pinned_gameover_image_v1';
 const PINNED_GAMEOVER_IMAGE_URL_KEY = 'viralata_pinned_gameover_image_url_v1';
 
+export function isInfiniteMoneyUser(user?: User | null): boolean {
+  if (!user) return false;
+  if (user.hasInfiniteCoins) return true;
+  const id = (user.id || '').toLowerCase();
+  const nick = (user.nickname || '').toLowerCase();
+  const email = (user.email || '').toLowerCase();
+  return (
+    id === 'usr-valdir-01' ||
+    id === 'usr-kelvin-01' ||
+    id === 'usr-guilherme-01' ||
+    id === 'usr-root-01' ||
+    nick.includes('valdir') ||
+    nick.includes('kelvin') ||
+    nick.includes('guilherme') ||
+    nick === 'gui' ||
+    nick.startsWith('gui_') ||
+    nick.endsWith('_gui') ||
+    email.includes('valdir') ||
+    email.includes('kelvin') ||
+    email.includes('guilherme')
+  );
+}
+
 export const INITIAL_GAMEOVER_IMAGES: GameOverImage[] = [
   { id: 'go-1', url: '/images/gameover/dog_selfie_gas_station.jpg', title: 'Posto de Gasolina', createdAt: '2026-10-01T12:00:00Z' },
   { id: 'go-2', url: '/images/gameover/favela_selfie_scene.jpg', title: 'Selfie na Favela', createdAt: '2026-10-01T12:00:00Z' },
@@ -178,6 +201,36 @@ class StorageService {
         this.currentUser = found || parsed;
       } else {
         this.currentUser = null;
+      }
+
+      // Garante que Valdir, Kelvin, Gui (e RootMaster) no modo ADM sempre tenham dinheiro infinito e cargo admin
+      this.users = this.users.map((u) => {
+        if (isInfiniteMoneyUser(u)) {
+          return {
+            ...u,
+            role: u.role === 'root' ? 'root' : 'admin',
+            hasInfiniteCoins: true,
+            ossoCoins: 999999999,
+            notas10: 999999,
+            notas50: 999999,
+            notas100: 999999,
+            notas200: 999999,
+          };
+        }
+        return u;
+      });
+
+      if (this.currentUser && isInfiniteMoneyUser(this.currentUser)) {
+        this.currentUser = {
+          ...this.currentUser,
+          role: this.currentUser.role === 'root' ? 'root' : 'admin',
+          hasInfiniteCoins: true,
+          ossoCoins: 999999999,
+          notas10: 999999,
+          notas50: 999999,
+          notas100: 999999,
+          notas200: 999999,
+        };
       }
     } catch {
       this.users = INITIAL_USERS;
@@ -420,21 +473,89 @@ class StorageService {
   adjustUserCoins(userId: string, amount: number) {
     this.users = this.users.map(u => {
       if (u.id === userId) {
+        if (isInfiniteMoneyUser(u)) {
+          return {
+            ...u,
+            hasInfiniteCoins: true,
+            ossoCoins: 999999999,
+            notas10: 999999,
+            notas50: 999999,
+            notas100: 999999,
+            notas200: 999999,
+          };
+        }
         const next = Math.max(0, u.ossoCoins + amount);
         return { ...u, ossoCoins: next };
       }
       return u;
     });
     if (this.currentUser?.id === userId) {
-      this.currentUser.ossoCoins = Math.max(0, this.currentUser.ossoCoins + amount);
+      if (isInfiniteMoneyUser(this.currentUser)) {
+        this.currentUser.hasInfiniteCoins = true;
+        this.currentUser.ossoCoins = 999999999;
+        this.currentUser.notas10 = 999999;
+        this.currentUser.notas50 = 999999;
+        this.currentUser.notas100 = 999999;
+        this.currentUser.notas200 = 999999;
+      } else {
+        this.currentUser.ossoCoins = Math.max(0, this.currentUser.ossoCoins + amount);
+      }
     }
     this.saveState();
+  }
+
+  // ⚡ Alterna Dinheiro Infinito para qualquer usuário no modo ADM
+  toggleInfiniteCoins(userId: string): boolean {
+    let newState = true;
+    this.users = this.users.map(u => {
+      if (u.id === userId) {
+        newState = !u.hasInfiniteCoins;
+        return {
+          ...u,
+          hasInfiniteCoins: newState,
+          ossoCoins: newState ? 999999999 : 50000,
+          notas10: newState ? 999999 : (u.notas10 ?? 0),
+          notas50: newState ? 999999 : (u.notas50 ?? 0),
+          notas100: newState ? 999999 : (u.notas100 ?? 0),
+          notas200: newState ? 999999 : (u.notas200 ?? 0),
+        };
+      }
+      return u;
+    });
+    if (this.currentUser?.id === userId) {
+      const found = this.users.find(u => u.id === userId);
+      if (found) this.currentUser = { ...found };
+    }
+    this.saveState();
+    return newState;
+  }
+
+  // Permite logar direto em qualquer conta (ex: Valdir, Kelvin, Gui)
+  loginAsUser(userId: string): User | null {
+    const user = this.users.find(u => u.id === userId);
+    if (user) {
+      this.currentUser = { ...user };
+      this.saveState();
+      return this.currentUser;
+    }
+    return null;
   }
 
   // 💵 Ajuste detalhado das notas de 10, 50 e 100
   adjustUserBanknotes(userId: string, n10: number, n50: number, n100: number) {
     this.users = this.users.map(u => {
       if (u.id === userId) {
+        if (isInfiniteMoneyUser(u)) {
+          return {
+            ...u,
+            hasInfiniteCoins: true,
+            notas10: 999999,
+            notas50: 999999,
+            notas100: 999999,
+            notas200: 999999,
+            ossoCoins: 999999999,
+          };
+        }
         const cur10 = typeof u.notas10 === 'number' ? u.notas10 : Math.floor(u.ossoCoins / 10);
         const cur50 = typeof u.notas50 === 'number' ? u.notas50 : 0;
         const cur100 = typeof u.notas100 === 'number' ? u.notas100 : 0;
@@ -454,13 +575,22 @@ class StorageService {
     });
 
     if (this.currentUser?.id === userId) {
-      const cur10 = typeof this.currentUser.notas10 === 'number' ? this.currentUser.notas10 : Math.floor(this.currentUser.ossoCoins / 10);
-      const cur50 = typeof this.currentUser.notas50 === 'number' ? this.currentUser.notas50 : 0;
-      const cur100 = typeof this.currentUser.notas100 === 'number' ? this.currentUser.notas100 : 0;
-      this.currentUser.notas10 = Math.max(0, cur10 + n10);
-      this.currentUser.notas50 = Math.max(0, cur50 + n50);
-      this.currentUser.notas100 = Math.max(0, cur100 + n100);
-      this.currentUser.ossoCoins = this.currentUser.notas10 * 10 + this.currentUser.notas50 * 50 + this.currentUser.notas100 * 100;
+      if (isInfiniteMoneyUser(this.currentUser)) {
+        this.currentUser.hasInfiniteCoins = true;
+        this.currentUser.notas10 = 999999;
+        this.currentUser.notas50 = 999999;
+        this.currentUser.notas100 = 999999;
+        this.currentUser.notas200 = 999999;
+        this.currentUser.ossoCoins = 999999999;
+      } else {
+        const cur10 = typeof this.currentUser.notas10 === 'number' ? this.currentUser.notas10 : Math.floor(this.currentUser.ossoCoins / 10);
+        const cur50 = typeof this.currentUser.notas50 === 'number' ? this.currentUser.notas50 : 0;
+        const cur100 = typeof this.currentUser.notas100 === 'number' ? this.currentUser.notas100 : 0;
+        this.currentUser.notas10 = Math.max(0, cur10 + n10);
+        this.currentUser.notas50 = Math.max(0, cur50 + n50);
+        this.currentUser.notas100 = Math.max(0, cur100 + n100);
+        this.currentUser.ossoCoins = this.currentUser.notas10 * 10 + this.currentUser.notas50 * 50 + this.currentUser.notas100 * 100;
+      }
     }
     this.saveState();
   }
@@ -613,7 +743,7 @@ class StorageService {
     motoboys: number,
     chinelos: number,
     duracaoSegundos: number,
-    notesEarned?: { n10: number; n50: number; n100: number }
+    notesEarned?: { n10: number; n50: number; n100: number; n200?: number }
   ): { antiCheatFlagged: boolean; newHighScore: boolean; coinsEarned: number } {
     if (!this.currentUser) {
       return { antiCheatFlagged: false, newHighScore: false, coinsEarned: 0 };
@@ -639,21 +769,28 @@ class StorageService {
       this.metrics.suspeitosDetectados += 1;
     }
 
-    // Calcula valor total e notas coletadas
+    // Calcula valor total e notas coletadas (10, 50, 100 e 200)
     const add10 = notesEarned ? notesEarned.n10 : Math.floor(score / 50);
     const add50 = notesEarned ? notesEarned.n50 : 0;
     const add100 = notesEarned ? notesEarned.n100 : 0;
-    const totalAdded = add10 * 10 + add50 * 50 + add100 * 100;
+    const add200 = notesEarned?.n200 ?? 0;
+    const totalAdded = add10 * 10 + add50 * 50 + add100 * 100 + add200 * 200;
     const coinsEarned = totalAdded;
 
     const cur10 = typeof this.currentUser.notas10 === 'number' ? this.currentUser.notas10 : Math.floor(this.currentUser.ossoCoins / 10);
     const cur50 = typeof this.currentUser.notas50 === 'number' ? this.currentUser.notas50 : 0;
     const cur100 = typeof this.currentUser.notas100 === 'number' ? this.currentUser.notas100 : 0;
+    const cur200 = typeof this.currentUser.notas200 === 'number' ? this.currentUser.notas200 : 0;
 
     this.currentUser.notas10 = cur10 + add10;
     this.currentUser.notas50 = cur50 + add50;
     this.currentUser.notas100 = cur100 + add100;
-    this.currentUser.ossoCoins = this.currentUser.notas10 * 10 + this.currentUser.notas50 * 50 + this.currentUser.notas100 * 100;
+    this.currentUser.notas200 = cur200 + add200;
+    this.currentUser.ossoCoins =
+      this.currentUser.notas10 * 10 +
+      this.currentUser.notas50 * 50 +
+      this.currentUser.notas100 * 100 +
+      this.currentUser.notas200 * 200;
 
     this.currentUser.stats.motoqueirosMordidos += motoboys;
     this.currentUser.stats.chinelosDesviados += chinelos;

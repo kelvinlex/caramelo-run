@@ -60,7 +60,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Branco Sports Perolizado',
     nodeName: 'Player_Moto_08_yamaha_factor_150_ed',
     rarity: 'Comum',
-    price: 800,
+    price: 2600,
     description: 'Confortável, com motor Blueflex e painel 100% digital com indicador de marcha eco.',
   },
   {
@@ -75,7 +75,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Branco Ross & Assento Vermelho',
     nodeName: 'Player_Moto_09_honda_pop_110i_es',
     rarity: 'Comum',
-    price: 1000,
+    price: 3400,
     description: 'Leve como uma pluma e divertida de pilotar. Costura qualquer congestionamento com extrema facilidade.',
   },
   {
@@ -90,7 +90,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Vermelho Fighting & Preto',
     nodeName: 'Player_Moto_07_honda_nxr_160_bros',
     rarity: 'Rara',
-    price: 1500,
+    price: 5200,
     description: 'Suspensão de longo curso perfeita para encarar lombadas, paralelepípedos e ladeiras íngremes.',
   },
   {
@@ -105,7 +105,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Preto Fosco & Prata Acetinado',
     nodeName: 'Player_Moto_03_honda_xre_190_abs',
     rarity: 'Rara',
-    price: 2200,
+    price: 6800,
     description: 'Visual aventureiro com freio ABS dianteiro e excelente torque em baixas rotações.',
   },
   {
@@ -120,7 +120,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Solar Red & Preto Fosco',
     nodeName: 'Player_Moto_01_yamaha_xtz_250_lander',
     rarity: 'Rara',
-    price: 3000,
+    price: 8900,
     description: 'Robusta, agressiva e inspirada no rally Dakar. Domina terra, asfalto e qualquer desnível.',
   },
   {
@@ -135,7 +135,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Titanium Matt Grey & Racing Blue',
     nodeName: 'Player_Moto_02_yamaha_fz25_fazer_250',
     rarity: 'Rara',
-    price: 3200,
+    price: 9800,
     description: 'Farol com projetor de LED, visual musculoso e comportamento esportivo dinâmico nas curvas.',
   },
   {
@@ -150,7 +150,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Dourado Metálico Fosco',
     nodeName: 'Player_Moto_06_honda_cb_300f_twister',
     rarity: 'Especial',
-    price: 4000,
+    price: 12500,
     description: 'Embreagem deslizante assistida, iluminação full LED e resposta imediata do acelerador.',
   },
   {
@@ -165,7 +165,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Amarelo Canário Clássico 2008',
     nodeName: 'Player_Moto_14_honda_cbx_250_twister',
     rarity: 'Especial',
-    price: 4200,
+    price: 14200,
     description: 'O ronco inconfundível dos anos 2000 que marcou época em todas as avenidas do país.',
   },
   {
@@ -180,7 +180,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Laranja Vibrante Retrô 1979',
     nodeName: 'Player_Moto_16_honda_cg_125_bolinha',
     rarity: 'Especial',
-    price: 4500,
+    price: 15800,
     description: 'Farol redondo, tanque cromado e muita história. O início da lenda das motos brasileiras.',
   },
   {
@@ -195,7 +195,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Bege Rally Sahara & Preto',
     nodeName: 'Player_Moto_13_honda_xre_300_sahara',
     rarity: 'Especial',
-    price: 5200,
+    price: 18500,
     description: 'O retorno do nome mítico Sahara. Equipada com bolha alta, protetor de carenagem e pronta para qualquer expedição.',
   },
   {
@@ -210,7 +210,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Aurora Green Metálico',
     nodeName: 'Player_Moto_12_bajaj_dominar_400',
     rarity: 'Especial',
-    price: 6000,
+    price: 21500,
     description: 'Equipada de fábrica com suporte de GPS, para-brisa alto, protetor de motor e garfo dianteiro invertido.',
   },
   {
@@ -225,7 +225,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Storm Fluo & Cyan',
     nodeName: 'Player_Moto_10_yamaha_mt_03_abs',
     rarity: 'Lendária',
-    price: 7500,
+    price: 27500,
     description: 'Bicilíndrica agressiva com faróis duplos no estilo predador. Arrancadas brutais e som encorpado.',
   },
   {
@@ -240,7 +240,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Branco Pérola & Speedblock Vermelho',
     nodeName: 'Player_Moto_15_yamaha_rd_350_vi_va_negra',
     rarity: 'Lendária',
-    price: 8500,
+    price: 32000,
     description: 'Motor dois tempos com válvula YPVS. O foguete lendário que acelera de 0 a 100 em menos de 5 segundos.',
   },
   {
@@ -255,7 +255,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Vermelho Perolizado & Bronze Níquel',
     nodeName: 'Player_Moto_11_honda_cb_650r_caf',
     rarity: 'Lendária',
-    price: 9500,
+    price: 37500,
     description: 'Quatro cilindros em linha com escape em formato de harpa. Sinfonia mecânica pura a cada acelerada.',
   },
   {
@@ -270,7 +270,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Cromo Espelhado Puro & Safira',
     nodeName: 'Player_Moto_17_custom_br_imperador_cromada',
     rarity: 'Mítica',
-    price: 12000,
+    price: 48000,
     description: '100% banhada a cromo espelhado com acabamentos manuais de luxo e presença inigualável na avenida.',
   },
   {
@@ -285,7 +285,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Chamas do Inferno & Obsidiana',
     nodeName: 'Player_Moto_18_custom_hell_motoqueiro_fantasma',
     rarity: 'Mítica',
-    price: 15000,
+    price: 58000,
     description: 'Rodas flamejantes, corrente infernal no chassi e chamas puras emanando dos tubos de escape.',
   },
   {
@@ -300,7 +300,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Cyberpunk Rosa Choque & Neon Cyan',
     nodeName: 'Player_Moto_19_custom_game_cyber_neon_500',
     rarity: 'Mítica',
-    price: 16000,
+    price: 65000,
     description: 'Painel holográfico de alta definição, fitas de neon pulsantes e aerodinâmica futurista.',
   },
   {
@@ -315,7 +315,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Ouro 24K Espelhado & Cromo Real',
     nodeName: 'Player_Moto_20_custom_br_grau_ouro_24k',
     rarity: 'Mítica',
-    price: 20000,
+    price: 78000,
     description: 'Chassi banhado a ouro 24 quilates com escape polido sob medida para cortar de giro com estilo real.',
   },
 ];

@@ -59,6 +59,8 @@ export interface PlayerState {
   x: number;
   y: number;
   vy: number;
+  vx?: number;
+  steerInput?: number;
   isJumping: boolean;
   isRolling: boolean;
   rollTimer: number;
@@ -1136,12 +1138,28 @@ export const HOUSE_VARIATIONS: readonly HouseVariationSpec[] = [
   },
 ];
 
-export function createInitialPlayerState(): PlayerState {
+export type GameDifficultyMode = 'easy' | 'medium' | 'hard';
+
+const DIFFICULTY_SPEED_CURVES: Record<
+  GameDifficultyMode,
+  { minSpeed: number; maxSpeed: number; accelPerMeter: number }
+> = {
+  easy: { minSpeed: 12.8, maxSpeed: 23.5, accelPerMeter: 0.0072 },
+  medium: { minSpeed: 15.2, maxSpeed: 30.5, accelPerMeter: 0.0102 },
+  hard: { minSpeed: 18.2, maxSpeed: 37.5, accelPerMeter: 0.0145 },
+};
+
+export function createInitialPlayerState(
+  difficulty: GameDifficultyMode = 'medium',
+): PlayerState {
+  const curve = DIFFICULTY_SPEED_CURVES[difficulty] ?? DIFFICULTY_SPEED_CURVES.medium;
   return {
     lane: 0,
     x: 0,
     y: 0,
     vy: 0,
+    vx: 0,
+    steerInput: 0,
     isJumping: false,
     isRolling: false,
     rollTimer: 0,
@@ -1152,7 +1170,7 @@ export function createInitialPlayerState(): PlayerState {
     coins: 0,
     distance: 0,
     combo: 1,
-    speed: 9.8,
+    speed: curve.minSpeed,
     housesPassed: 0,
   };
 }
@@ -1163,9 +1181,13 @@ export function laneToX(lane: LaneIndex): number {
 
 export function shiftLane(state: PlayerState, direction: -1 | 1): PlayerState {
   const next = Math.max(-1, Math.min(1, state.lane + direction)) as LaneIndex;
+  // Resposta imediata de contra-esterço nas trocas rápidas de direção (elimina qualquer inércia travada!)
+  const prevVx = state.vx ?? 0;
+  const counterSteerVx = prevVx * direction < 0 ? prevVx * 0.25 + direction * 4.2 : prevVx + direction * 2.6;
   return {
     ...state,
     lane: next,
+    vx: Math.max(-18, Math.min(18, counterSteerVx)),
   };
 }
 
@@ -1198,11 +1220,34 @@ export function triggerRoll(state: PlayerState): PlayerState {
   };
 }
 
-export function stepPlayerPhysics(state: PlayerState, dt: number): PlayerState {
+export function stepPlayerPhysics(
+  state: PlayerState,
+  dt: number,
+  difficulty: GameDifficultyMode = 'medium',
+): PlayerState {
   const clampedDt = Math.min(dt, 0.05);
-  const targetX = laneToX(state.lane);
-  const dampFactor = 1 - Math.exp(-16 * clampedDt);
-  const nextX = state.x + (targetX - state.x) * dampFactor;
+  const steerCarveOffset = Math.max(-1, Math.min(1, state.steerInput ?? 0)) * 0.46;
+  const rawTargetX = laneToX(state.lane) + steerCarveOffset;
+  const targetX = Math.max(-LANE_WIDTH * 1.24, Math.min(LANE_WIDTH * 1.24, rawTargetX));
+
+  // Mola criticamente amortecida de 2ª ordem para curvas naturais, livres e ultra-responsivas!
+  let curX = state.x;
+  let curVx = state.vx ?? 0;
+  const subSteps = clampedDt > 0.02 ? 2 : 1;
+  const subDt = clampedDt / subSteps;
+  const omega = 15.8;
+  const damping = 2.0 * 0.94 * omega;
+  for (let s = 0; s < subSteps; s++) {
+    const accelX = (targetX - curX) * (omega * omega) - curVx * damping;
+    curVx += accelX * subDt;
+    curX += curVx * subDt;
+  }
+  if (Math.abs(targetX - curX) < 0.002 && Math.abs(curVx) < 0.02) {
+    curX = targetX;
+    curVx = 0;
+  }
+  const nextX = curX;
+  const nextVx = curVx;
 
   let nextY = state.y;
   let nextVy = state.vy;
@@ -1225,13 +1270,24 @@ export function stepPlayerPhysics(state: PlayerState, dt: number): PlayerState {
 
   const distDelta = state.speed * clampedDt;
   const nextDistance = state.distance + distDelta;
-  // Calm, comfortable speed ramp so the scenery passes smoothly without rushing ("faz com que o cenario nao passe muito rapido")
-  const nextSpeed = Math.min(14.5, 9.8 + Math.floor(nextDistance / 180) * 0.45);
+
+  // Aceleração e desaceleração natural nas curvas conforme o modo (Fácil / Médio / Difícil)
+  const curve = DIFFICULTY_SPEED_CURVES[difficulty] ?? DIFFICULTY_SPEED_CURVES.medium;
+  const baseTargetSpeed = Math.min(
+    curve.maxSpeed,
+    curve.minSpeed + nextDistance * curve.accelPerMeter,
+  );
+  // Leve alívio orgânico de velocidade em guinadas intensas + retomada vigorosa na reta
+  const carveDrag = Math.min(0.85, Math.abs(nextVx) * 0.045);
+  const targetSpeed = Math.max(curve.minSpeed * 0.96, baseTargetSpeed - carveDrag);
+  const accelRate = targetSpeed >= state.speed ? 3.8 : 5.2;
+  const nextSpeed = state.speed + (targetSpeed - state.speed) * (1 - Math.exp(-accelRate * clampedDt));
   const nextScore = state.score + distDelta * 2 * state.combo;
 
   return {
     ...state,
     x: nextX,
+    vx: nextVx,
     y: nextY,
     vy: nextVy,
     isJumping: nextJumping,

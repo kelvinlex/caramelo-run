@@ -234,5 +234,29 @@ test('houses follow exact world curvature drop and mountain vista sits further a
   assert.ok(vista.radialSegmentsMain <= 20 && vista.heightSegmentsMain <= 14, 'Optimized low-poly mountain segment budget');
 });
 
+test('progressive speed increases smoothly over time across easy, medium, and hard modes', () => {
+  let easyState = createInitialPlayerState('easy');
+  let medState = createInitialPlayerState('medium');
+  let hardState = createInitialPlayerState('hard');
+
+  const easyStart = easyState.speed;
+  const medStart = medState.speed;
+  const hardStart = hardState.speed;
+
+  assert.ok(easyStart < medStart && medStart < hardStart, 'Starting speed scales with difficulty');
+
+  for (let i = 0; i < 200; i++) {
+    easyState = stepPlayerPhysics(easyState, 0.05, 'easy');
+    medState = stepPlayerPhysics(medState, 0.05, 'medium');
+    hardState = stepPlayerPhysics(hardState, 0.05, 'hard');
+  }
+
+  assert.ok(easyState.speed > easyStart + 0.5, 'Easy mode speed increases over time');
+  assert.ok(medState.speed > medStart + 1.0, 'Medium mode speed increases over time');
+  assert.ok(hardState.speed > hardStart + 1.5, 'Hard mode speed increases over time');
+  assert.ok(easyState.speed < medState.speed && medState.speed < hardState.speed);
+});
+
+
 
 
