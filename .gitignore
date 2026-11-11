@@ -6,7 +6,3 @@ coverage/
 *.log
 .env*
 !.env.example
-*.glb
-*.fbx
-*.zip
-public/assets/

@@ -1,0 +1,1142 @@
+{
+  "metadata": {
+    "studio": "MotoStudio BR 3D — Pacote Completo para Jogo (Player Motos + Obstáculos Carros & Ônibus)",
+    "version": "5.0.0-complete-game-pack-player-and-obstacles",
+    "exportDate": "2026-11-07T17:23:52.738Z",
+    "exportStyle": "Estilo Cartoon 3D (Cel-Shaded 4 Bandas + Contorno Preto Inverted-Hull)",
+    "format": "GLTF 2.0 Binary (.GLB) Organizado para Unity, Unreal Engine 5, Godot e Roblox",
+    "totalVehicles": 34,
+    "playerMotorcyclesCount": 20,
+    "trafficObstacleCarsCount": 11,
+    "trafficObstacleBusesCount": 3
+  },
+  "gameRolesOrganization": {
+    "playerVehicles": {
+      "folderNameInMasterGlb": "01_PLAYER_MOTOS_JOGADOR_20",
+      "filePrefixSeparateGlb": "player_moto_",
+      "role": "PLAYER_CONTROLLER",
+      "description": "Motos controladas pelo Player (16 Brasileiras + 4 Custom Especiais) com pivôs de direção, inclinação no grau, suspensão e rotação de rodas."
+    },
+    "trafficObstacles": {
+      "carsFolderNameInMasterGlb": "02_OBSTACULOS_CARROS_TRANSITO_11",
+      "busesFolderNameInMasterGlb": "03_OBSTACULOS_ONIBUS_PESADOS_03",
+      "carFilePrefixSeparateGlb": "obstaculo_carro_",
+      "busFilePrefixSeparateGlb": "obstaculo_onibus_",
+      "role": "TRAFFIC_OBSTACLE",
+      "description": "11 Carros Brasileiros + Camaro SS e 3 Ônibus Brasileiros prontos para spawnar como obstáculos de trânsito nas faixas da pista com BoxCollider AABB exato."
+    }
+  },
+  "playerMotorcycleHierarchy": {
+    "rootNode": "MotorcycleRoot (Origem 0,0,0 no chão entre as rodas)",
+    "chassisNode": "ChassisMainGroup (Chassi, Motor, Tanque, Banco e Escape)",
+    "steeringNode": "SteeringColumnPivot (Gira guidão, painel e garfo no eixo Y)",
+    "frontSuspensionNode": "FrontForkLowerSlider (Curso telescópico da suspensão dianteira)",
+    "frontWheelNode": "FrontWheelSpin (Pivô centralizado para rotação da roda dianteira)",
+    "rearSwingarmNode": "RearSwingarmPivot (Articulação da balança traseira)",
+    "rearWheelNode": "RearWheelSpin (Pivô centralizado para rotação da roda traseira)"
+  },
+  "playerMotorcyclesCatalog": [
+    {
+      "index": 1,
+      "gameRole": "PLAYER",
+      "id": "xtz250_lander",
+      "isCustomSpecial": false,
+      "isFullChromeCustom": false,
+      "filenameGlb": "player_moto_01_yamaha_xtz_250_lander_cartoon_game_ready.glb",
+      "name": "Yamaha XTZ 250 Lander ABS",
+      "brand": "YAMAHA",
+      "category": "On-Off Road 250cc",
+      "displacementCc": 249,
+      "powerHp": "20,9 cv @ 8.000 rpm",
+      "torqueNm": "2,1 kgf.m @ 6.500 rpm",
+      "colorSchemes": [
+        {
+          "id": "solar_red",
+          "name": "Solar Red (Vermelho/Preto Ref.)",
+          "primaryHex": "#dc1f26",
+          "secondaryHex": "#18181b",
+          "accentHex": "#ef4444",
+          "rimHex": "#e4e4e7",
+          "frameHex": "#141417",
+          "seatHex": "#202026",
+          "stitchHex": "#dc2626"
+        },
+        {
+          "id": "competition_blue",
+          "name": "Competition Blue (Azul Racing)",
+          "primaryHex": "#1d4ed8",
+          "secondaryHex": "#18181b",
+          "accentHex": "#38bdf8",
+          "rimHex": "#e4e4e7",
+          "frameHex": "#141417",
+          "seatHex": "#1e1e24",
+          "stitchHex": "#38bdf8"
+        },
+        {
+          "id": "dakar_sand",
+          "name": "Dakar Sand (Bege Tático)",
+          "primaryHex": "#c2a878",
+          "secondaryHex": "#1c1917",
+          "accentHex": "#ea580c",
+          "rimHex": "#27272a",
+          "frameHex": "#18181b",
+          "seatHex": "#292524",
+          "stitchHex": "#ea580c"
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "gameRole": "PLAYER",
+      "id": "fz25_fazer",
+      "isCustomSpecial": false,
+      "isFullChromeCustom": false,
+      "filenameGlb": "player_moto_02_yamaha_fz25_fazer_250_cartoon_game_ready.glb",
+      "name": "Yamaha FZ25 Fazer 250 ABS",
+      "brand": "YAMAHA",
+      "category": "Naked Sport 250cc",
+      "displacementCc": 249,
+      "powerHp": "21,5 cv @ 8.000 rpm",
+      "torqueNm": "2,1 kgf.m @ 6.500 rpm",
+      "colorSchemes": [
+        {
+          "id": "titanium_orange_ref",
+          "name": "Titanium Matt Grey & Orange (Ref.)",
+          "primaryHex": "#8e9299",
+          "secondaryHex": "#202227",
+          "accentHex": "#ff6b00",
+          "rimHex": "#18181b",
+          "frameHex": "#16171a",
+          "seatHex": "#1c1d21",
+          "stitchHex": "#ff6b00"
+        },
+        {
+          "id": "racing_blue_fz",
+          "name": "Racing Blue Metálico",
+          "primaryHex": "#1e40af",
+          "secondaryHex": "#18181b",
+          "accentHex": "#38bdf8",
+          "rimHex": "#1e3a8a",
+          "frameHex": "#141417",
+          "seatHex": "#1c1d21",
+          "stitchHex": "#38bdf8"
+        },
+        {
+          "id": "magma_red_fz",
+          "name": "Magma Red Perolizado",
+          "primaryHex": "#991b1b",
+          "secondaryHex": "#18181b",
+          "accentHex": "#f87171",
+          "rimHex": "#18181b",
+          "frameHex": "#141417",
+          "seatHex": "#1c1d21",
+          "stitchHex": "#ef4444"
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "gameRole": "PLAYER",
+      "id": "xre190_adv",
+      "isCustomSpecial": false,
+      "isFullChromeCustom": false,
+      "filenameGlb": "player_moto_03_honda_xre_190_abs_cartoon_game_ready.glb",
+      "name": "Honda XRE 190 ABS Adventure",
+      "brand": "HONDA",
+      "category": "Adventure Trail 190cc",
+      "displacementCc": 184.4,
+      "powerHp": "16,4 cv @ 8.500 rpm",
+      "torqueNm": "1,66 kgf.m @ 6.000 rpm",
+      "colorSchemes": [
+        {
+          "id": "matte_black_silver_ref",
+          "name": "Preto Fosco & Prata Acetinado (Ref.)",
+          "primaryHex": "#27272c",
+          "secondaryHex": "#d4d6dc",
+          "accentHex": "#a1a1aa",
+          "rimHex": "#e4e4e7",
+          "frameHex": "#141417",
+          "seatHex": "#1e1f24",
+          "stitchHex": "#71717a"
+        },
+        {
+          "id": "adventure_red",
+          "name": "Vermelho Perolizado Adventure",
+          "primaryHex": "#b91c1c",
+          "secondaryHex": "#d4d6dc",
+          "accentHex": "#f87171",
+          "rimHex": "#e4e4e7",
+          "frameHex": "#141417",
+          "seatHex": "#1e1f24",
+          "stitchHex": "#ef4444"
+        },
+        {
+          "id": "forest_khaki",
+          "name": "Verde Militar Fosco",
+          "primaryHex": "#3f4d3b",
+          "secondaryHex": "#c7c9cf",
+          "accentHex": "#eab308",
+          "rimHex": "#d4d4d8",
+          "frameHex": "#141417",
+          "seatHex": "#23201e",
+          "stitchHex": "#ca8a04"
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "gameRole": "PLAYER",
+      "id": "mottu_sport110",
+      "isCustomSpecial": false,
+      "isFullChromeCustom": false,
+      "filenameGlb": "player_moto_04_mottu_tvs_mottu_sport_110i_cartoon_game_ready.glb",
+      "name": "Mottu Sport 110i (TVS)",
+      "brand": "MOTTU / TVS",
+      "category": "Urbana Utility 110cc",
+      "displacementCc": 109.7,
+      "powerHp": "8,3 cv @ 7.350 rpm",
+      "torqueNm": "0,89 kgf.m @ 4.500 rpm",
+      "colorSchemes": [
+        {
+          "id": "mottu_black_green_ref",
+          "name": "Preto Brilhante & Verde Mottu (Ref.)",
+          "primaryHex": "#141518",
+          "secondaryHex": "#22c55e",
+          "accentHex": "#4ade80",
+          "rimHex": "#141518",
+          "frameHex": "#18181b",
+          "seatHex": "#232429",
+          "stitchHex": "#e4e4e7"
+        },
+        {
+          "id": "tvs_crimson_silver",
+          "name": "Preto & Vermelho Rubi",
+          "primaryHex": "#141518",
+          "secondaryHex": "#dc2626",
+          "accentHex": "#f87171",
+          "rimHex": "#141518",
+          "frameHex": "#18181b",
+          "seatHex": "#232429",
+          "stitchHex": "#e4e4e7"
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "gameRole": "PLAYER",
+      "id": "cg160_titan",
+      "isCustomSpecial": false,
+      "isFullChromeCustom": false,
+      "filenameGlb": "player_moto_05_honda_cg_160_titan_cartoon_game_ready.glb",
+      "name": "Honda CG 160 Titan CBS",
+      "brand": "HONDA",
+      "category": "Urbana Street 160cc",
+      "displacementCc": 162.7,
+      "powerHp": "15,1 cv @ 8.000 rpm",
+      "torqueNm": "1,54 kgf.m @ 7.000 rpm",
+      "colorSchemes": [
+        {
+          "id": "titan_metallic_red",
+          "name": "Vermelho Metálico Marrakesh",
+          "primaryHex": "#b91c1c",
+          "secondaryHex": "#18181b",
+          "accentHex": "#f87171",
+          "rimHex": "#18181b",
+          "frameHex": "#1e1e22",
+          "seatHex": "#222226",
+          "stitchHex": "#ef4444"
+        },
+        {
+          "id": "titan_pearl_blue",
+          "name": "Azul Perolizado Twister",
+          "primaryHex": "#0369a1",
+          "secondaryHex": "#0f172a",
+          "accentHex": "#38bdf8",
+          "rimHex": "#18181b",
+          "frameHex": "#1e1e22",
+          "seatHex": "#222226",
+          "stitchHex": "#38bdf8"
+        },
+        {
+          "id": "titan_silver_metallic",
+          "name": "Prata Metálico Ibiúna",
+          "primaryHex": "#a1a1aa",
+          "secondaryHex": "#18181b",
+          "accentHex": "#ef4444",
+          "rimHex": "#27272a",
+          "frameHex": "#18181b",
+          "seatHex": "#222226",
+          "stitchHex": "#d4d4d8"
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "gameRole": "PLAYER",
+      "id": "cb300f_twister",
+      "isCustomSpecial": false,
+      "isFullChromeCustom": false,
+      "filenameGlb": "player_moto_06_honda_cb_300f_twister_cartoon_game_ready.glb",
+      "name": "Honda CB 300F Twister ABS",
+      "brand": "HONDA",
+      "category": "Naked Sport 300cc",
+      "displacementCc": 293.5,
+      "powerHp": "24,7 cv @ 7.500 rpm",
+      "torqueNm": "2,67 kgf.m @ 5.500 rpm",
+      "colorSchemes": [
+        {
+          "id": "twister_gold_matte",
+          "name": "Dourado Metálico Fosco",
+          "primaryHex": "#b4924c",
+          "secondaryHex": "#18181b",
+          "accentHex": "#facc15",
+          "rimHex": "#18181b",
+          "frameHex": "#18181b",
+          "seatHex": "#1f2024",
+          "stitchHex": "#eab308"
+        },
+        {
+          "id": "twister_red",
+          "name": "Vermelho Victory Honda",
+          "primaryHex": "#dc2626",
+          "secondaryHex": "#18181b",
+          "accentHex": "#f87171",
+          "rimHex": "#18181b",
+          "frameHex": "#18181b",
+          "seatHex": "#1f2024",
+          "stitchHex": "#ef4444"
+        }
+      ]
+    },
+    {
+      "index": 7,
+      "gameRole": "PLAYER",
+      "id": "nxr160_bros",
+      "isCustomSpecial": false,
+      "isFullChromeCustom": false,
+      "filenameGlb": "player_moto_07_honda_nxr_160_bros_cartoon_game_ready.glb",
+      "name": "Honda NXR 160 Bros ESDD",
+      "brand": "HONDA",
+      "category": "Trail Multiuso 160cc",
+      "displacementCc": 162.7,
+      "powerHp": "14,7 cv @ 8.500 rpm",
+      "torqueNm": "1,60 kgf.m @ 5.500 rpm",
+      "colorSchemes": [
+        {
+          "id": "bros_red_white",
+          "name": "Vermelho Fighting & Branco",
+          "primaryHex": "#dc2626",
+          "secondaryHex": "#f4f4f5",
+          "accentHex": "#18181b",
+          "rimHex": "#e4e4e7",
+          "frameHex": "#18181b",
+          "seatHex": "#202126",
+          "stitchHex": "#dc2626"
+        },
+        {
+          "id": "bros_black_blue",
+          "name": "Preto & Azul Bros",
+          "primaryHex": "#18181b",
+          "secondaryHex": "#2563eb",
+          "accentHex": "#60a5fa",
+          "rimHex": "#e4e4e7",
+          "frameHex": "#18181b",
+          "seatHex": "#202126",
+          "stitchHex": "#3b82f6"
+        }
+      ]
+    },
+    {
+      "index": 8,
+      "gameRole": "PLAYER",
+      "id": "factor150_ed",
+      "isCustomSpecial": false,
+      "isFullChromeCustom": false,
+      "filenameGlb": "player_moto_08_yamaha_factor_150_ed_cartoon_game_ready.glb",
+      "name": "Yamaha Factor 150 ED UBS",
+      "brand": "YAMAHA",
+      "category": "Urbana Street 150cc",
+      "displacementCc": 149,
+      "powerHp": "12,4 cv @ 7.500 rpm",
+      "torqueNm": "1,3 kgf.m @ 5.500 rpm",
+      "colorSchemes": [
+        {
+          "id": "factor_white_red",
+          "name": "Branco Sports Perolizado",
+          "primaryHex": "#f1f5f9",
+          "secondaryHex": "#18181b",
+          "accentHex": "#dc2626",
+          "rimHex": "#18181b",
+          "frameHex": "#18181b",
+          "seatHex": "#1e1f24",
+          "stitchHex": "#cbd5e1"
+        },
+        {
+          "id": "factor_black_eclipse",
+          "name": "Preto Eclipse Metálico",
+          "primaryHex": "#18181b",
+          "secondaryHex": "#27272a",
+          "accentHex": "#dc2626",
+          "rimHex": "#18181b",
+          "frameHex": "#18181b",
+          "seatHex": "#1e1f24",
+          "stitchHex": "#ef4444"
+        }
+      ]
+    },
+    {
+      "index": 9,
+      "gameRole": "PLAYER",
+      "id": "pop110i_es",
+      "isCustomSpecial": false,
+      "isFullChromeCustom": false,
+      "filenameGlb": "player_moto_09_honda_pop_110i_es_cartoon_game_ready.glb",
+      "name": "Honda Pop 110i ES",
+      "brand": "HONDA",
+      "category": "Cub Urbana 110cc",
+      "displacementCc": 109.5,
+      "powerHp": "8,43 cv @ 7.250 rpm",
+      "torqueNm": "0,94 kgf.m @ 5.000 rpm",
+      "colorSchemes": [
+        {
+          "id": "pop_white_red_seat",
+          "name": "Branco Ross & Banco Vermelho",
+          "primaryHex": "#f8fafc",
+          "secondaryHex": "#18181b",
+          "accentHex": "#dc2626",
+          "rimHex": "#e4e4e7",
+          "frameHex": "#18181b",
+          "seatHex": "#991b1b",
+          "stitchHex": "#f87171"
+        },
+        {
+          "id": "pop_red_fighting",
+          "name": "Vermelho Fighting Clássico",
+          "primaryHex": "#dc2626",
+          "secondaryHex": "#18181b",
+          "accentHex": "#ffffff",
+          "rimHex": "#e4e4e7",
+          "frameHex": "#18181b",
+          "seatHex": "#1f2024",
+          "stitchHex": "#ef4444"
+        }
+      ]
+    },
+    {
+      "index": 10,
+      "gameRole": "PLAYER",
+      "id": "mt03_abs",
+      "isCustomSpecial": false,
+      "isFullChromeCustom": false,
+      "filenameGlb": "player_moto_10_yamaha_mt_03_abs_cartoon_game_ready.glb",
+      "name": "Yamaha MT-03 ABS Master of Torque",
+      "brand": "YAMAHA",
+      "category": "Hyper Naked 321cc",
+      "displacementCc": 321,
+      "powerHp": "42,0 cv @ 10.750 rpm",
+      "torqueNm": "3,02 kgf.m @ 9.000 rpm",
+      "colorSchemes": [
+        {
+          "id": "mt_storm_fluo",
+          "name": "Storm Fluo (Cinza & Roda Cyan/Vermelho)",
+          "primaryHex": "#525760",
+          "secondaryHex": "#18181b",
+          "accentHex": "#06b6d4",
+          "rimHex": "#0891b2",
+          "frameHex": "#18181b",
+          "seatHex": "#18181c",
+          "stitchHex": "#06b6d4"
+        },
+        {
+          "id": "mt_midnight_black",
+          "name": "X-Black Fosco Furtivo",
+          "primaryHex": "#1c1d21",
+          "secondaryHex": "#121316",
+          "accentHex": "#71717a",
+          "rimHex": "#18181b",
+          "frameHex": "#141417",
+          "seatHex": "#18181c",
+          "stitchHex": "#52525b"
+        }
+      ]
+    },
+    {
+      "index": 11,
+      "gameRole": "PLAYER",
+      "id": "cb650r_neo",
+      "isCustomSpecial": false,
+      "isFullChromeCustom": false,
+      "filenameGlb": "player_moto_11_honda_cb_650r_caf_cartoon_game_ready.glb",
+      "name": "Honda CB 650R Neo Sports Café",
+      "brand": "HONDA",
+      "category": "Neo Sports Café 650cc",
+      "displacementCc": 649,
+      "powerHp": "88,4 cv @ 11.500 rpm",
+      "torqueNm": "6,13 kgf.m @ 8.000 rpm",
+      "colorSchemes": [
+        {
+          "id": "cb650_chromosphere_red",
+          "name": "Vermelho Perolizado & Bronze Níquel",
+          "primaryHex": "#991b1b",
+          "secondaryHex": "#b89f7d",
+          "accentHex": "#d4af37",
+          "rimHex": "#78664e",
+          "frameHex": "#18181b",
+          "seatHex": "#1c1b1a",
+          "stitchHex": "#d4af37"
+        },
+        {
+          "id": "cb650_matte_gunpowder",
+          "name": "Cinza Fosco & Cromo Suave Escovado",
+          "primaryHex": "#475569",
+          "secondaryHex": "#cbd5e1",
+          "accentHex": "#94a3b8",
+          "rimHex": "#334155",
+          "frameHex": "#18181b",
+          "seatHex": "#18181b",
+          "stitchHex": "#94a3b8"
+        }
+      ]
+    },
+    {
+      "index": 12,
+      "gameRole": "PLAYER",
+      "id": "dominar400",
+      "isCustomSpecial": false,
+      "isFullChromeCustom": false,
+      "filenameGlb": "player_moto_12_bajaj_dominar_400_cartoon_game_ready.glb",
+      "name": "Bajaj Dominar 400 Touring ABS",
+      "brand": "BAJAJ",
+      "category": "Sport Touring 400cc",
+      "displacementCc": 373.3,
+      "powerHp": "40,0 cv @ 8.800 rpm",
+      "torqueNm": "3,57 kgf.m @ 6.500 rpm",
+      "colorSchemes": [
+        {
+          "id": "savanna_green",
+          "name": "Aurora Green Metálico",
+          "primaryHex": "#0f766e",
+          "secondaryHex": "#18181b",
+          "accentHex": "#2dd4bf",
+          "rimHex": "#18181b",
+          "frameHex": "#18181b",
+          "seatHex": "#1c1d21",
+          "stitchHex": "#2dd4bf"
+        },
+        {
+          "id": "charcoal_black_dom",
+          "name": "Charcoal Black & Grafite",
+          "primaryHex": "#27272a",
+          "secondaryHex": "#18181b",
+          "accentHex": "#e4e4e7",
+          "rimHex": "#18181b",
+          "frameHex": "#18181b",
+          "seatHex": "#1c1d21",
+          "stitchHex": "#a1a1aa"
+        }
+      ]
+    },
+    {
+      "index": 13,
+      "gameRole": "PLAYER",
+      "id": "xre300_sahara",
+      "isCustomSpecial": false,
+      "isFullChromeCustom": false,
+      "filenameGlb": "player_moto_13_honda_xre_300_sahara_cartoon_game_ready.glb",
+      "name": "Honda XRE 300 Sahara Adventure",
+      "brand": "HONDA",
+      "category": "Adventure Rally 300cc",
+      "displacementCc": 293.5,
+      "powerHp": "25,2 cv @ 7.500 rpm",
+      "torqueNm": "2,74 kgf.m @ 5.750 rpm",
+      "colorSchemes": [
+        {
+          "id": "sahara_beige_rally",
+          "name": "Bege Rally Sahara & Preto",
+          "primaryHex": "#d6c7a9",
+          "secondaryHex": "#b91c1c",
+          "accentHex": "#f59e0b",
+          "rimHex": "#d4d4d8",
+          "frameHex": "#18181b",
+          "seatHex": "#27272a",
+          "stitchHex": "#f59e0b"
+        },
+        {
+          "id": "sahara_red_dakar",
+          "name": "Vermelho Rally Dakar & Branco",
+          "primaryHex": "#dc2626",
+          "secondaryHex": "#f8fafc",
+          "accentHex": "#2563eb",
+          "rimHex": "#eab308",
+          "frameHex": "#18181b",
+          "seatHex": "#1e293b",
+          "stitchHex": "#ef4444"
+        },
+        {
+          "id": "sahara_matte_grey",
+          "name": "Cinza Metálico Adventure",
+          "primaryHex": "#475569",
+          "secondaryHex": "#1e293b",
+          "accentHex": "#f97316",
+          "rimHex": "#d4d4d8",
+          "frameHex": "#18181b",
+          "seatHex": "#1c1d21",
+          "stitchHex": "#f97316"
+        }
+      ]
+    },
+    {
+      "index": 14,
+      "gameRole": "PLAYER",
+      "id": "cbx250_twister_classic",
+      "isCustomSpecial": false,
+      "isFullChromeCustom": false,
+      "filenameGlb": "player_moto_14_honda_cbx_250_twister_cartoon_game_ready.glb",
+      "name": "Honda CBX 250 Twister Clássica",
+      "brand": "HONDA",
+      "category": "Clássica Street 250cc",
+      "displacementCc": 249,
+      "powerHp": "24,0 cv @ 8.000 rpm",
+      "torqueNm": "2,48 kgf.m @ 6.000 rpm",
+      "colorSchemes": [
+        {
+          "id": "twister_canary_yellow",
+          "name": "Amarelo Canário Clássico 2008",
+          "primaryHex": "#facc15",
+          "secondaryHex": "#18181b",
+          "accentHex": "#dc2626",
+          "rimHex": "#d4d4d8",
+          "frameHex": "#27272a",
+          "seatHex": "#18181b",
+          "stitchHex": "#facc15"
+        },
+        {
+          "id": "twister_candy_red",
+          "name": "Vermelho Candy Metálico",
+          "primaryHex": "#b91c1c",
+          "secondaryHex": "#e4e4e7",
+          "accentHex": "#f87171",
+          "rimHex": "#d4d4d8",
+          "frameHex": "#27272a",
+          "seatHex": "#18181b",
+          "stitchHex": "#ef4444"
+        }
+      ]
+    },
+    {
+      "index": 15,
+      "gameRole": "PLAYER",
+      "id": "rd350_viuva_negra",
+      "isCustomSpecial": false,
+      "isFullChromeCustom": false,
+      "filenameGlb": "player_moto_15_yamaha_rd_350_vi_va_negra_cartoon_game_ready.glb",
+      "name": "Yamaha RD 350R LC \"Viúva Negra\"",
+      "brand": "YAMAHA",
+      "category": "Clássica 2T 350cc",
+      "displacementCc": 347,
+      "powerHp": "55,0 cv @ 9.000 rpm",
+      "torqueNm": "4,79 kgf.m @ 8.500 rpm",
+      "colorSchemes": [
+        {
+          "id": "rd350_white_red",
+          "name": "Branco Pérola & Vermelho Speedblock",
+          "primaryHex": "#f8fafc",
+          "secondaryHex": "#dc2626",
+          "accentHex": "#ef4444",
+          "rimHex": "#18181b",
+          "frameHex": "#18181b",
+          "seatHex": "#18181b",
+          "stitchHex": "#dc2626"
+        },
+        {
+          "id": "rd350_black_gold",
+          "name": "Preto Viúva Negra & Dourado",
+          "primaryHex": "#141418",
+          "secondaryHex": "#eab308",
+          "accentHex": "#dc2626",
+          "rimHex": "#eab308",
+          "frameHex": "#18181b",
+          "seatHex": "#18181b",
+          "stitchHex": "#eab308"
+        }
+      ]
+    },
+    {
+      "index": 16,
+      "gameRole": "PLAYER",
+      "id": "cg125_bolinha_cartoon",
+      "isCustomSpecial": false,
+      "isFullChromeCustom": false,
+      "filenameGlb": "player_moto_16_honda_cg_125_bolinha_cartoon_game_ready.glb",
+      "name": "Honda CG 125 \"Bolinha\" 1979 (Cartoon/Retrô)",
+      "brand": "HONDA",
+      "category": "Clássica Cartoon 125cc",
+      "displacementCc": 124,
+      "powerHp": "11,0 cv @ 9.000 rpm",
+      "torqueNm": "0,98 kgf.m @ 7.500 rpm",
+      "colorSchemes": [
+        {
+          "id": "bolinha_cartoon_orange",
+          "name": "Laranja Vibrante Cartoon 1979",
+          "primaryHex": "#f97316",
+          "secondaryHex": "#fef08a",
+          "accentHex": "#ef4444",
+          "rimHex": "#e4e4e7",
+          "frameHex": "#18181b",
+          "seatHex": "#1f2026",
+          "stitchHex": "#f97316"
+        },
+        {
+          "id": "bolinha_cartoon_sky",
+          "name": "Azul Celeste Retrô Cartoon",
+          "primaryHex": "#0ea5e9",
+          "secondaryHex": "#ffffff",
+          "accentHex": "#facc15",
+          "rimHex": "#e4e4e7",
+          "frameHex": "#18181b",
+          "seatHex": "#1f2026",
+          "stitchHex": "#38bdf8"
+        },
+        {
+          "id": "bolinha_classic_red",
+          "name": "Vermelho Honda 1979 & Faixa Branca",
+          "primaryHex": "#ef4444",
+          "secondaryHex": "#ffffff",
+          "accentHex": "#facc15",
+          "rimHex": "#e4e4e7",
+          "frameHex": "#18181b",
+          "seatHex": "#1f2026",
+          "stitchHex": "#ffffff"
+        }
+      ]
+    },
+    {
+      "index": 17,
+      "gameRole": "PLAYER",
+      "id": "custom_cromada_imperador",
+      "isCustomSpecial": true,
+      "isFullChromeCustom": true,
+      "filenameGlb": "player_moto_17_custom_br_imperador_cromada_cartoon_game_ready.glb",
+      "name": "Custom Imperador 1000 Full Cromada",
+      "brand": "CUSTOM BR",
+      "category": "Custom Cromada 1000cc",
+      "displacementCc": 998,
+      "powerHp": "145,0 cv @ 11.500 rpm",
+      "torqueNm": "10,8 kgf.m @ 9.000 rpm",
+      "colorSchemes": [
+        {
+          "id": "chrome_mirror_platinum",
+          "name": "Cromo Espelhado Puro & Detalhes Azul safira",
+          "primaryHex": "#f8fafc",
+          "secondaryHex": "#e2e8f0",
+          "accentHex": "#38bdf8",
+          "rimHex": "#ffffff",
+          "frameHex": "#cbd5e1",
+          "seatHex": "#0f172a",
+          "stitchHex": "#38bdf8"
+        },
+        {
+          "id": "chrome_mirror_gold_trim",
+          "name": "Cromo Espelhado & Filetes Ouro 24K",
+          "primaryHex": "#ffffff",
+          "secondaryHex": "#fef08a",
+          "accentHex": "#eab308",
+          "rimHex": "#f8fafc",
+          "frameHex": "#e2e8f0",
+          "seatHex": "#1c1917",
+          "stitchHex": "#facc15"
+        },
+        {
+          "id": "chrome_titanium_ruby",
+          "name": "Cromo Titânio & Rubi Metálico",
+          "primaryHex": "#e2e8f0",
+          "secondaryHex": "#94a3b8",
+          "accentHex": "#ef4444",
+          "rimHex": "#f1f5f9",
+          "frameHex": "#94a3b8",
+          "seatHex": "#18181b",
+          "stitchHex": "#ef4444"
+        }
+      ]
+    },
+    {
+      "index": 18,
+      "gameRole": "PLAYER",
+      "id": "custom_motoqueiro_fantasma",
+      "isCustomSpecial": true,
+      "isFullChromeCustom": false,
+      "filenameGlb": "player_moto_18_custom_hell_motoqueiro_fantasma_cartoon_game_ready.glb",
+      "name": "Hellfire 666 \"Motoqueiro Fantasma\" (Rodas de Fogo)",
+      "brand": "CUSTOM HELL",
+      "category": "Custom Fogo 666cc",
+      "displacementCc": 666,
+      "powerHp": "166,6 cv @ 10.660 rpm",
+      "torqueNm": "14,2 kgf.m @ 7.500 rpm",
+      "colorSchemes": [
+        {
+          "id": "ghost_rider_hellfire",
+          "name": "Chamas do Inferno (Preto Obsidiana & Fogo Laranja/Amarelo)",
+          "primaryHex": "#09090b",
+          "secondaryHex": "#ea580c",
+          "accentHex": "#facc15",
+          "rimHex": "#ff4500",
+          "frameHex": "#18181b",
+          "seatHex": "#09090b",
+          "stitchHex": "#f97316"
+        },
+        {
+          "id": "ghost_rider_blue_soul",
+          "name": "Fogo Azul Espectral (Chamas Azuis Sobrenaturais)",
+          "primaryHex": "#09090b",
+          "secondaryHex": "#0284c7",
+          "accentHex": "#38bdf8",
+          "rimHex": "#0ea5e9",
+          "frameHex": "#0f172a",
+          "seatHex": "#09090b",
+          "stitchHex": "#38bdf8"
+        },
+        {
+          "id": "ghost_rider_crimson_magma",
+          "name": "Magma Vulcânico & Caveira Rubra",
+          "primaryHex": "#140808",
+          "secondaryHex": "#dc2626",
+          "accentHex": "#fb923c",
+          "rimHex": "#ef4444",
+          "frameHex": "#1c1917",
+          "seatHex": "#18181b",
+          "stitchHex": "#dc2626"
+        }
+      ]
+    },
+    {
+      "index": 19,
+      "gameRole": "PLAYER",
+      "id": "custom_cyber_neon_br",
+      "isCustomSpecial": true,
+      "isFullChromeCustom": false,
+      "filenameGlb": "player_moto_19_custom_game_cyber_neon_500_cartoon_game_ready.glb",
+      "name": "CyberMoto 500 Turbo Neon BR (Game Edition)",
+      "brand": "CUSTOM GAME",
+      "category": "Custom Cyber 500cc",
+      "displacementCc": 500,
+      "powerHp": "92,0 cv @ 10.500 rpm",
+      "torqueNm": "7,4 kgf.m @ 8.000 rpm",
+      "colorSchemes": [
+        {
+          "id": "cyber_magenta_cyan",
+          "name": "Cyberpunk Rosa Choque & Neon Cyan",
+          "primaryHex": "#d946ef",
+          "secondaryHex": "#0f172a",
+          "accentHex": "#06b6d4",
+          "rimHex": "#22d3ee",
+          "frameHex": "#09090b",
+          "seatHex": "#1e1b4b",
+          "stitchHex": "#22d3ee"
+        },
+        {
+          "id": "cyber_toxic_green",
+          "name": "Neon Verde Radioativo & Roxo Noturno",
+          "primaryHex": "#22c55e",
+          "secondaryHex": "#2e1065",
+          "accentHex": "#a855f7",
+          "rimHex": "#4ade80",
+          "frameHex": "#09090b",
+          "seatHex": "#09090b",
+          "stitchHex": "#4ade80"
+        }
+      ]
+    },
+    {
+      "index": 20,
+      "gameRole": "PLAYER",
+      "id": "custom_grau_ouro_24k",
+      "isCustomSpecial": true,
+      "isFullChromeCustom": true,
+      "filenameGlb": "player_moto_20_custom_br_grau_ouro_24k_cartoon_game_ready.glb",
+      "name": "Grau Imperial 24K Ouro & Cromo (Edição Especial)",
+      "brand": "CUSTOM BR",
+      "category": "Custom Ouro 300cc",
+      "displacementCc": 300,
+      "powerHp": "38,5 cv @ 9.500 rpm",
+      "torqueNm": "3,4 kgf.m @ 7.200 rpm",
+      "colorSchemes": [
+        {
+          "id": "gold_24k_imperial",
+          "name": "Ouro 24K Espelhado & Cromo Real",
+          "primaryHex": "#eab308",
+          "secondaryHex": "#fef08a",
+          "accentHex": "#ffffff",
+          "rimHex": "#facc15",
+          "frameHex": "#ca8a04",
+          "seatHex": "#18181b",
+          "stitchHex": "#facc15"
+        },
+        {
+          "id": "emerald_gold_grau",
+          "name": "Verde Esmeralda & Rodas de Ouro",
+          "primaryHex": "#059669",
+          "secondaryHex": "#facc15",
+          "accentHex": "#fde047",
+          "rimHex": "#eab308",
+          "frameHex": "#18181b",
+          "seatHex": "#18181b",
+          "stitchHex": "#facc15"
+        }
+      ]
+    }
+  ],
+  "obstacleCarsCatalog": [
+    {
+      "index": 1,
+      "gameRole": "TRAFFIC_OBSTACLE",
+      "obstacleType": "CAR",
+      "id": "vw_gol_g4",
+      "filenameGlb": "obstaculo_carro_01_volkswagen_gol_g4_power_cartoon_game_ready.glb",
+      "name": "Volkswagen Gol G4 1.6 Power Flex",
+      "brand": "VOLKSWAGEN",
+      "category": "Hatch Popular 1.6",
+      "hasSoundSystem": true,
+      "soundSystemType": "trunk_trio",
+      "colliderBoxMeters": {
+        "lengthM": 2.32,
+        "widthM": 0.98,
+        "heightM": 0.86
+      },
+      "recommendedTrafficSpeedKmh": 60
+    },
+    {
+      "index": 2,
+      "gameRole": "TRAFFIC_OBSTACLE",
+      "obstacleType": "CAR",
+      "id": "fiat_uno_mille",
+      "filenameGlb": "obstaculo_carro_02_fiat_uno_mille_fire_cartoon_game_ready.glb",
+      "name": "Fiat Uno Mille Fire 1.0 (Clássico c/ Escada)",
+      "brand": "FIAT",
+      "category": "Clássico Popular 1.0",
+      "hasSoundSystem": false,
+      "soundSystemType": null,
+      "colliderBoxMeters": {
+        "lengthM": 2.24,
+        "widthM": 0.94,
+        "heightM": 0.89
+      },
+      "recommendedTrafficSpeedKmh": 60
+    },
+    {
+      "index": 3,
+      "gameRole": "TRAFFIC_OBSTACLE",
+      "obstacleType": "CAR",
+      "id": "chevrolet_celta",
+      "filenameGlb": "obstaculo_carro_03_chevrolet_celta_1_0_vhc_e_cartoon_game_ready.glb",
+      "name": "Chevrolet Celta 1.0 VHC-E Spirit",
+      "brand": "CHEVROLET",
+      "category": "Hatch Urbano 1.0",
+      "hasSoundSystem": true,
+      "soundSystemType": "trunk_trio",
+      "colliderBoxMeters": {
+        "lengthM": 2.26,
+        "widthM": 0.96,
+        "heightM": 0.85
+      },
+      "recommendedTrafficSpeedKmh": 60
+    },
+    {
+      "index": 4,
+      "gameRole": "TRAFFIC_OBSTACLE",
+      "obstacleType": "CAR",
+      "id": "fiat_palio_fire",
+      "filenameGlb": "obstaculo_carro_04_fiat_palio_fire_1_0_cartoon_game_ready.glb",
+      "name": "Fiat Palio Fire 1.0 Economy",
+      "brand": "FIAT",
+      "category": "Hatch Compacto 1.0",
+      "hasSoundSystem": false,
+      "soundSystemType": null,
+      "colliderBoxMeters": {
+        "lengthM": 2.3,
+        "widthM": 0.98,
+        "heightM": 0.87
+      },
+      "recommendedTrafficSpeedKmh": 60
+    },
+    {
+      "index": 5,
+      "gameRole": "TRAFFIC_OBSTACLE",
+      "obstacleType": "CAR",
+      "id": "fiat_strada_endurance",
+      "filenameGlb": "obstaculo_carro_05_fiat_fiat_strada_1_4_cartoon_game_ready.glb",
+      "name": "Fiat Strada Endurance 1.4 Cabine Plus",
+      "brand": "FIAT",
+      "category": "Picape Compacta 1.4",
+      "hasSoundSystem": true,
+      "soundSystemType": "pickup_paredao",
+      "colliderBoxMeters": {
+        "lengthM": 2.52,
+        "widthM": 1.02,
+        "heightM": 0.91
+      },
+      "recommendedTrafficSpeedKmh": 60
+    },
+    {
+      "index": 6,
+      "gameRole": "TRAFFIC_OBSTACLE",
+      "obstacleType": "CAR",
+      "id": "chevrolet_camaro_ss",
+      "filenameGlb": "obstaculo_carro_06_chevrolet_camaro_ss_v8_cartoon_game_ready.glb",
+      "name": "Chevrolet Camaro SS 6.2 V8 (\"Camaro Amarelo\")",
+      "brand": "CHEVROLET",
+      "category": "Muscle Car V8 6.2L",
+      "hasSoundSystem": false,
+      "soundSystemType": null,
+      "colliderBoxMeters": {
+        "lengthM": 2.58,
+        "widthM": 1.12,
+        "heightM": 0.78
+      },
+      "recommendedTrafficSpeedKmh": 90
+    },
+    {
+      "index": 7,
+      "gameRole": "TRAFFIC_OBSTACLE",
+      "obstacleType": "CAR",
+      "id": "vw_saveiro_cross",
+      "filenameGlb": "obstaculo_carro_07_volkswagen_saveiro_cross_cartoon_game_ready.glb",
+      "name": "Volkswagen Saveiro Cross 1.6 MSI CD",
+      "brand": "VOLKSWAGEN",
+      "category": "Picape Sport 1.6",
+      "hasSoundSystem": true,
+      "soundSystemType": "pickup_paredao",
+      "colliderBoxMeters": {
+        "lengthM": 2.48,
+        "widthM": 1.01,
+        "heightM": 0.89
+      },
+      "recommendedTrafficSpeedKmh": 60
+    },
+    {
+      "index": 8,
+      "gameRole": "TRAFFIC_OBSTACLE",
+      "obstacleType": "CAR",
+      "id": "vw_fusca_1600",
+      "filenameGlb": "obstaculo_carro_08_volkswagen_vw_fusca_1600_cartoon_game_ready.glb",
+      "name": "Volkswagen Fusca 1600 Clássico Brasileiro",
+      "brand": "VOLKSWAGEN",
+      "category": "Clássico Histórico 1600",
+      "hasSoundSystem": false,
+      "soundSystemType": null,
+      "colliderBoxMeters": {
+        "lengthM": 2.28,
+        "widthM": 0.96,
+        "heightM": 0.88
+      },
+      "recommendedTrafficSpeedKmh": 60
+    },
+    {
+      "index": 9,
+      "gameRole": "TRAFFIC_OBSTACLE",
+      "obstacleType": "CAR",
+      "id": "chevrolet_opala_ss",
+      "filenameGlb": "obstaculo_carro_09_chevrolet_opala_ss_4_1_6cc_cartoon_game_ready.glb",
+      "name": "Chevrolet Opala SS 4.1 6 Cilindros 250-S",
+      "brand": "CHEVROLET",
+      "category": "Lenda 6 Cilindros 4.1L",
+      "hasSoundSystem": false,
+      "soundSystemType": null,
+      "colliderBoxMeters": {
+        "lengthM": 2.54,
+        "widthM": 1.04,
+        "heightM": 0.81
+      },
+      "recommendedTrafficSpeedKmh": 60
+    },
+    {
+      "index": 10,
+      "gameRole": "TRAFFIC_OBSTACLE",
+      "obstacleType": "CAR",
+      "id": "vw_gol_gti_quadrado",
+      "filenameGlb": "obstaculo_carro_10_volkswagen_gol_gti_quadrado_cartoon_game_ready.glb",
+      "name": "Volkswagen Gol GTI 2.0 8V Quadrado (Rodas Orbital)",
+      "brand": "VOLKSWAGEN",
+      "category": "Hot Hatch Clássico 2.0",
+      "hasSoundSystem": true,
+      "soundSystemType": "trunk_trio",
+      "colliderBoxMeters": {
+        "lengthM": 2.3,
+        "widthM": 0.97,
+        "heightM": 0.85
+      },
+      "recommendedTrafficSpeedKmh": 60
+    },
+    {
+      "index": 11,
+      "gameRole": "TRAFFIC_OBSTACLE",
+      "obstacleType": "CAR",
+      "id": "chevrolet_chevette_tubarao",
+      "filenameGlb": "obstaculo_carro_11_chevrolet_chevette_sl_e_turbo_cartoon_game_ready.glb",
+      "name": "Chevrolet Chevette SL/E 1.6 Turbo (Tração Traseira)",
+      "brand": "CHEVROLET",
+      "category": "Sedan Tração Traseira 1.6T",
+      "hasSoundSystem": true,
+      "soundSystemType": "trunk_trio",
+      "colliderBoxMeters": {
+        "lengthM": 2.38,
+        "widthM": 0.98,
+        "heightM": 0.83
+      },
+      "recommendedTrafficSpeedKmh": 60
+    }
+  ],
+  "obstacleBusesCatalog": [
+    {
+      "index": 1,
+      "gameRole": "TRAFFIC_OBSTACLE",
+      "obstacleType": "BUS_HEAVY",
+      "id": "urbano_sp_articulado",
+      "filenameGlb": "obstaculo_onibus_01_caio_mercedes_benz_urbano_apache_vip_v_cartoon_game_ready.glb",
+      "name": "Caio Apache Vip V Mercedes-Benz OF-1721 (Urbano SPTrans / BRT)",
+      "brand": "CAIO / MERCEDES-BENZ",
+      "category": "Urbano Municipal 17T",
+      "axleCount": 2,
+      "colliderBoxMeters": {
+        "lengthM": 3.18,
+        "widthM": 1.06,
+        "heightM": 1.18
+      },
+      "recommendedTrafficSpeedKmh": 45
+    },
+    {
+      "index": 2,
+      "gameRole": "TRAFFIC_OBSTACLE",
+      "obstacleType": "BUS_HEAVY",
+      "id": "rodoviario_g8_dd",
+      "filenameGlb": "obstaculo_onibus_02_marcopolo_scania_paradiso_g8_1800_dd_cartoon_game_ready.glb",
+      "name": "Marcopolo Paradiso G8 1800 DD 8x2 Scania (Rodoviário 2 Andares)",
+      "brand": "MARCOPOLO / SCANIA",
+      "category": "Rodoviário DD 8x2",
+      "axleCount": 4,
+      "isDoubleDecker": true,
+      "colliderBoxMeters": {
+        "lengthM": 3.42,
+        "widthM": 1.08,
+        "heightM": 1.42
+      },
+      "recommendedTrafficSpeedKmh": 70
+    },
+    {
+      "index": 3,
+      "gameRole": "TRAFFIC_OBSTACLE",
+      "obstacleType": "BUS_HEAVY",
+      "id": "escolar_caminho_escola",
+      "filenameGlb": "obstaculo_onibus_03_volkswagen_volare_escolar_amarelinho_cartoon_game_ready.glb",
+      "name": "Volksbus 15.190 EOD \"Caminho da Escola\" (Escolar Brasileiro)",
+      "brand": "VOLKSWAGEN / VOLARE",
+      "category": "Escolar Rural 4x2",
+      "axleCount": 2,
+      "colliderBoxMeters": {
+        "lengthM": 2.92,
+        "widthM": 1.04,
+        "heightM": 1.16
+      },
+      "recommendedTrafficSpeedKmh": 45
+    }
+  ]
+}
