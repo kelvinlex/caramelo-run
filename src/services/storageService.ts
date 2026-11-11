@@ -300,7 +300,7 @@ class StorageService {
 
   // Auth getters & actions
   getCurrentUser(): User | null {
-    return this.currentUser;
+    return this.currentUser ? { ...this.currentUser } : null;
   }
 
   setCurrentUser(user: User | null) {
@@ -597,6 +597,9 @@ class StorageService {
 
   // 🖼️ Salvar foto de perfil do usuário
   setUserProfilePhoto(userId: string, photoUrl: string) {
+    try {
+      localStorage.setItem('caramelo_profile_photo_url_v1', photoUrl);
+    } catch {}
     this.users = this.users.map(u => {
       if (u.id === userId) {
         return { ...u, profilePhotoUrl: photoUrl, avatarUrl: photoUrl };
@@ -604,8 +607,11 @@ class StorageService {
       return u;
     });
     if (this.currentUser?.id === userId) {
-      this.currentUser.profilePhotoUrl = photoUrl;
-      this.currentUser.avatarUrl = photoUrl;
+      this.currentUser = {
+        ...this.currentUser,
+        profilePhotoUrl: photoUrl,
+        avatarUrl: photoUrl,
+      };
     }
     this.saveState();
 

@@ -20,6 +20,7 @@ export interface MotoInstance {
   triggerRiderSquash: (strength?: number) => void;
   triggerRiderCashFlash: (hexColor: number, intensity?: number) => void;
   setPizzaBoxCount: (count: number) => void;
+  setPizzaAiming: (active: boolean, side?: -1 | 1) => void;
   triggerPizzaThrow: (side: -1 | 1) => void;
   setRiderKnockoutFall: (factor01: number) => void;
   update: (dt: number, speed: number, steerLean: number, pitchAngle: number) => void;
@@ -825,6 +826,10 @@ export async function createMotoInstance(
     activeRider?.triggerCashColorFlash(hexColor, intensity);
   };
 
+  const setPizzaAiming = (active: boolean, side?: -1 | 1) => {
+    activeRider?.setPizzaAiming(active, side);
+  };
+
   const triggerPizzaThrow = (side: -1 | 1) => {
     activeRider?.triggerPizzaThrow(side);
   };
@@ -857,21 +862,21 @@ export async function createMotoInstance(
     }
 
     if (steeringPivot) {
-      const targetSteer = THREE.MathUtils.clamp(-steerLean * 0.34, -0.46, 0.46);
-      const steerAccel = (targetSteer - steeringPivot.rotation.y) * 210.0 - steerYawVel * 24.0;
+      const targetSteer = THREE.MathUtils.clamp(-steerLean * 0.24, -0.32, 0.32);
+      const steerAccel = (targetSteer - steeringPivot.rotation.y) * 180.0 - steerYawVel * 24.0;
       steerYawVel += steerAccel * clampedDt;
       steeringPivot.rotation.y += steerYawVel * clampedDt;
     }
 
-    const targetRoll = THREE.MathUtils.clamp(-steerLean * 0.46, -0.56, 0.56);
-    const rollAccel = (targetRoll - visualHolder.rotation.z) * 185.0 - rollVel * 22.0;
+    const targetRoll = THREE.MathUtils.clamp(-steerLean * 0.30, -0.36, 0.36);
+    const rollAccel = (targetRoll - visualHolder.rotation.z) * 165.0 - rollVel * 22.0;
     rollVel += rollAccel * clampedDt;
     visualHolder.rotation.z += rollVel * clampedDt;
-    // Guinada sutil do chassi acompanhando a tangente da curva para sensação livre e fluida!
+    // Guinada sutil e controlada do chassi acompanhando a tangente da curva
     visualHolder.rotation.y = THREE.MathUtils.lerp(
       visualHolder.rotation.y,
-      -steerLean * 0.085,
-      1 - Math.exp(-16 * clampedDt)
+      -steerLean * 0.055,
+      1 - Math.exp(-14 * clampedDt)
     );
 
     // CORREÇÃO FÍSICA DO GRAU: +pitchAngle levanta a RODA DA FRENTE (-Z sobe!)
@@ -928,6 +933,7 @@ export async function createMotoInstance(
     triggerRiderSquash,
     triggerRiderCashFlash,
     setPizzaBoxCount,
+    setPizzaAiming,
     triggerPizzaThrow,
     setRiderKnockoutFall,
     update,

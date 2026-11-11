@@ -7,7 +7,6 @@ import {
   Download,
   Share2,
   Maximize2,
-  X,
   Image as ImageIcon,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
@@ -288,6 +287,8 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
 
   const [selectedArt, setSelectedArt] = useState<GalleryItem | null>(null);
   const [cleanViewMode, setCleanViewMode] = useState(false);
+  const [showShareTrayBelowImg, setShowShareTrayBelowImg] = useState(true);
+  const [cardShareId, setCardShareId] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<'Todas' | 'Cachorro' | 'Moto' | 'Quebrada' | 'Lendária'>('Todas');
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
 
@@ -366,7 +367,6 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-2 sm:p-5 animate-fade-in select-none">
-      {/* Main Carved Wood & Blue-Steel Container (Matches Reference Image 5) */}
       <div className="cartoon-wood-board rounded-3xl max-w-6xl w-full max-h-[94vh] flex flex-col relative p-3 sm:p-5">
         <SteelCornerBrackets size="lg" />
 
@@ -380,14 +380,14 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 <h2 className="cartoon-title-3d text-lg sm:text-2xl md:text-3xl uppercase tracking-wide leading-none">
-                  GALERIA DE ARTES & MISSÕES
+                  GALERIA DE ARTES & CONQUISTAS
                 </h2>
                 <span className="cartoon-wood-inset px-3 py-1 rounded-xl border-2 border-amber-500/80 text-xs sm:text-sm font-fun font-extrabold text-amber-300 uppercase tracking-wider shadow-md">
                   <span className="text-white">{totalUnlocked}/{totalArts}</span> DESBLOQUEADAS
                 </span>
               </div>
               <p className="text-xs sm:text-sm text-amber-100/95 font-bold cartoon-text-outline mt-1">
-                Cumpra missões ou use suas moedas para desbloquear e salvar as artes oficiais.
+                Clique em qualquer imagem de conquista para abrir ou compartilhar abaixo da imagem.
               </p>
             </div>
           </div>
@@ -398,7 +398,7 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
           </div>
         </div>
 
-        {/* Filter Tabs Row (Matches Reference Image 5) */}
+        {/* Filter Tabs Row */}
         <div className="flex items-center gap-2 sm:gap-3 px-2 py-3 overflow-x-auto relative z-10">
           {(['Todas', 'Cachorro', 'Moto', 'Quebrada', 'Lendária'] as const).map((cat) => {
             const isActive = categoryFilter === cat;
@@ -431,7 +431,9 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
                 key={item.id}
                 onClick={() => {
                   sound.playClick();
+                  setCardShareId((prev) => (prev === item.id ? null : item.id));
                   setSelectedArt(item);
+                  setShowShareTrayBelowImg(true);
                   setCleanViewMode(false);
                 }}
                 className={`group cartoon-wood-plank rounded-2xl p-2 flex flex-col justify-between cursor-pointer transition-transform hover:scale-[1.02] active:scale-98 ${
@@ -451,7 +453,6 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
                     style={{ backgroundImage: `url(${item.image})` }}
                   />
 
-                  {/* Dark vignette for locked cards */}
                   {!isUnlocked && (
                     <div className="absolute inset-0 bg-[#0b172a]/55 flex items-center justify-center pointer-events-none">
                       <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-gradient-to-b from-[#3b5578] to-[#172436] border-2 border-[#8aa8cc] shadow-[0_4px_10px_rgba(0,0,0,0.85)] flex items-center justify-center">
@@ -460,7 +461,6 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
                     </div>
                   )}
 
-                  {/* Top-left Number Pill (#01) */}
                   <div className="absolute top-1.5 left-1.5 z-10">
                     <span className="text-[11px] font-fun font-extrabold px-2 py-0.5 rounded-md bg-[#111c2d]/95 border border-[#6482ab] text-white shadow">
                       {item.number}
@@ -468,18 +468,18 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
                   </div>
                 </div>
 
-                {/* Bottom Wood Plank Title & Price/Status */}
-                <div className="pt-2 px-1 flex flex-col gap-0.5 relative z-10 text-left">
+                {/* Bottom Wood Plank Title & Price/Status + Share Icons Below Image when Clicked */}
+                <div className="pt-2 px-1 flex flex-col gap-1 relative z-10 text-left">
                   <div className="text-xs sm:text-[13px] font-fun font-extrabold text-white truncate cartoon-text-outline">
                     {item.title}
                   </div>
-                  <div className="flex items-center gap-1.5 mt-0.5">
+                  <div className="flex items-center justify-between gap-1.5 mt-0.5">
                     {isUnlocked ? (
                       <span className="flex items-center gap-1 text-emerald-400 font-fun font-extrabold text-xs cartoon-text-outline">
                         <span className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow">
                           <Check className="w-3 h-3 stroke-[3.5]" />
                         </span>
-                        <span>Revelada</span>
+                        <span>Conquistada</span>
                       </span>
                     ) : (
                       <span className="flex items-center gap-1.5 text-amber-300 font-fun font-extrabold text-xs sm:text-sm cartoon-text-outline">
@@ -487,7 +487,54 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
                         <span>{item.unlockPrice.toLocaleString('pt-BR')}</span>
                       </span>
                     )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        sound.playClick();
+                        setCardShareId((prev) => (prev === item.id ? null : item.id));
+                      }}
+                      className="px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-400/50 text-[10px] font-black text-amber-200 hover:bg-amber-500/35 flex items-center gap-1 cursor-pointer"
+                      title="Exibir opções de compartilhamento abaixo da imagem"
+                    >
+                      <Share2 className="w-3 h-3" />
+                      <span>Compartilhar</span>
+                    </button>
                   </div>
+
+                  {cardShareId === item.id && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="mt-1.5 pt-1.5 border-t border-amber-500/30 flex items-center justify-around gap-1 animate-fade-in"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const text = encodeURIComponent(
+                            `Olha essa conquista no Caramelo Run 3D: "${item.title}"! 🐕🏍️`,
+                          );
+                          window.open(`https://wa.me/?text=${text}`, '_blank');
+                        }}
+                        className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black uppercase cursor-pointer shadow"
+                      >
+                        WhatsApp
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleShareArt(item)}
+                        className="px-2 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[10px] font-black uppercase cursor-pointer shadow"
+                      >
+                        Link
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSaveImage(item)}
+                        className="px-2 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-black uppercase cursor-pointer shadow"
+                      >
+                        Baixar
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -554,21 +601,31 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
                 <OctagonCloseButton onClick={() => setSelectedArt(null)} className="w-9 h-9 sm:w-10 sm:h-10" />
               </div>
 
-              {/* Imagem em Destaque */}
-              <div className="relative w-full aspect-video rounded-2xl border-3 border-[#3b4f6b] bg-[#0b1526] flex items-center justify-center overflow-hidden shadow-inner">
+              {/* Imagem em Destaque (Clique na imagem para exibir/ocultar os ícones de compartilhamento logo abaixo!) */}
+              <div
+                onClick={() => {
+                  sound.playClick();
+                  setShowShareTrayBelowImg((prev) => !prev);
+                }}
+                className="relative w-full aspect-video rounded-2xl border-3 border-[#3b4f6b] bg-[#0b1526] flex items-center justify-center overflow-hidden shadow-inner cursor-pointer group"
+                title="Clique na imagem para exibir os ícones de compartilhamento abaixo"
+              >
                 <img
                   src={selectedArt.image}
                   alt={selectedArt.title}
                   className={`w-full h-full object-cover transition-all duration-500 ${
                     unlockedArts.includes(selectedArt.id)
-                      ? 'brightness-100 scale-100'
+                      ? 'brightness-100 scale-100 group-hover:scale-[1.02]'
                       : 'brightness-35 contrast-125 saturate-50 blur-[1.5px] scale-105'
                   }`}
                 />
 
                 {unlockedArts.includes(selectedArt.id) && (
                   <button
-                    onClick={() => setCleanViewMode(true)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCleanViewMode(true);
+                    }}
                     className="absolute bottom-3 right-3 z-20 px-3.5 py-1.5 rounded-xl cartoon-btn-steel text-xs flex items-center gap-1.5 cursor-pointer"
                   >
                     <Maximize2 className="w-3.5 h-3.5 text-amber-300" />
@@ -587,6 +644,56 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Ícones de Compartilhamento exibidos logo abaixo da imagem ao clicar nela (Item 12) */}
+              {showShareTrayBelowImg && (
+                <div className="cartoon-wood-inset rounded-2xl px-3.5 py-2.5 border border-amber-400/50 flex flex-wrap items-center justify-between gap-2 animate-fade-in">
+                  <span className="text-[11px] font-black text-amber-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <Share2 className="w-3.5 h-3.5 text-amber-400" />
+                    Compartilhar Conquista:
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const text = encodeURIComponent(
+                          `Conquista "${selectedArt.title}" no Caramelo Run 3D! 🐕🏍️`,
+                        );
+                        window.open(`https://wa.me/?text=${text}`, '_blank');
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wider cursor-pointer shadow-md"
+                    >
+                      WhatsApp
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const text = encodeURIComponent(
+                          `Conquista "${selectedArt.title}" no Caramelo Run 3D! 🐕🏍️`,
+                        );
+                        window.open(`https://twitter.com/intent/tweet?text=${text}`, '_blank');
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-black uppercase tracking-wider cursor-pointer shadow-md"
+                    >
+                      X / Twitter
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleShareArt(selectedArt)}
+                      className="px-3 py-1.5 rounded-xl cartoon-btn-blue text-xs font-black uppercase tracking-wider cursor-pointer"
+                    >
+                      Copiar Link
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSaveImage(selectedArt)}
+                      className="px-3 py-1.5 rounded-xl cartoon-btn-green text-xs font-black uppercase tracking-wider cursor-pointer"
+                    >
+                      Baixar
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Card da Missão */}
               <div className="cartoon-wood-plank p-3.5 rounded-2xl flex flex-col gap-1.5">

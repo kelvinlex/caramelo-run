@@ -49,7 +49,7 @@ export const MOTOBOYS_CATALOG: MotoboySpec[] = [
     nickname: 'Rei do Grau',
     badge: 'ALTO ASTRAL',
     fbxPath: '/assets/motoboys/motoboy_happy.fbx',
-    price: 4200,
+    price: 35000,
     rarity: 'Especial',
     primaryColor: '#f59e0b',
     accentColor: '#fde047',
@@ -65,7 +65,7 @@ export const MOTOBOYS_CATALOG: MotoboySpec[] = [
     nickname: 'Mestre do Corredor',
     badge: 'TÁTICO',
     fbxPath: '/assets/motoboys/motoboy_holding.fbx',
-    price: 7800,
+    price: 75000,
     rarity: 'Especial',
     primaryColor: '#10b981',
     accentColor: '#34d399',
@@ -81,7 +81,7 @@ export const MOTOBOYS_CATALOG: MotoboySpec[] = [
     nickname: 'Brabo do Asfalto',
     badge: 'GUERREIRO',
     fbxPath: '/assets/motoboys/motoboy_warrior.fbx',
-    price: 14500,
+    price: 115000,
     rarity: 'Lendária',
     primaryColor: '#ef4444',
     accentColor: '#f87171',
@@ -93,19 +93,19 @@ export const MOTOBOYS_CATALOG: MotoboySpec[] = [
   },
   {
     id: 'motoboy_5',
-    name: 'Orc da Quebrada',
-    nickname: 'Lenda Monstro',
-    badge: 'LENDÁRIO',
+    name: 'Alienígena da Quebrada',
+    nickname: 'ET do Grau',
+    badge: 'ALIENÍGENA',
     fbxPath: '/assets/motoboys/motoboy_orc.fbx',
-    price: 26000,
+    price: 150000,
     rarity: 'Mítica',
-    primaryColor: '#7c3aed',
-    accentColor: '#c084fc',
+    primaryColor: '#10b981',
+    accentColor: '#fde047',
     riderTintHex: 0xffffff,
     grauBonusPct: 99,
-    agilityPct: 93,
-    stylePct: 99,
-    description: 'O piloto mais insano e estiloso da Vila dominando qualquer cilindrada!',
+    agilityPct: 96,
+    stylePct: 100,
+    description: 'Piloto intergaláctico com patch do Brasil na camiseta e mini OVNI escoltando na quebrada!',
   },
 ];
 
@@ -176,6 +176,7 @@ export interface SeatedMotoboyRiderInstance {
   setThermalVision: (intensity: number) => void;
   triggerBiteSquash: (strength?: number) => void;
   triggerCashColorFlash: (hexColor: number, intensity?: number) => void;
+  setPizzaAiming: (active: boolean, side?: -1 | 1) => void;
   triggerPizzaThrow: (side: -1 | 1) => void;
   setKnockoutBackFall: (factor01: number) => void;
   update: (
@@ -487,11 +488,127 @@ function createCartoonOutlineMaterial(
   return mat;
 }
 
+function buildAlienCompanionUFO(
+  gradientMap: THREE.DataTexture,
+  disposableMaterials: THREE.Material[]
+): {
+  group: THREE.Group;
+  update: (clock: number, dt: number, steerLean: number) => void;
+} {
+  const group = new THREE.Group();
+  group.name = 'AlienCompanionUFO';
+
+  const outlineMat = new THREE.MeshBasicMaterial({ color: 0x090d16, side: THREE.BackSide });
+  const hullMat = new THREE.MeshToonMaterial({ color: 0x94a3b8, gradientMap });
+  const rimMat = new THREE.MeshToonMaterial({ color: 0x10b981, gradientMap });
+  const goldTrimMat = new THREE.MeshToonMaterial({ color: 0xfacc15, gradientMap });
+  const domeMat = new THREE.MeshToonMaterial({
+    color: 0x38bdf8,
+    gradientMap,
+    transparent: true,
+    opacity: 0.78,
+  });
+  const beamMat = new THREE.MeshBasicMaterial({
+    color: 0x34d399,
+    transparent: true,
+    opacity: 0.24,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  disposableMaterials.push(outlineMat, hullMat, rimMat, goldTrimMat, domeMat, beamMat);
+
+  const saucerDisc = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.155, 0.038, 20), hullMat);
+  const saucerOutline = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12, 0.168, 0.05, 20),
+    outlineMat
+  );
+  group.add(saucerDisc, saucerOutline);
+
+  const rimTorus = new THREE.Mesh(new THREE.TorusGeometry(0.145, 0.016, 10, 24), rimMat);
+  rimTorus.rotation.x = Math.PI / 2;
+  const rimOut = new THREE.Mesh(new THREE.TorusGeometry(0.145, 0.023, 10, 24), outlineMat);
+  rimOut.rotation.x = Math.PI / 2;
+  group.add(rimTorus, rimOut);
+
+  const underCap = new THREE.Mesh(new THREE.SphereGeometry(0.068, 14, 10), goldTrimMat);
+  underCap.position.y = -0.016;
+  underCap.scale.set(1, 0.45, 1);
+  group.add(underCap);
+
+  const glassDome = new THREE.Mesh(
+    new THREE.SphereGeometry(0.082, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.52),
+    domeMat
+  );
+  glassDome.position.y = 0.012;
+  const domeOutline = new THREE.Mesh(
+    new THREE.SphereGeometry(0.089, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.52),
+    outlineMat
+  );
+  domeOutline.position.y = 0.012;
+  group.add(glassDome, domeOutline);
+
+  // Pequena antena cartoon no topo da cúpula
+  const antennaStem = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.007, 0.055, 8), hullMat);
+  antennaStem.position.y = 0.105;
+  const antennaOrbMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
+  disposableMaterials.push(antennaOrbMat);
+  const antennaOrb = new THREE.Mesh(new THREE.SphereGeometry(0.016, 10, 10), antennaOrbMat);
+  antennaOrb.position.y = 0.136;
+  const antennaOrbOut = new THREE.Mesh(new THREE.SphereGeometry(0.021, 10, 10), outlineMat);
+  antennaOrbOut.position.y = 0.136;
+  group.add(antennaStem, antennaOrb, antennaOrbOut);
+
+  // Luzes coloridas giratórias ao redor do disco
+  const lightMats: THREE.MeshBasicMaterial[] = [];
+  const lightGeo = new THREE.SphereGeometry(0.013, 8, 8);
+  for (let i = 0; i < 6; i++) {
+    const lMat = new THREE.MeshBasicMaterial({ color: i % 2 === 0 ? 0xfef08a : 0x38bdf8 });
+    disposableMaterials.push(lMat);
+    lightMats.push(lMat);
+    const ang = (i / 6) * Math.PI * 2;
+    const bulb = new THREE.Mesh(lightGeo, lMat);
+    bulb.position.set(Math.cos(ang) * 0.15, 0.002, Math.sin(ang) * 0.15);
+    group.add(bulb);
+  }
+
+  // Mini anel de feixe abduzido discreto abaixo do disco
+  const beamRing = new THREE.Mesh(new THREE.RingGeometry(0.035, 0.085, 18), beamMat);
+  beamRing.rotation.x = -Math.PI / 2;
+  beamRing.position.y = -0.055;
+  group.add(beamRing);
+
+  const update = (clock: number, dt: number, steerLean: number) => {
+    // Trajetória livre em oito suave + oscilação vertical orgânica sem poluir a visão
+    const fig8X = Math.sin(clock * 0.72) * 0.14 + Math.cos(clock * 1.31) * 0.05;
+    const bobY = Math.sin(clock * 1.48) * 0.065 + Math.cos(clock * 0.85) * 0.025;
+    const swayZ = Math.cos(clock * 0.64) * 0.11;
+
+    group.position.set(-0.46 + fig8X - steerLean * 0.06, 1.54 + bobY, 0.14 + swayZ);
+    group.rotation.y = (group.rotation.y + dt * 2.4) % (Math.PI * 2);
+    group.rotation.z = -steerLean * 0.22 + Math.cos(clock * 1.15) * 0.12;
+    group.rotation.x = Math.sin(clock * 0.95) * 0.1;
+
+    const ringScale = 0.85 + Math.sin(clock * 3.2) * 0.18;
+    beamRing.scale.setScalar(ringScale);
+    beamMat.opacity = 0.16 + Math.sin(clock * 3.2) * 0.08;
+
+    const activeIdx = Math.floor(clock * 3.5) % lightMats.length;
+    for (let i = 0; i < lightMats.length; i++) {
+      lightMats[i].color.setHex(
+        i === activeIdx ? 0xffffff : i % 2 === 0 ? 0xfacc15 : 0x34d399
+      );
+    }
+  };
+
+  return { group, update };
+}
+
 function applyCartoonMaterialsAndOutline(
   modelGroup: THREE.Group,
   castShadow: boolean,
   receiveShadow: boolean,
-  fxUniforms?: RiderShaderFxUniforms
+  fxUniforms?: RiderShaderFxUniforms,
+  characterId?: MotoboyCharacterId
 ): {
   toonMaterials: THREE.MeshToonMaterial[];
   outlineMaterials: THREE.MeshBasicMaterial[];
@@ -503,6 +620,7 @@ function applyCartoonMaterialsAndOutline(
   const allDisposableMaterials: THREE.Material[] = [];
   const skinnedMeshes: THREE.SkinnedMesh[] = [];
   const staticMeshes: THREE.Mesh[] = [];
+  const isAlienMotoboy = characterId === 'motoboy_5';
 
   modelGroup.traverse((child) => {
     if ((child as THREE.Mesh).isMesh) {
@@ -530,7 +648,7 @@ function applyCartoonMaterialsAndOutline(
         opacity: 1.0,
       });
 
-      if (fxUniforms && mesh.geometry) {
+      if ((fxUniforms || isAlienMotoboy) && mesh.geometry) {
         const bounds = computeGeomLegBounds(mesh.geometry);
         const minYStr = bounds.minY.toFixed(5);
         const spanYStr = bounds.spanY.toFixed(5);
@@ -538,53 +656,109 @@ function applyCartoonMaterialsAndOutline(
         const hsxStr = bounds.halfSpanX.toFixed(5);
 
         toonMat.onBeforeCompile = (shader) => {
-          shader.uniforms.uDamageFlash = fxUniforms.uDamageFlash;
-          shader.uniforms.uThermalVision = fxUniforms.uThermalVision;
-          shader.uniforms.uThermalTime = fxUniforms.uThermalTime;
-          shader.uniforms.uCashFlashIntensity = fxUniforms.uCashFlashIntensity;
-          shader.uniforms.uCashFlashColor = fxUniforms.uCashFlashColor;
+          if (fxUniforms) {
+            shader.uniforms.uDamageFlash = fxUniforms.uDamageFlash;
+            shader.uniforms.uThermalVision = fxUniforms.uThermalVision;
+            shader.uniforms.uThermalTime = fxUniforms.uThermalTime;
+            shader.uniforms.uCashFlashIntensity = fxUniforms.uCashFlashIntensity;
+            shader.uniforms.uCashFlashColor = fxUniforms.uCashFlashColor;
+          }
 
           shader.vertexShader =
-            `varying float vNormBindY;\nvarying float vNormAbsX;\n` +
+            `varying float vNormBindY;\nvarying float vNormAbsX;\nvarying vec3 vBindRawPos;\n` +
             shader.vertexShader.replace(
               '#include <begin_vertex>',
               `
               #include <begin_vertex>
               vNormBindY = clamp((position.y - (${minYStr})) / (${spanYStr}), 0.0, 1.0);
               vNormAbsX = clamp(abs(position.x - (${cxStr})) / (${hsxStr}), 0.0, 2.0);
+              vBindRawPos = position;
               `
             );
 
-          shader.fragmentShader =
-            `uniform float uDamageFlash;\nuniform float uThermalVision;\nuniform float uThermalTime;\nuniform float uCashFlashIntensity;\nuniform vec3 uCashFlashColor;\nvarying float vNormBindY;\nvarying float vNormAbsX;\n` +
-            shader.fragmentShader.replace(
-              '#include <opaque_fragment>',
+          if (isAlienMotoboy) {
+            // Item 1: Patch / Estampa da Bandeira do Brasil integrada ao tecido da camiseta do Alienígena
+            // Aplicada antes da iluminação toon para respeitar dobras, normais, sombras e perspectiva da malha!
+            shader.fragmentShader = shader.fragmentShader.replace(
+              '#include <color_fragment>',
               `
-              if (uThermalVision > 0.001) {
-                float legMaskY = 1.0 - smoothstep(0.45, 0.50, vNormBindY);
-                float legMaskX = 1.0 - smoothstep(0.22, 0.30, vNormAbsX);
-                float legMask = legMaskY * legMaskX;
-                if (legMask > 0.001) {
-                  float scanWave = 0.5 + 0.5 * sin(vNormBindY * 30.0 - uThermalTime * 10.0);
-                  float pulse = 0.86 + 0.14 * sin(uThermalTime * 7.5);
-                  float heatCore = clamp((1.0 - vNormAbsX * 2.4) * 0.65 + scanWave * 0.35, 0.0, 1.0);
-                  vec3 coldOuter = vec3(0.88, 0.08, 0.02);
-                  vec3 warmMid = vec3(1.0, 0.36, 0.0);
-                  vec3 hotInner = vec3(1.0, 0.90, 0.22);
-                  vec3 thermalCol = mix(coldOuter, warmMid, smoothstep(0.0, 0.55, heatCore));
-                  thermalCol = mix(thermalCol, hotInner, smoothstep(0.55, 1.0, heatCore));
-                  outgoingLight = mix(outgoingLight, thermalCol * (1.58 * pulse), legMask * uThermalVision);
+              #include <color_fragment>
+              {
+                bool isFrontChest = vBindRawPos.y < -0.015;
+                bool isBackShirt = vBindRawPos.y > 0.015;
+                vec2 pCenter = isFrontChest ? vec2(0.034, 0.172) : vec2(0.0, 0.194);
+                vec2 pHalf = isFrontChest ? vec2(0.025, 0.0175) : vec2(0.032, 0.022);
+                vec2 uvPatch = (vec2(vBindRawPos.x, vBindRawPos.z) - pCenter) / pHalf;
+                if (isFrontChest) uvPatch.x = -uvPatch.x;
+                if ((isFrontChest || isBackShirt) && abs(uvPatch.x) <= 1.0 && abs(uvPatch.y) <= 1.0) {
+                  float edgeDist = max(abs(uvPatch.x), abs(uvPatch.y));
+                  float borderMask = smoothstep(0.88, 0.95, edgeDist);
+                  vec3 brGreen = vec3(0.0, 0.61, 0.23);
+                  vec3 brYellow = vec3(1.0, 0.87, 0.0);
+                  vec3 brBlue = vec3(0.0, 0.16, 0.47);
+                  vec3 brWhite = vec3(0.97, 0.98, 0.99);
+
+                  vec3 flagCol = brGreen;
+                  float diamond = abs(uvPatch.x) / 0.78 + abs(uvPatch.y) / 0.74;
+                  if (diamond <= 1.0) {
+                    flagCol = brYellow;
+                  }
+                  float circleR = length(uvPatch * vec2(1.0, 0.70));
+                  if (circleR <= 0.34) {
+                    flagCol = brBlue;
+                    float bandY = uvPatch.y * 0.70 + uvPatch.x * 0.11 + uvPatch.x * uvPatch.x * 0.22 - 0.02;
+                    if (abs(bandY) <= 0.048) {
+                      flagCol = brWhite;
+                    }
+                  }
+                  // Borda costurada do patch + integração com as dobras e textura original do tecido
+                  float stitchWave = 0.85 + 0.15 * sin((uvPatch.x + uvPatch.y) * 95.0);
+                  flagCol = mix(flagCol, vec3(0.95, 0.82, 0.12) * stitchWave, borderMask * 0.85);
+                  float fabricFoldShade = clamp(dot(diffuseColor.rgb, vec3(0.333)) * 1.42, 0.65, 1.14);
+                  float softEdge = 1.0 - smoothstep(0.95, 1.0, edgeDist);
+                  diffuseColor.rgb = mix(diffuseColor.rgb, flagCol * fabricFoldShade, softEdge * 0.94);
                 }
               }
-              if (uCashFlashIntensity > 0.001) {
-                outgoingLight = mix(outgoingLight, uCashFlashColor * 1.55, clamp(uCashFlashIntensity, 0.0, 1.0));
-              }
-              if (uDamageFlash > 0.001) {
-                outgoingLight = mix(outgoingLight, vec3(1.0, 0.07, 0.05) * 1.65, clamp(uDamageFlash, 0.0, 1.0));
-              }
-              #include <opaque_fragment>
               `
             );
+          }
+
+          if (fxUniforms) {
+            shader.fragmentShader =
+              `uniform float uDamageFlash;\nuniform float uThermalVision;\nuniform float uThermalTime;\nuniform float uCashFlashIntensity;\nuniform vec3 uCashFlashColor;\nvarying float vNormBindY;\nvarying float vNormAbsX;\nvarying vec3 vBindRawPos;\n` +
+              shader.fragmentShader.replace(
+                '#include <opaque_fragment>',
+                `
+                if (uThermalVision > 0.001) {
+                  float legMaskY = 1.0 - smoothstep(0.45, 0.50, vNormBindY);
+                  float legMaskX = 1.0 - smoothstep(0.22, 0.30, vNormAbsX);
+                  float legMask = legMaskY * legMaskX;
+                  if (legMask > 0.001) {
+                    float scanWave = 0.5 + 0.5 * sin(vNormBindY * 30.0 - uThermalTime * 10.0);
+                    float pulse = 0.86 + 0.14 * sin(uThermalTime * 7.5);
+                    float heatCore = clamp((1.0 - vNormAbsX * 2.4) * 0.65 + scanWave * 0.35, 0.0, 1.0);
+                    vec3 coldOuter = vec3(0.88, 0.08, 0.02);
+                    vec3 warmMid = vec3(1.0, 0.36, 0.0);
+                    vec3 hotInner = vec3(1.0, 0.90, 0.22);
+                    vec3 thermalCol = mix(coldOuter, warmMid, smoothstep(0.0, 0.55, heatCore));
+                    thermalCol = mix(thermalCol, hotInner, smoothstep(0.55, 1.0, heatCore));
+                    outgoingLight = mix(outgoingLight, thermalCol * (1.58 * pulse), legMask * uThermalVision);
+                  }
+                }
+                if (uCashFlashIntensity > 0.001) {
+                  outgoingLight = mix(outgoingLight, uCashFlashColor * 1.55, clamp(uCashFlashIntensity, 0.0, 1.0));
+                }
+                if (uDamageFlash > 0.001) {
+                  outgoingLight = mix(outgoingLight, vec3(1.0, 0.07, 0.05) * 1.65, clamp(uDamageFlash, 0.0, 1.0));
+                }
+                #include <opaque_fragment>
+                `
+              );
+          } else {
+            shader.fragmentShader =
+              `varying float vNormBindY;\nvarying float vNormAbsX;\nvarying vec3 vBindRawPos;\n` +
+              shader.fragmentShader;
+          }
         };
       }
 
@@ -674,7 +848,7 @@ export async function createMotoboyInstance(
   motoboyGroup.name = `Motoboy_${id}`;
 
   const { toonMaterials, outlineMaterials, allDisposableMaterials } =
-    applyCartoonMaterialsAndOutline(motoboyGroup, true, true);
+    applyCartoonMaterialsAndOutline(motoboyGroup, true, true, undefined, id);
 
   let mixer: THREE.AnimationMixer | null = null;
   if (baseFbx.animations && baseFbx.animations.length > 0) {
@@ -703,7 +877,17 @@ export async function createMotoboyInstance(
   root.name = `MotoboyRoot_${id}`;
   root.add(motoboyGroup);
 
+  const alienUfo =
+    id === 'motoboy_5'
+      ? buildAlienCompanionUFO(getMotoboyCartoonGradientMap(), allDisposableMaterials)
+      : null;
+  if (alienUfo) {
+    alienUfo.group.position.set(-0.42, 1.56, 0.06);
+    root.add(alienUfo.group);
+  }
+
   let focusBlend = 1.0;
+  let ufoClock = 0;
 
   const setFocusState = (isSelected: boolean, dt: number) => {
     const target = isSelected ? 1.0 : 0.0;
@@ -726,6 +910,10 @@ export async function createMotoboyInstance(
   const update = (dt: number) => {
     if (mixer) {
       mixer.update(dt);
+    }
+    if (alienUfo) {
+      ufoClock = (ufoClock + dt) % 628.318;
+      alienUfo.update(ufoClock, dt, 0);
     }
   };
 
@@ -772,7 +960,8 @@ export async function createSeatedMotoboyRider(
     riderClone,
     true,
     false,
-    fxUniforms
+    fxUniforms,
+    id
   );
 
   riderClone.updateMatrixWorld(true);
@@ -889,12 +1078,58 @@ export async function createSeatedMotoboyRider(
   let rideBreathClock = 0;
   let squashTimer = 0;
   let squashStrength = 1.0;
+  let pizzaAimingActive = false;
+  let pizzaAimBlend = 0;
   let pizzaThrowTimer = 0;
   let pizzaThrowSide: -1 | 1 = 1;
   let knockoutFallFactor = 0;
   const _throwHandTargetWorld = new THREE.Vector3();
+  const _pizzaLocalPos = new THREE.Vector3();
   const _knockoutLeftHandWorld = new THREE.Vector3();
   const _knockoutRightHandWorld = new THREE.Vector3();
+
+  // Caixa de Pizza Cartoon Fechada na mão do Motoboy (a pizza fica dentro da caixa fechada, sem parecer fora da caixa!)
+  const heldPizzaProp = new THREE.Group();
+  heldPizzaProp.visible = false;
+  {
+    const outlineMat = new THREE.MeshBasicMaterial({ color: 0x1a0b04, side: THREE.BackSide });
+    const boxBaseMat = new THREE.MeshStandardMaterial({ color: 0xd9a05b, roughness: 0.55 });
+    const boxLidMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.48 });
+    const emblemRingMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
+    const emblemCenterMat = new THREE.MeshBasicMaterial({ color: 0xb91c1c });
+    allDisposableMaterials.push(outlineMat, boxBaseMat, boxLidMat, emblemRingMat, emblemCenterMat);
+
+    // Base da caixa fechada de entrega
+    const baseMesh = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.044, 0.40), boxBaseMat);
+    baseMesh.position.y = 0.022;
+    const baseOut = new THREE.Mesh(new THREE.BoxGeometry(0.428, 0.068, 0.428), outlineMat);
+    baseOut.position.y = 0.026;
+    heldPizzaProp.add(baseMesh, baseOut);
+
+    // Tampa superior encaixada fechando a caixa
+    const lidMesh = new THREE.Mesh(new THREE.BoxGeometry(0.416, 0.018, 0.416), boxLidMat);
+    lidMesh.position.y = 0.048;
+    heldPizzaProp.add(lidMesh);
+
+    // Estampa plana circular no topo da tampa fechada
+    const emblemRing = new THREE.Mesh(new THREE.CircleGeometry(0.135, 20), emblemRingMat);
+    emblemRing.rotation.x = -Math.PI * 0.5;
+    emblemRing.position.y = 0.058;
+    const emblemCenter = new THREE.Mesh(new THREE.CircleGeometry(0.095, 20), emblemCenterMat);
+    emblemCenter.rotation.x = -Math.PI * 0.5;
+    emblemCenter.position.y = 0.0585;
+    heldPizzaProp.add(emblemRing, emblemCenter);
+  }
+  root.add(heldPizzaProp);
+
+  // Item 1: Pequeno Disco Voador (OVNI) Cartoon acompanhando o Motoboy Alienígena durante a gameplay!
+  const alienUfo =
+    id === 'motoboy_5'
+      ? buildAlienCompanionUFO(getMotoboyCartoonGradientMap(), allDisposableMaterials)
+      : null;
+  if (alienUfo) {
+    root.add(alienUfo.group);
+  }
 
   const triggerBiteSquash = (strength = 1.0) => {
     squashStrength = THREE.MathUtils.clamp(strength, 0.35, 1.25);
@@ -906,9 +1141,17 @@ export async function createSeatedMotoboyRider(
     fxUniforms.uCashFlashIntensity.value = THREE.MathUtils.clamp(intensity, 0, 1);
   };
 
+  const setPizzaAiming = (active: boolean, side?: -1 | 1) => {
+    pizzaAimingActive = active;
+    if (active && pizzaThrowTimer <= 0 && (side === -1 || side === 1)) {
+      pizzaThrowSide = side;
+    }
+  };
+
   const triggerPizzaThrow = (side: -1 | 1) => {
     pizzaThrowSide = side;
-    pizzaThrowTimer = 0.44;
+    pizzaThrowTimer = 0.56;
+    pizzaAimingActive = false;
   };
 
   const setKnockoutBackFall = (factor01: number) => {
@@ -993,36 +1236,58 @@ export async function createSeatedMotoboyRider(
 
     const absLean = Math.abs(smoothLean);
     const subtleBob = Math.sin(rideBreathClock) * 0.004;
-    const throwProgress = pizzaThrowTimer > 0 ? 1.0 - pizzaThrowTimer / 0.44 : 0;
-    const throwArc = pizzaThrowTimer > 0 ? Math.sin(throwProgress * Math.PI) : 0;
-    const throwTorsoTwist = throwArc * -pizzaThrowSide * 0.22;
+    pizzaAimBlend = THREE.MathUtils.lerp(
+      pizzaAimBlend,
+      pizzaAimingActive && pizzaThrowTimer <= 0 ? 1.0 : 0.0,
+      Math.min(1, clampedDt * 12.0)
+    );
+    const throwProgress = pizzaThrowTimer > 0 ? 1.0 - pizzaThrowTimer / 0.56 : 0;
+    // Movimento natural em 3 fases: preparação (0..0.34), impulso/soltura (0.34..0.62) e retorno (0.62..1.0)
+    const windupFactor =
+      pizzaThrowTimer > 0
+        ? throwProgress < 0.34
+          ? Math.sin((throwProgress / 0.34) * (Math.PI * 0.5))
+          : Math.max(0, 1.0 - (throwProgress - 0.34) / 0.18)
+        : pizzaAimBlend;
+    const impulseFactor =
+      pizzaThrowTimer > 0 && throwProgress >= 0.28
+        ? Math.sin(Math.min(1, (throwProgress - 0.28) / 0.56) * Math.PI)
+        : 0;
+    const throwArc = Math.max(windupFactor * 0.65, impulseFactor);
+    // Item 4: Rotação natural do tronco (prepara girando o ombro para trás e lança girando o peito rumo à calçada!)
+    const throwTorsoTwist =
+      windupFactor * pizzaThrowSide * 0.24 - impulseFactor * pizzaThrowSide * 0.42;
+
+    if (alienUfo) {
+      alienUfo.update(rideBreathClock * 0.85, clampedDt, smoothLean);
+    }
 
     if (knockoutFallFactor > 0.001) {
       // Item 7: Queda cômica de costas no chão com os 2 braços e 2 pernas abertos (Referência 2!)
       const kf = knockoutFallFactor;
-      seatLeanPivot.position.x = THREE.MathUtils.lerp(smoothLean * 0.092, 0, kf);
+      seatLeanPivot.position.x = THREE.MathUtils.lerp(smoothLean * 0.058, 0, kf);
       seatLeanPivot.position.y = THREE.MathUtils.lerp(0.865, 0.16, kf);
       seatLeanPivot.position.z = THREE.MathUtils.lerp(-0.02, 0.45, kf);
-      seatLeanPivot.rotation.z = THREE.MathUtils.lerp(-smoothLean * 0.33, 0, kf);
-      seatLeanPivot.rotation.y = THREE.MathUtils.lerp(-smoothLean * 0.13, 0, kf);
+      seatLeanPivot.rotation.z = THREE.MathUtils.lerp(-smoothLean * 0.21, 0, kf);
+      seatLeanPivot.rotation.y = THREE.MathUtils.lerp(-smoothLean * 0.085, 0, kf);
       seatLeanPivot.rotation.x = THREE.MathUtils.lerp(
         -Math.max(0, pitchAngle) * 0.22,
         Math.PI * 0.49,
         kf
       );
     } else {
-      seatLeanPivot.position.x = smoothLean * 0.092 + squashWobble * 0.03 + throwArc * pizzaThrowSide * 0.04;
-      seatLeanPivot.position.y = 0.865 - absLean * 0.020 - squashEnv * 0.11 + subtleBob;
+      seatLeanPivot.position.x = smoothLean * 0.058 + squashWobble * 0.03 + throwArc * pizzaThrowSide * 0.04;
+      seatLeanPivot.position.y = 0.865 - absLean * 0.015 - squashEnv * 0.11 + subtleBob;
       seatLeanPivot.position.z = -0.02;
-      seatLeanPivot.rotation.z = -smoothLean * 0.33 + squashWobble * 0.12;
-      seatLeanPivot.rotation.y = -smoothLean * 0.13 + throwTorsoTwist;
+      seatLeanPivot.rotation.z = -smoothLean * 0.21 + squashWobble * 0.12;
+      seatLeanPivot.rotation.y = -smoothLean * 0.085 + throwTorsoTwist;
       seatLeanPivot.rotation.x =
-        -Math.max(0, pitchAngle) * 0.22 + absLean * 0.065 - squashEnv * 0.28;
+        -Math.max(0, pitchAngle) * 0.22 + absLean * 0.05 - squashEnv * 0.28;
     }
 
     if (headBone && headRestQuat) {
       headBone.quaternion.copy(headRestQuat);
-      headBone.rotateY(-smoothLean * 0.16 + squashWobble * 0.22 - throwTorsoTwist * 0.8);
+      headBone.rotateY(-smoothLean * 0.11 + squashWobble * 0.22 - throwTorsoTwist * 0.8);
       headBone.rotateX(-squashEnv * 0.24 - knockoutFallFactor * 0.35);
     }
 
@@ -1048,24 +1313,52 @@ export async function createSeatedMotoboyRider(
         );
         effLeftTarget = _knockoutLeftHandWorld;
         effRightTarget = _knockoutRightHandWorld;
-      } else if (throwArc > 0.01) {
+      } else if (windupFactor > 0.01 || impulseFactor > 0.01) {
+        const baseGrip = pizzaThrowSide === -1 ? leftGripWorld : rightGripWorld;
+        _throwHandTargetWorld.copy(baseGrip);
+        // Fase 1 (Preparação): ergue a mão segurando a pizza grande em primeiro plano
+        // Fase 2 (Impulso): lança o braço com força para o lado do cliente
+        const lateralOut =
+          pizzaThrowSide * (0.42 * windupFactor + 0.86 * impulseFactor);
+        const liftUp = 0.38 * windupFactor + 0.42 * impulseFactor;
+        const forwardShift = 0.18 * windupFactor - 0.26 * impulseFactor;
+        _throwHandTargetWorld.x += lateralOut;
+        _throwHandTargetWorld.y += liftUp;
+        _throwHandTargetWorld.z += forwardShift;
         if (pizzaThrowSide === -1) {
-          _throwHandTargetWorld.copy(leftGripWorld);
-          _throwHandTargetWorld.x -= 0.68 * throwArc;
-          _throwHandTargetWorld.y += 0.32 * throwArc;
-          _throwHandTargetWorld.z -= 0.18 * throwArc;
           effLeftTarget = _throwHandTargetWorld;
         } else {
-          _throwHandTargetWorld.copy(rightGripWorld);
-          _throwHandTargetWorld.x += 0.68 * throwArc;
-          _throwHandTargetWorld.y += 0.32 * throwArc;
-          _throwHandTargetWorld.z -= 0.18 * throwArc;
           effRightTarget = _throwHandTargetWorld;
         }
       }
 
       solveTwoBoneArmIK(shoulderL, elbowL, wristL, fingerL, effLeftTarget, _ikRootWorldQuat, true);
       solveTwoBoneArmIK(shoulderR, elbowR, wristR, fingerR, effRightTarget, _ikRootWorldQuat, false);
+
+      // Posiciona a Caixa de Pizza na mão apenas durante a mira (oculta imediatamente ao lançar para nunca duplicar!)
+      const showHeldPizza =
+        knockoutFallFactor <= 0.01 &&
+        pizzaAimBlend > 0.08 &&
+        pizzaThrowTimer <= 0;
+      heldPizzaProp.visible = showHeldPizza;
+      if (showHeldPizza) {
+        _pizzaLocalPos.copy(_throwHandTargetWorld);
+        root.worldToLocal(_pizzaLocalPos);
+        heldPizzaProp.position.set(
+          _pizzaLocalPos.x + pizzaThrowSide * 0.14,
+          _pizzaLocalPos.y + 0.05,
+          _pizzaLocalPos.z + 0.05
+        );
+        heldPizzaProp.rotation.set(
+          0.26,
+          rideBreathClock * 0.18,
+          -pizzaThrowSide * 0.18
+        );
+        const popScale = THREE.MathUtils.lerp(0.68, 1.05, pizzaAimBlend);
+        heldPizzaProp.scale.setScalar(popScale);
+      }
+    } else {
+      heldPizzaProp.visible = false;
     }
   };
 
@@ -1083,6 +1376,7 @@ export async function createSeatedMotoboyRider(
     setThermalVision,
     triggerBiteSquash,
     triggerCashColorFlash,
+    setPizzaAiming,
     triggerPizzaThrow,
     setKnockoutBackFall,
     update,

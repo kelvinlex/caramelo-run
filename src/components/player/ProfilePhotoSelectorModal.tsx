@@ -1,169 +1,210 @@
 import React, { useState, useEffect } from 'react';
-import { Check, Camera, Sparkles } from 'lucide-react';
-import { storage } from '../../services/storageService';
+import { X, Check, Sparkles, Camera } from 'lucide-react';
 import { sound } from '../../services/soundEffects';
-import { SteelCornerBrackets, OctagonCloseButton } from '../common/CartoonWoodUI';
 
 interface ProfilePhotoSelectorModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentPhotoUrl?: string;
   onSelectPhoto: (photoUrl: string) => void;
+  extraPhotos?: string[];
 }
+
+const BUILTIN_PROFILE_PHOTOS: string[] = [
+  '/profile_photos/image_20261007_113048.jpg',
+  '/profile_photos/image_20261007_113132.jpg',
+  '/profile_photos/image_20261007_113133.jpg',
+  '/profile_photos/image_20261007_113144.jpg',
+  '/profile_photos/image_20261007_113226_2.jpg',
+  '/profile_photos/image_20261007_113235.jpg',
+  '/profile_photos/image_20261007_113237.jpg',
+  '/profile_photos/image_20261007_113241.jpg',
+  '/profile_photos/image_20261007_113044 - Copia.webp',
+  '/profile_photos/image_20261007_113045 - Copia.webp',
+  '/profile_photos/image_20261007_113045_1 - Copia.webp',
+  '/profile_photos/image_20261007_113046 - Copia.webp',
+  '/profile_photos/image_20261007_113046_1 - Copia.webp',
+  '/profile_photos/image_20261007_113048 - Copia.jpg',
+  '/profile_photos/image_20261007_113053 - Copia.jpg',
+  '/profile_photos/image_20261007_113054 - Copia.jpg',
+  '/profile_photos/image_20261007_113055 - Copia.jpg',
+  '/profile_photos/image_20261007_113056 - Copia.jpg',
+  '/profile_photos/image_20261007_113133 - Copia.jpg',
+  '/profile_photos/image_20261007_113134_1 - Copia.jpg',
+  '/profile_photos/image_20261007_113134_2 - Copia.jpg',
+  '/profile_photos/image_20261007_113135 - Copia.jpg',
+  '/profile_photos/image_20261007_113136 - Copia.jpg',
+  '/profile_photos/image_20261007_113140 - Copia.jpg',
+  '/profile_photos/image_20261007_113145 - Copia.jpg',
+  '/profile_photos/image_20261007_113224 - Copia.jpg',
+  '/profile_photos/image_20261007_113225_1 - Copia.jpg',
+  '/profile_photos/image_20261007_113226 - Copia.jpg',
+  '/profile_photos/image_20261007_113226_1 - Copia.jpg',
+];
 
 export const ProfilePhotoSelectorModal: React.FC<ProfilePhotoSelectorModalProps> = ({
   isOpen,
   onClose,
   currentPhotoUrl,
   onSelectPhoto,
+  extraPhotos = [],
 }) => {
-  const [photos, setPhotos] = useState<string[]>([]);
-  const [selectedPhoto, setSelectedPhoto] = useState<string>(currentPhotoUrl || '');
-  const [isLoading, setIsLoading] = useState(true);
+  const [photos, setPhotos] = useState<string[]>(BUILTIN_PROFILE_PHOTOS);
+  const [selected, setSelected] = useState<string>(
+    currentPhotoUrl || BUILTIN_PROFILE_PHOTOS[0]
+  );
 
-  // Carrega automaticamente o catálogo de fotos via manifest dinâmico
   useEffect(() => {
-    if (!isOpen) return;
-    setIsLoading(true);
-    fetch('/profile_photos_manifest.json')
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data) && data.length > 0) {
-          setPhotos(data);
-          if (!selectedPhoto && currentPhotoUrl) {
-            setSelectedPhoto(currentPhotoUrl);
-          } else if (!selectedPhoto && data.length > 0) {
-            setSelectedPhoto(data[0]);
+    if (isOpen) {
+      const merged = Array.from(
+        new Set([...extraPhotos.filter(Boolean), ...BUILTIN_PROFILE_PHOTOS])
+      );
+      setPhotos(merged);
+      setSelected(currentPhotoUrl || merged[0] || BUILTIN_PROFILE_PHOTOS[0]);
+
+      fetch('/profile_photos_manifest.json')
+        .then((res) => res.json())
+        .then((data: string[]) => {
+          if (Array.isArray(data) && data.length > 0) {
+            const allUnique = Array.from(
+              new Set([...extraPhotos.filter(Boolean), ...BUILTIN_PROFILE_PHOTOS, ...data])
+            );
+            setPhotos(allUnique);
           }
-        }
-      })
-      .catch((err) => {
-        console.error('Erro ao ler manifest de fotos de perfil:', err);
-      })
-      .finally(() => {
-        setIsLoading(false);
-      });
-  }, [isOpen, currentPhotoUrl]);
+        })
+        .catch(() => {});
+    }
+  }, [isOpen, currentPhotoUrl, extraPhotos]);
 
   if (!isOpen) return null;
 
-  const handleConfirm = () => {
-    if (!selectedPhoto) return;
-    sound.playPowerup();
-    onSelectPhoto(selectedPhoto);
+  const handleChoosePhoto = (photo: string) => {
+    sound.playClick();
+    setSelected(photo);
+    // Atualiza imediatamente a foto de perfil ao escolher!
+    onSelectPhoto(photo);
+  };
+
+  const handleSaveAndClose = () => {
+    sound.playClick();
+    if (selected) {
+      onSelectPhoto(selected);
+    }
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in select-none">
-      <div className="relative w-full max-w-2xl cartoon-wood-board p-5 sm:p-7 shadow-[0_20px_40px_rgba(0,0,0,0.9)] overflow-hidden flex flex-col max-h-[90vh]">
-        <SteelCornerBrackets size="md" />
-
-        {/* Modal Header */}
-        <div className="flex items-center justify-between pb-3 border-b-2 border-[#543015] z-10 relative">
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in">
+      <div className="relative w-full max-w-3xl cartoon-wood-board rounded-[30px] border-[3px] border-[#fbbf24] shadow-[0_24px_65px_rgba(0,0,0,0.95)] overflow-hidden flex flex-col max-h-[88vh]">
+        {/* Header */}
+        <div className="p-4 sm:p-5 border-b-2 border-[#451a03] bg-gradient-to-r from-[#2c1206] via-[#3d1b0a] to-[#2c1206] flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl cartoon-btn-gold text-[#3d2002] flex items-center justify-center shadow-md">
-              <Camera className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-lg sm:text-xl font-black text-white cartoon-title-3d leading-tight flex items-center gap-1.5">
-                <span>Escolha sua Foto de Perfil</span>
-                <Sparkles className="w-4 h-4 text-amber-300" />
-              </h3>
-              <p className="text-xs text-amber-100 font-medium">
-                Selecione uma foto da galeria para exibir no seu perfil e no ranking!
-              </p>
-            </div>
-          </div>
-
-          <OctagonCloseButton onClick={onClose} className="w-9 h-9 sm:w-10 sm:h-10" />
-        </div>
-
-        {/* Selected Preview Highlight */}
-        <div className="py-3.5 flex items-center justify-between gap-4 border-b-2 border-[#543015] z-10 relative">
-          <div className="flex items-center gap-3">
-            <div className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-2xl overflow-hidden border-2 border-[#ffbe3b] shadow-[0_0_15px_rgba(251,191,36,0.5)] flex-shrink-0 bg-zinc-950">
-              {selectedPhoto ? (
+            <div className="w-12 h-12 rounded-2xl overflow-hidden border-[2.5px] border-[#fde047] bg-[#180c05] flex items-center justify-center shadow-lg flex-shrink-0">
+              {selected ? (
                 <img
-                  src={selectedPhoto}
-                  alt="Foto Selecionada"
+                  src={selected.startsWith('data:') ? selected : encodeURI(selected)}
+                  alt="Preview"
                   className="w-full h-full object-cover"
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-2xl">🐕</div>
+                <Camera className="w-6 h-6 text-[#fde047]" />
               )}
             </div>
             <div>
-              <div className="text-xs font-black text-amber-300 uppercase tracking-wider">
-                Foto Atual Selecionada
-              </div>
-              <div className="text-xs text-amber-100 truncate max-w-[200px] sm:max-w-xs font-mono font-bold">
-                {selectedPhoto ? selectedPhoto.split('/').pop() : 'Nenhuma selecionada'}
-              </div>
+              <h2
+                className="text-lg sm:text-2xl font-fun font-black text-[#fef08a] uppercase tracking-wider flex items-center gap-2 leading-none"
+                style={{
+                  paintOrder: 'stroke fill',
+                  WebkitTextStroke: '3px #1f0901',
+                  textShadow: '0 2px 0 #1f0901',
+                }}
+              >
+                ESCOLHER FOTO DE PERFIL
+                <Sparkles className="w-5 h-5 text-amber-400 animate-pulse" />
+              </h2>
+              <p className="text-[11px] sm:text-xs text-amber-200/90 font-bold mt-1">
+                Clique em qualquer ícone abaixo — ele aparece na hora no seu perfil!
+              </p>
             </div>
           </div>
-
           <button
-            onClick={handleConfirm}
-            disabled={!selectedPhoto}
-            className="px-5 py-2.5 sm:px-6 sm:py-3 cartoon-btn-gold text-[#3d2002] font-black text-xs sm:text-sm rounded-xl shadow-lg transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            type="button"
+            onClick={() => {
+              sound.playClick();
+              onClose();
+            }}
+            className="w-10 h-10 rounded-xl cartoon-btn-red flex items-center justify-center text-white cursor-pointer"
           >
-            <Check className="w-4 h-4 stroke-[3]" />
-            <span>SALVAR FOTO</span>
+            <X className="w-5 h-5 stroke-[3]" />
           </button>
         </div>
 
-        {/* Grid de Fotos de Perfil (Cartoon Navy Panel) */}
-        <div className="flex-1 overflow-y-auto py-4 pr-1 z-10 relative">
-          {isLoading ? (
-            <div className="py-12 text-center text-xs text-amber-200 font-black">
-              Carregando galeria de fotos de perfil...
-            </div>
-          ) : photos.length === 0 ? (
-            <div className="py-12 text-center text-xs text-amber-200 font-black">
-              Nenhuma foto encontrada na galeria.
-            </div>
-          ) : (
-            <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-7 gap-2.5 sm:gap-3.5">
-              {photos.map((photoUrl, idx) => {
-                const isSelected = selectedPhoto === photoUrl;
-                return (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => {
-                      sound.playClick();
-                      setSelectedPhoto(photoUrl);
-                    }}
-                    className={`relative aspect-square rounded-2xl overflow-hidden border-2 transition-all cursor-pointer group bg-zinc-950 ${
+        {/* Content — Grade de Ícones de Perfil */}
+        <div className="p-4 sm:p-5 overflow-y-auto flex-1 garage-custom-scrollbar bg-[#140904]/90">
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3 sm:gap-3.5">
+            {photos.map((photo, index) => {
+              const isSelected = selected === photo;
+              const safeSrc = photo.startsWith('data:') ? photo : encodeURI(photo);
+              return (
+                <button
+                  key={`${photo}-${index}`}
+                  type="button"
+                  onClick={() => handleChoosePhoto(photo)}
+                  onDoubleClick={handleSaveAndClose}
+                  className={`group relative aspect-square rounded-2xl overflow-hidden transition-all duration-200 cursor-pointer ${
+                    isSelected
+                      ? 'ring-4 ring-[#4ade80] scale-[1.04] shadow-[0_0_24px_rgba(74,222,128,0.65)] z-10 border-2 border-white'
+                      : 'border-2 border-[#fbbf24]/45 hover:border-[#fde047] hover:scale-[1.03] opacity-90 hover:opacity-100'
+                  }`}
+                >
+                  <img
+                    src={safeSrc}
+                    alt={`Avatar ${index + 1}`}
+                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110 bg-[#271206]"
+                    loading="eager"
+                  />
+
+                  <div
+                    className={`absolute inset-0 transition-opacity duration-200 ${
                       isSelected
-                        ? 'border-[#ffbe3b] ring-4 ring-amber-400/60 scale-105 shadow-[0_0_15px_rgba(245,158,11,0.5)]'
-                        : 'border-[#2b3e58] hover:border-slate-300 hover:scale-105 opacity-85 hover:opacity-100'
+                        ? 'bg-emerald-500/15 opacity-100'
+                        : 'bg-black/25 opacity-0 group-hover:opacity-100'
                     }`}
-                  >
-                    <img
-                      src={photoUrl}
-                      alt={`Perfil ${idx + 1}`}
-                      className="w-full h-full object-cover transition-transform group-hover:scale-110"
-                      loading="lazy"
-                    />
-                    {isSelected && (
-                      <div className="absolute inset-0 bg-amber-500/25 backdrop-blur-[0.5px] flex items-center justify-center">
-                        <div className="w-6 h-6 rounded-full bg-amber-400 text-zinc-950 flex items-center justify-center shadow-lg">
-                          <Check className="w-4 h-4 stroke-[3]" />
-                        </div>
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          )}
+                  />
+
+                  {isSelected && (
+                    <div className="absolute top-2 right-2 w-7 h-7 rounded-full bg-[#22c55e] border-2 border-[#052e16] text-white flex items-center justify-center shadow-lg">
+                      <Check className="w-4 h-4 stroke-[3.5]" />
+                    </div>
+                  )}
+
+                  <div className="absolute bottom-1.5 left-1.5 px-2 py-0.5 rounded-md bg-black/75 backdrop-blur-sm text-[9px] font-black text-[#fef08a] border border-amber-400/40">
+                    #{index + 1}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        {/* Footer info */}
-        <div className="pt-3 border-t-2 border-[#543015] text-center text-[11px] text-amber-200 font-bold z-10 relative">
-          Dica: Escolha a foto do seu Caramelo preferido para se destacar na quebrada!
+        {/* Footer */}
+        <div className="p-3.5 sm:p-4 border-t-2 border-[#451a03] bg-[#241007] flex items-center justify-between gap-3">
+          <div className="text-xs font-bold text-amber-200/90 hidden sm:block">
+            Foto selecionada:{' '}
+            <span className="text-[#4ade80] font-black">
+              #{Math.max(1, photos.indexOf(selected) + 1)} (Aplicada!)
+            </span>
+          </div>
+          <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+            <button
+              type="button"
+              onClick={handleSaveAndClose}
+              className="w-full sm:w-auto px-7 py-2.5 rounded-xl cartoon-btn-green font-fun font-black text-sm uppercase tracking-wider cursor-pointer flex items-center justify-center gap-2"
+            >
+              <Check className="w-4 h-4 stroke-[3]" />
+              CONFIRMAR FOTO DE PERFIL
+            </button>
+          </div>
         </div>
       </div>
     </div>

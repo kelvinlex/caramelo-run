@@ -14,7 +14,14 @@ export default defineConfig(() => {
         configureServer(server) {
           server.middlewares.use((req, res, next) => {
             const rawUrl = req.url ? req.url.split('?')[0] : '';
-            if (!rawUrl.startsWith('/assets/')) return next();
+            if (
+              !rawUrl.startsWith('/assets/') &&
+              !rawUrl.startsWith('/models/') &&
+              !rawUrl.startsWith('/sounds/') &&
+              !rawUrl.startsWith('/images/')
+            ) {
+              return next();
+            }
             const safeRel = path.normalize(decodeURIComponent(rawUrl)).replace(/^(\.\.(\/|\\|$))+/, '');
             const fullPath = path.join(publicDir, safeRel);
             if (!fullPath.startsWith(publicDir) || !fs.existsSync(fullPath)) return next();
@@ -31,6 +38,10 @@ export default defineConfig(() => {
                 ? 'image/png'
                 : ext === '.jpg' || ext === '.jpeg'
                 ? 'image/jpeg'
+                : ext === '.mp3'
+                ? 'audio/mpeg'
+                : ext === '.wav'
+                ? 'audio/wav'
                 : 'application/octet-stream';
 
             res.setHeader('Content-Type', mime);

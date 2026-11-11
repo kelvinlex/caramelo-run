@@ -54,20 +54,23 @@ export const Garage3DShowroom: React.FC<Garage3DShowroomProps> = ({
   const [autoSpin, setAutoSpin] = useState(true);
 
   const motoTurntableRef = useRef<THREE.Group | null>(null);
+  const motoboyStageHolderRef = useRef<THREE.Group | null>(null);
   const carameloStageHolderRef = useRef<THREE.Group | null>(null);
   const activeMotoRef = useRef<MotoInstance | null>(null);
+  const activeMotoboyRef = useRef<MotoboyInstance | null>(null);
   const activeCarameloRef = useRef<CarameloInstance | null>(null);
   const autoSpinRef = useRef(true);
   const modeRef = useRef<GarageShowroomMode>(mode);
   const selectedMotoboyRef = useRef<MotoboyCharacterId>(selectedMotoboyId);
   const riderIdRef = useRef<MotoboyCharacterId | null>(riderId);
   const onSelectMotoboyRef = useRef(onSelectMotoboy);
-  const turntableAngleRef = useRef(-0.55);
+  const turntableAngleRef = useRef(-0.62);
   const pilotAngleRef = useRef(0.0);
-  const treadmillAngleRef = useRef(-Math.PI * 0.48);
-  const targetZoomRef = useRef(3.22);
-  const currentZoomRef = useRef(3.22);
+  const treadmillAngleRef = useRef(Math.PI * 0.76);
+  const targetZoomRef = useRef(3.72);
+  const currentZoomRef = useRef(3.72);
   const popScaleRef = useRef(1.0);
+  const motoboyPopScaleRef = useRef(1.0);
   const carameloPopScaleRef = useRef(1.0);
 
   autoSpinRef.current = autoSpin;
@@ -124,9 +127,9 @@ export const Garage3DShowroom: React.FC<Garage3DShowroomProps> = ({
     scene.background = fogColor;
     scene.fog = new THREE.Fog(fogColor, 16, 58);
 
-    const camera = new THREE.PerspectiveCamera(40, width / height, 0.15, 120);
-    camera.position.set(0, 1.32, currentZoomRef.current);
-    camera.lookAt(0, 0.78, 0);
+    const camera = new THREE.PerspectiveCamera(38, width / height, 0.15, 120);
+    camera.position.set(0, 1.18, currentZoomRef.current);
+    camera.lookAt(0, 0.76, 0);
 
     // Iluminação de Estúdio Cartoon Aprimorada (Key + Fill Frontal + Rim Dourado para destacar detalhes e animações!)
     const hemiLight = new THREE.HemisphereLight(0xfef3c7, 0x3f6212, 1.22);
@@ -484,37 +487,16 @@ export const Garage3DShowroom: React.FC<Garage3DShowroomProps> = ({
     frontSpotlightBorder.position.set(0, 0.013, 0.68);
     motoboysStageGroup.add(frontSpotlightBorder);
 
-    const mbShadowGeo = trackGeo(new THREE.PlaneGeometry(0.9, 0.9));
-    for (const spec of MOTOBOYS_CATALOG) {
-      const sh = new THREE.Mesh(mbShadowGeo, contactShadowMat);
-      sh.rotation.x = -Math.PI / 2;
-      sh.position.set(0, 0.006, 0);
-      motoboysStageGroup.add(sh);
-      motoboyShadows.set(spec.id, sh);
-    }
+    const mbShadowGeo = trackGeo(new THREE.PlaneGeometry(1.1, 1.1));
+    const singlePilotShadow = new THREE.Mesh(mbShadowGeo, contactShadowMat);
+    singlePilotShadow.rotation.x = -Math.PI / 2;
+    singlePilotShadow.position.set(0, 0.006, 0.56);
+    motoboysStageGroup.add(singlePilotShadow);
 
-    // Carrega os 5 novos pilotos FBX com animação Idle Cartoon!
-    Promise.all(
-      MOTOBOYS_CATALOG.map((spec, idx) =>
-        createMotoboyInstance(spec.id, { targetHeight: 1.66 }).then((inst) => {
-          if (isDisposed) {
-            inst.dispose();
-            return;
-          }
-          const isSel = spec.id === selectedMotoboyRef.current;
-          inst.root.position.set(isSel ? 0 : (idx - 2) * 0.85, 0, isSel ? 0.68 : -1.05);
-          loadedMotoboys.set(spec.id, inst);
-          motoboysStageGroup.add(inst.root);
-        })
-      )
-    )
-      .then(() => {
-        if (!isDisposed) setLoadingMotoboys(false);
-      })
-      .catch((err) => {
-        console.warn('[Garage3DShowroom] Aviso ao carregar pilotos:', err);
-        if (!isDisposed) setLoadingMotoboys(false);
-      });
+    const motoboyStageHolder = new THREE.Group();
+    motoboyStageHolder.position.set(0, 0, 0.56);
+    motoboysStageGroup.add(motoboyStageHolder);
+    motoboyStageHolderRef.current = motoboyStageHolder;
 
     // =========================================================================
     // PALCO 3: ESTEIRA 3D PARADA EXCLUSIVA DO CARAMELO (SEM PERSONAGENS!)
@@ -796,48 +778,17 @@ export const Garage3DShowroom: React.FC<Garage3DShowroomProps> = ({
           activeCarameloRef.current.update(dt, 16.5, 0, 0, false);
         }
       } else if (isMotoboyStage) {
-        // PALCO EXCLUSIVO DOS PILOTOS (SEM MOTO!):
-        // Selecionado nítido e grande à frente; os outros 4 recuados e desfocados ao fundo!
-        const selId = selectedMotoboyRef.current;
-        const unselectedList = MOTOBOYS_CATALOG.filter((m) => m.id !== selId);
-
-        for (let i = 0; i < MOTOBOYS_CATALOG.length; i++) {
-          const spec = MOTOBOYS_CATALOG[i];
-          const inst = loadedMotoboys.get(spec.id);
-          const sh = motoboyShadows.get(spec.id);
-          if (!inst) continue;
-
-          const isSelected = spec.id === selId;
-          let targetX = 0;
-          let targetZ = 0.86;
-          let targetScale = 1.25;
-          let targetRotY = pilotAngleRef.current;
-
-          if (!isSelected) {
-            const bgIdx = unselectedList.findIndex((u) => u.id === spec.id);
-            const slot = bgSlots[bgIdx % bgSlots.length];
-            targetX = slot[0];
-            targetZ = slot[1];
-            targetRotY = slot[2];
-            targetScale = 0.80;
-          }
-
-          const moveLerp = Math.min(1, 9.5 * dt);
-          inst.root.position.x = THREE.MathUtils.lerp(inst.root.position.x, targetX, moveLerp);
-          inst.root.position.z = THREE.MathUtils.lerp(inst.root.position.z, targetZ, moveLerp);
-          inst.root.rotation.y = THREE.MathUtils.lerp(inst.root.rotation.y, targetRotY, moveLerp);
-
-          const nextS = THREE.MathUtils.lerp(inst.root.scale.x, targetScale, moveLerp);
-          inst.root.scale.setScalar(nextS);
-
-          inst.setFocusState(isSelected, dt);
-          inst.update(dt);
-
-          if (sh) {
-            sh.position.x = inst.root.position.x;
-            sh.position.z = inst.root.position.z;
-            sh.scale.setScalar(isSelected ? 1.15 : 0.78);
-          }
+        // PALCO EXCLUSIVO DO PILOTO SELECIONADO (Carregado sob demanda, inteiro e centralizado!)
+        motoboyPopScaleRef.current = THREE.MathUtils.lerp(
+          motoboyPopScaleRef.current,
+          1.0,
+          Math.min(1, 12 * dt)
+        );
+        motoboyStageHolder.scale.setScalar(motoboyPopScaleRef.current);
+        motoboyStageHolder.rotation.y = pilotAngleRef.current;
+        if (activeMotoboyRef.current) {
+          activeMotoboyRef.current.setFocusState(true, dt);
+          activeMotoboyRef.current.update(dt);
         }
       } else {
         // PALCO EXCLUSIVO DAS MOTOS
@@ -854,7 +805,7 @@ export const Garage3DShowroom: React.FC<Garage3DShowroomProps> = ({
         }
       }
 
-      const targetLookY = isCarameloStage ? 0.68 : isMotoboyStage ? 1.04 : 0.84;
+      const targetLookY = isCarameloStage ? 0.62 : isMotoboyStage ? 0.92 : 0.76;
       currentLookY = THREE.MathUtils.lerp(currentLookY, targetLookY, Math.min(1, 8 * dt));
 
       currentZoomRef.current = THREE.MathUtils.lerp(
@@ -894,6 +845,10 @@ export const Garage3DShowroom: React.FC<Garage3DShowroomProps> = ({
         activeMotoRef.current.dispose();
         activeMotoRef.current = null;
       }
+      if (activeMotoboyRef.current) {
+        activeMotoboyRef.current.dispose();
+        activeMotoboyRef.current = null;
+      }
       if (activeCarameloRef.current) {
         activeCarameloRef.current.dispose();
         activeCarameloRef.current = null;
@@ -918,17 +873,16 @@ export const Garage3DShowroom: React.FC<Garage3DShowroomProps> = ({
     };
   }, []);
 
-  // Ajusta o zoom e ângulo ao alternar entre as 3 abas limpas da Garagem (personagens maiores, centralizados e mais próximos!)
+  // Ajusta o zoom e ângulo ao alternar entre as 3 abas limpas da Garagem (modelos inteiros, sem cortes na cabeça ou rodas!)
   useEffect(() => {
     if (mode === 'caramelos') {
-      // Esteira posicionada de lado (perfil lateral nítido) com o Caramelo correndo nela!
       treadmillAngleRef.current = -Math.PI * 0.48;
-      targetZoomRef.current = 3.04;
+      targetZoomRef.current = 3.15;
     } else if (mode === 'motoboys') {
       pilotAngleRef.current = 0;
-      targetZoomRef.current = 2.96;
+      targetZoomRef.current = 3.28;
     } else {
-      targetZoomRef.current = 3.22;
+      targetZoomRef.current = 3.72;
     }
   }, [mode]);
 
@@ -936,13 +890,22 @@ export const Garage3DShowroom: React.FC<Garage3DShowroomProps> = ({
     pilotAngleRef.current = 0;
   }, [selectedMotoboyId]);
 
-  // 2. Troca Instantânea da Moto no Pódio (com as caixas de pizza coloridas empilhadas atrás!)
+  // 2. Carregamento Sob Demanda da Moto (somente quando a aba 'motos' estiver ativa!)
   useEffect(() => {
+    if (mode !== 'motos') {
+      if (activeMotoRef.current && motoTurntableRef.current) {
+        motoTurntableRef.current.remove(activeMotoRef.current.root);
+        activeMotoRef.current.dispose();
+        activeMotoRef.current = null;
+      }
+      setLoadingMoto(false);
+      return;
+    }
     let cancelled = false;
     setLoadingMoto(true);
 
     createMotoInstance(motoId, {
-      scale: 1.22,
+      scale: 1.04,
       castShadow: false,
       receiveShadow: false,
       riderId: null,
@@ -977,14 +940,68 @@ export const Garage3DShowroom: React.FC<Garage3DShowroomProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [motoId]);
+  }, [motoId, mode]);
 
-  // 3. Troca do Caramelo na Esteira (personagem maior e centralizado!)
+  // 2B. Carregamento Sob Demanda do Piloto Selecionado (somente quando a aba 'motoboys' estiver ativa!)
   useEffect(() => {
+    if (mode !== 'motoboys') {
+      if (activeMotoboyRef.current && motoboyStageHolderRef.current) {
+        motoboyStageHolderRef.current.remove(activeMotoboyRef.current.root);
+        activeMotoboyRef.current.dispose();
+        activeMotoboyRef.current = null;
+      }
+      setLoadingMotoboys(false);
+      return;
+    }
+    let cancelled = false;
+    setLoadingMotoboys(true);
+
+    createMotoboyInstance(selectedMotoboyId, { targetHeight: 1.58 })
+      .then((instance) => {
+        if (cancelled) {
+          instance.dispose();
+          return;
+        }
+        const holder = motoboyStageHolderRef.current;
+        if (!holder) {
+          instance.dispose();
+          return;
+        }
+        if (activeMotoboyRef.current) {
+          holder.remove(activeMotoboyRef.current.root);
+          activeMotoboyRef.current.dispose();
+        }
+        activeMotoboyRef.current = instance;
+        instance.root.position.set(0, 0, 0);
+        holder.add(instance.root);
+        motoboyPopScaleRef.current = 0.86;
+        setLoadingMotoboys(false);
+      })
+      .catch((err) => {
+        console.error('[Garage3DShowroom] Erro ao trocar piloto:', err);
+        if (!cancelled) setLoadingMotoboys(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMotoboyId, mode]);
+
+  // 3. Carregamento Sob Demanda do Caramelo na Esteira (somente quando a aba 'caramelos' estiver ativa!)
+  useEffect(() => {
+    if (mode !== 'caramelos') {
+      if (activeCarameloRef.current && carameloStageHolderRef.current) {
+        carameloStageHolderRef.current.remove(activeCarameloRef.current.root);
+        activeCarameloRef.current.dispose();
+        activeCarameloRef.current = null;
+      }
+      setLoadingCaramelo(false);
+      return;
+    }
     let cancelled = false;
     setLoadingCaramelo(true);
 
-    createCarameloInstance(selectedCarameloId, { targetHeight: 0.90 })
+    createCarameloInstance(selectedCarameloId, { targetHeight: 0.88 })
       .then((instance) => {
         if (cancelled) {
           instance.dispose();
@@ -1015,7 +1032,7 @@ export const Garage3DShowroom: React.FC<Garage3DShowroomProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [selectedCarameloId]);
+  }, [selectedCarameloId, mode]);
 
   const isStageLoading =
     (mode === 'caramelos' && loadingCaramelo) ||
@@ -1023,23 +1040,8 @@ export const Garage3DShowroom: React.FC<Garage3DShowroomProps> = ({
     (mode === 'motos' && loadingMoto);
 
   return (
-    <div className={`relative w-full h-full min-h-[240px] sm:min-h-[320px] select-none ${className}`}>
+    <div className={`relative w-full h-full min-h-[260px] sm:min-h-[330px] select-none ${className}`}>
       <div ref={containerRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
-
-      {/* Efeito de Desfoque Cinematográfico nas Laterais/Fundo para Destacar o Piloto Selecionado à Frente! */}
-      {mode === 'motoboys' && (
-        <div
-          className="absolute inset-0 pointer-events-none z-[5]"
-          style={{
-            backdropFilter: 'blur(3.2px)',
-            WebkitBackdropFilter: 'blur(3.2px)',
-            maskImage:
-              'radial-gradient(ellipse 30% 82% at 50% 54%, transparent 56%, rgba(0,0,0,0.95) 92%)',
-            WebkitMaskImage:
-              'radial-gradient(ellipse 30% 82% at 50% 54%, transparent 56%, rgba(0,0,0,0.95) 92%)',
-          }}
-        />
-      )}
 
       {/* Indicador leve apenas durante o carregamento */}
       {isStageLoading && (

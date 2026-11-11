@@ -995,10 +995,6 @@ export function getRioBuildingFacadeTexture(
 
 /**
  * Vibrant, Luminous Hand-Painted Cartoon Sky Dome Texture (2048x1024)
- * ("deixe o ceu mais vivo tambem, o sol passando por tras bem lindo")
- * Features:
- * - Rich, vivid tropical sky blue zenith transitioning into radiant sunset violet-rose and glowing golden-amber horizon
- * - Luminous golden-rimmed cartoon cloud banks and painterly sunset streaks
  */
 export function createPainterlySkyTexture(
   preset: SkyPreset = 'sunset_dramatic',
@@ -1010,270 +1006,315 @@ export function createPainterlySkyTexture(
   canvas.height = H;
   const ctx = canvas.getContext('2d')!;
 
-  // Note: On SphereGeometry, y = 0 is the zenith (+Y) and y = H * 0.52 (532) is the horizon (y = 0 in 3D).
   const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
   if (preset === 'sunset_dramatic') {
-    // Vivid tropical cerulean blue -> vibrant periwinkle/violet -> radiant coral-rose -> glowing golden-amber horizon
-    skyGrad.addColorStop(0.0, '#0284C7');
-    skyGrad.addColorStop(0.15, '#0EA5E9');
-    skyGrad.addColorStop(0.27, '#38BDF8');
-    skyGrad.addColorStop(0.35, '#818CF8');
-    skyGrad.addColorStop(0.41, '#C084FC');
-    skyGrad.addColorStop(0.46, '#F472B6');
-    skyGrad.addColorStop(0.50, '#FB923C');
-    skyGrad.addColorStop(0.55, '#FBBF24');
-    skyGrad.addColorStop(0.62, '#FEF08A');
+    skyGrad.addColorStop(0.0, '#7C2D12');
+    skyGrad.addColorStop(0.14, '#9A3412');
+    skyGrad.addColorStop(0.26, '#C2410C');
+    skyGrad.addColorStop(0.36, '#EA580C');
+    skyGrad.addColorStop(0.45, '#F97316');
+    skyGrad.addColorStop(0.52, '#FB923C');
+    skyGrad.addColorStop(0.58, '#FBBF24');
+    skyGrad.addColorStop(0.66, '#FEF08A');
     skyGrad.addColorStop(1.0, '#FDBA74');
   } else if (preset === 'tropical_morning') {
-    // Vivid turquoise-sky blue -> aqua-cyan -> warm sunlit gold-peach horizon
-    skyGrad.addColorStop(0.0, '#0369A1');
-    skyGrad.addColorStop(0.18, '#0284C7');
-    skyGrad.addColorStop(0.32, '#06B6D4');
-    skyGrad.addColorStop(0.42, '#67E8F9');
-    skyGrad.addColorStop(0.48, '#FDE047');
-    skyGrad.addColorStop(0.54, '#FBBF24');
-    skyGrad.addColorStop(0.62, '#FEF08A');
-    skyGrad.addColorStop(1.0, '#FDE68A');
+    skyGrad.addColorStop(0.0, '#0B3B9E');
+    skyGrad.addColorStop(0.16, '#1456C8');
+    skyGrad.addColorStop(0.30, '#1D74E8');
+    skyGrad.addColorStop(0.42, '#2998F6');
+    skyGrad.addColorStop(0.50, '#4FC3F7');
+    skyGrad.addColorStop(0.56, '#A7E8FF');
+    skyGrad.addColorStop(0.65, '#FFF3D1');
+    skyGrad.addColorStop(1.0, '#A7E8FF');
   } else {
-    // Vivid royal twilight -> electric orchid magenta -> glowing sunset rose-gold
-    skyGrad.addColorStop(0.0, '#1E1B4B');
-    skyGrad.addColorStop(0.18, '#4338CA');
-    skyGrad.addColorStop(0.30, '#7E22CE');
-    skyGrad.addColorStop(0.40, '#C026D3');
-    skyGrad.addColorStop(0.47, '#EC4899');
-    skyGrad.addColorStop(0.53, '#F97316');
-    skyGrad.addColorStop(0.60, '#FACC15');
-    skyGrad.addColorStop(1.0, '#FB7185');
+    skyGrad.addColorStop(0.0, '#020617');
+    skyGrad.addColorStop(0.16, '#070B19');
+    skyGrad.addColorStop(0.30, '#0F172A');
+    skyGrad.addColorStop(0.42, '#1E1B4B');
+    skyGrad.addColorStop(0.50, '#1E3A8A');
+    skyGrad.addColorStop(0.57, '#1D4ED8');
+    skyGrad.addColorStop(0.64, '#0284C7');
+    skyGrad.addColorStop(1.0, '#0F172A');
   }
 
   ctx.fillStyle = skyGrad;
   ctx.fillRect(0, 0, W, H);
 
-  let seed = 2026;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+const cloudPanoramaCache = new Map<SkyPreset, THREE.CanvasTexture>();
+
+/**
+ * High-Resolution 2048x1024 Painterly Fluid-Brushstroke Cloud Panorama Texture
+ * (Used on BOTH Mapa 1 Favela and Mapa 2 Praia!)
+ */
+export function createPainterlyCloudPanoramaTexture(
+  preset: SkyPreset = 'tropical_morning',
+): THREE.CanvasTexture {
+  const cached = cloudPanoramaCache.get(preset);
+  if (cached) return cached;
+
+  const W = 2048;
+  const H = 1024;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, W, H);
+
+  const pal =
+    preset === 'tropical_morning'
+      ? {
+          deepCobalt: '#2B50AA',
+          periwinkleShadow: '#4C6EF5',
+          cornflowerMid: '#748FFC',
+          lavenderMid: '#B1C2FF',
+          warmRoseBlush: '#EDE9FE',
+          creamHighlight: '#FFFDF9',
+          pureWhite: '#FFFFFF',
+          skyStreak: '#60A5FA',
+          overallAlpha: 0.96,
+        }
+      : preset === 'sunset_dramatic'
+        ? {
+            deepCobalt: '#7C2D12',
+            periwinkleShadow: '#9A3412',
+            cornflowerMid: '#EA580C',
+            lavenderMid: '#FB923C',
+            warmRoseBlush: '#FED7AA',
+            creamHighlight: '#FEF08A',
+            pureWhite: '#FFFBEB',
+            skyStreak: '#FDBA74',
+            overallAlpha: 0.92,
+          }
+        : {
+            deepCobalt: '#090D16',
+            periwinkleShadow: '#1E293B',
+            cornflowerMid: '#334155',
+            lavenderMid: '#475569',
+            warmRoseBlush: '#94A3B8',
+            creamHighlight: '#BAE6FD',
+            pureWhite: '#E0F2FE',
+            skyStreak: '#38BDF8',
+            overallAlpha: 0.42,
+          };
+
+  let seed = 8862;
   const rand = () => {
     seed = (seed * 1664525 + 1013904223) % 4294967296;
     return seed / 4294967296;
   };
 
-  // 1. Vibrant, luminous digital-painting brushstrokes integrated smoothly into the sky
-  const drawFluidBrushStroke = (
+  const drawFluidRibbonStroke = (
     cx: number,
     cy: number,
-    length: number,
-    thickness: number,
+    len: number,
+    thick: number,
     angle: number,
-    colorHex: string,
+    color: string,
     alpha: number,
   ) => {
-    for (const ox of [-W, 0, W]) {
-      const px = cx + ox;
-      if (px + length < 0 || px - length > W) continue;
-      ctx.save();
-      ctx.translate(px, cy);
-      ctx.rotate(angle);
-      ctx.fillStyle = colorHex;
-      ctx.globalAlpha = alpha;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+    ctx.fillStyle = color;
+    ctx.globalAlpha = alpha * pal.overallAlpha;
+    ctx.beginPath();
+    ctx.moveTo(-len * 0.5, 0);
+    ctx.bezierCurveTo(-len * 0.18, -thick, len * 0.22, -thick * 0.65, len * 0.5, 0);
+    ctx.bezierCurveTo(len * 0.22, thick * 0.75, -len * 0.18, thick * 0.95, -len * 0.5, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  };
+
+  const drawSculptedGouachePuff = (
+    px: number,
+    py: number,
+    rx: number,
+    ry: number,
+    rot: number,
+    lightAngle: number,
+    tier: 'base_shadow' | 'mid_billow' | 'sunlit_crown',
+  ) => {
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(rot);
+
+    ctx.fillStyle =
+      tier === 'base_shadow'
+        ? pal.periwinkleShadow
+        : tier === 'mid_billow'
+          ? pal.cornflowerMid
+          : pal.lavenderMid;
+    ctx.globalAlpha = (tier === 'base_shadow' ? 0.82 : 0.88) * pal.overallAlpha;
+    ctx.beginPath();
+    ctx.ellipse(0, ry * 0.12, rx, ry * 0.92, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (tier === 'base_shadow' || tier === 'mid_billow') {
+      ctx.fillStyle = tier === 'base_shadow' ? pal.deepCobalt : pal.periwinkleShadow;
+      ctx.globalAlpha = 0.68 * pal.overallAlpha;
       ctx.beginPath();
-      ctx.moveTo(-length * 0.5, 0);
-      ctx.bezierCurveTo(
-        -length * 0.22,
-        -thickness * 0.85,
-        length * 0.22,
-        -thickness * 0.55,
-        length * 0.5,
-        0,
-      );
-      ctx.bezierCurveTo(
-        length * 0.22,
-        thickness * 0.65,
-        -length * 0.22,
-        thickness * 0.85,
-        -length * 0.5,
-        0,
-      );
-      ctx.closePath();
+      ctx.ellipse(-rx * 0.08, ry * 0.28, rx * 0.86, ry * 0.64, 0.12, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
     }
+
+    if (tier !== 'base_shadow') {
+      const lx = Math.cos(lightAngle) * rx * 0.14;
+      const ly = Math.sin(lightAngle) * ry * 0.18;
+      ctx.fillStyle = tier === 'sunlit_crown' ? pal.warmRoseBlush : pal.lavenderMid;
+      ctx.globalAlpha = 0.92 * pal.overallAlpha;
+      ctx.beginPath();
+      ctx.ellipse(lx, ly - ry * 0.08, rx * 0.88, ry * 0.82, -0.08, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (tier === 'sunlit_crown' || (tier === 'mid_billow' && rand() > 0.35)) {
+      const lx = Math.cos(lightAngle) * rx * 0.2;
+      const ly = Math.sin(lightAngle) * ry * 0.26;
+      ctx.fillStyle = tier === 'sunlit_crown' ? pal.pureWhite : pal.creamHighlight;
+      ctx.globalAlpha = (tier === 'sunlit_crown' ? 0.98 : 0.86) * pal.overallAlpha;
+      ctx.beginPath();
+      ctx.ellipse(lx, ly - ry * 0.18, rx * 0.82, ry * 0.74, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
   };
 
-  // Upper sky vivid cyan/azure strokes (y = 130..320)
-  const upperStrokeColors =
-    preset === 'tropical_morning'
-      ? ['#22D3EE', '#38BDF8', '#7DD3FC', '#A5F3FC']
-      : ['#38BDF8', '#60A5FA', '#818CF8', '#C084FC'];
-  for (let i = 0; i < 64; i++) {
-    const sx = rand() * W;
-    const sy = 130 + rand() * 190;
-    const len = 180 + rand() * 340;
-    const thick = 8 + rand() * 20;
-    const angle = (rand() - 0.5) * 0.08;
-    const col = upperStrokeColors[i % upperStrokeColors.length];
-    drawFluidBrushStroke(sx, sy, len, thick, angle, col, 0.22 + rand() * 0.16);
-  }
-
-  // Mid-to-horizon glowing sunset gold, coral, and pink painterly strokes (y = 315..520)
-  const midStrokeColors =
-    preset === 'tropical_morning'
-      ? ['#FEF08A', '#FDE047', '#FBBF24', '#FFFBEB']
-      : ['#F472B6', '#FB7185', '#FB923C', '#FACC15', '#FEF08A'];
-  for (let i = 0; i < 75; i++) {
-    const sx = rand() * W;
-    const sy = 315 + rand() * 195;
-    const len = 210 + rand() * 380;
-    const thick = 10 + rand() * 24;
-    const angle = (rand() - 0.5) * 0.06;
-    const col = midStrokeColors[i % midStrokeColors.length];
-    drawFluidBrushStroke(sx, sy, len, thick, angle, col, 0.24 + rand() * 0.18);
-  }
-
-  // 2. Nuvens Pinceladas Suaves (Gouache / Aquarela Digital Sem Bolhas Redondas!)
-  // Camadas orgânicas esfumadas com degradê vertical e pontas afiladas sedosas
-  const drawSoftBrushCloudCluster = (
-    cx: number,
-    baseY: number,
-    scale: number,
-    topHighlightHex: string,
-    midBodyHex: string,
-    underBellyHex: string,
-    alpha: number,
-  ) => {
-    const strokes = [
-      { dx: -120, dy: 14, len: 290, thick: 22, tilt: -0.025, w: 0.55 },
-      { dx: -35, dy: -6, len: 360, thick: 30, tilt: 0.015, w: 0.78 },
-      { dx: 15, dy: -22, len: 270, thick: 26, tilt: -0.012, w: 0.88 },
-      { dx: 85, dy: 2, len: 310, thick: 24, tilt: 0.022, w: 0.68 },
-      { dx: -10, dy: 18, len: 410, thick: 18, tilt: 0.005, w: 0.50 },
-    ];
-
-    for (const ox of [-W, 0, W]) {
-      const px = cx + ox;
-      if (px + 320 * scale < 0 || px - 320 * scale > W) continue;
-
-      ctx.save();
-      ctx.translate(px, baseY);
-      ctx.scale(scale, scale * 0.74);
-
-      for (const s of strokes) {
-        ctx.save();
-        ctx.translate(s.dx, s.dy);
-        ctx.rotate(s.tilt);
-
-        // Gradiente vertical suave de luz dourada/creme no topo até sombra rosada/lavanda na base
-        const vGrad = ctx.createLinearGradient(0, -s.thick * 1.15, 0, s.thick * 1.15);
-        vGrad.addColorStop(0.0, topHighlightHex);
-        vGrad.addColorStop(0.48, midBodyHex);
-        vGrad.addColorStop(1.0, underBellyHex);
-
-        // Passagem externa ultra-suave esfumada (halo de pincel úmido)
-        ctx.globalAlpha = alpha * s.w * 0.42;
-        ctx.fillStyle = vGrad;
-        ctx.beginPath();
-        const extLen = s.len * 1.24;
-        const extThick = s.thick * 1.45;
-        ctx.moveTo(-extLen * 0.5, 0);
-        ctx.bezierCurveTo(
-          -extLen * 0.24,
-          -extThick,
-          extLen * 0.20,
-          -extThick * 0.82,
-          extLen * 0.5,
-          0,
-        );
-        ctx.bezierCurveTo(
-          extLen * 0.22,
-          extThick * 0.72,
-          -extLen * 0.24,
-          extThick * 0.88,
-          -extLen * 0.5,
-          0,
-        );
-        ctx.closePath();
-        ctx.fill();
-
-        // Passagem central de pincelada sedosa
-        ctx.globalAlpha = alpha * s.w * 0.78;
-        ctx.beginPath();
-        ctx.moveTo(-s.len * 0.5, 0);
-        ctx.bezierCurveTo(
-          -s.len * 0.20,
-          -s.thick * 0.95,
-          s.len * 0.18,
-          -s.thick * 0.75,
-          s.len * 0.5,
-          -s.thick * 0.06,
-        );
-        ctx.bezierCurveTo(
-          s.len * 0.22,
-          s.thick * 0.62,
-          -s.len * 0.22,
-          s.thick * 0.78,
-          -s.len * 0.5,
-          0,
-        );
-        ctx.closePath();
-        ctx.fill();
-
-        // Filete luminoso de pincel no topo da nuvem
-        ctx.globalAlpha = alpha * s.w * 0.55;
-        ctx.fillStyle = topHighlightHex;
-        ctx.beginPath();
-        const rimLen = s.len * 0.82;
-        const rimThick = s.thick * 0.38;
-        ctx.moveTo(-rimLen * 0.5, -s.thick * 0.34);
-        ctx.bezierCurveTo(
-          -rimLen * 0.18,
-          -s.thick * 0.88,
-          rimLen * 0.18,
-          -s.thick * 0.76,
-          rimLen * 0.5,
-          -s.thick * 0.28,
-        );
-        ctx.bezierCurveTo(
-          rimLen * 0.16,
-          -s.thick * 0.28 + rimThick,
-          -rimLen * 0.18,
-          -s.thick * 0.34 + rimThick,
-          -rimLen * 0.5,
-          -s.thick * 0.34,
-        );
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.restore();
-      }
-
-      ctx.restore();
-    }
-  };
-
-  const cloudTop = preset === 'tropical_morning' ? '#FFFDF7' : '#FEF9C3';
-  const cloudMid = preset === 'tropical_morning' ? '#FFFBEB' : '#FFE4E6';
-  const cloudBelly = preset === 'tropical_morning' ? '#BAE6FD' : '#DDD6FE';
-
-  // Duas faixas de altitude de nuvens pinceladas suaves e arejadas pelo horizonte e meio-céu
-  const numBrushClusters = 16;
-  for (let c = 0; c < numBrushClusters; c++) {
-    const cx = (c / numBrushClusters) * W + (rand() - 0.5) * 68;
-    const cy = 255 + (c % 4) * 52 + rand() * 28;
-    const sc = 0.72 + (c % 3) * 0.24 + rand() * 0.18;
-    drawSoftBrushCloudCluster(
-      cx,
-      cy,
-      sc,
-      cloudTop,
-      cloudMid,
-      cloudBelly,
-      0.56 + (c % 3) * 0.12,
+  for (let i = 0; i < 24; i++) {
+    const sx = 250 + rand() * 1550;
+    const sy = 60 + rand() * 280;
+    drawFluidRibbonStroke(
+      sx,
+      sy,
+      180 + rand() * 320,
+      7 + rand() * 14,
+      -0.22 + (rand() - 0.5) * 0.08,
+      pal.skyStreak,
+      0.24 + rand() * 0.16,
     );
   }
 
+  const midSkyRibbons = [
+    { x: 760, y: 540, w: 340, h: 65, angle: -0.05 },
+    { x: 1040, y: 475, w: 390, h: 72, angle: 0.04 },
+    { x: 1290, y: 560, w: 360, h: 62, angle: -0.03 },
+    { x: 920, y: 635, w: 460, h: 52, angle: 0.02 },
+  ];
+  for (const rib of midSkyRibbons) {
+    drawFluidRibbonStroke(rib.x, rib.y + 18, rib.w * 0.95, rib.h * 0.55, rib.angle, pal.periwinkleShadow, 0.72);
+    drawFluidRibbonStroke(rib.x - 10, rib.y + 6, rib.w, rib.h * 0.62, rib.angle, pal.lavenderMid, 0.85);
+    drawFluidRibbonStroke(rib.x - 18, rib.y - 8, rib.w * 0.92, rib.h * 0.52, rib.angle, pal.pureWhite, 0.95);
+  }
+
+  const paintCumulusTowerBank = (
+    centerX: number,
+    baseY: number,
+    spanW: number,
+    towerH: number,
+    lightDirX: number,
+    slopeDir: number,
+  ) => {
+    const lightAngle = Math.atan2(-1.0, lightDirX);
+
+    const baseCount = 14;
+    for (let i = 0; i < baseCount; i++) {
+      const t = i / (baseCount - 1);
+      const px = centerX + (t - 0.5) * spanW * 0.92;
+      const py = baseY + 22 - Math.sin(t * Math.PI) * 38 + (rand() - 0.5) * 20;
+      const rx = 58 + rand() * 42;
+      const ry = 40 + rand() * 28;
+      drawSculptedGouachePuff(px, py, rx, ry, (rand() - 0.5) * 0.3, lightAngle, 'base_shadow');
+    }
+
+    const midCount = 18;
+    for (let i = 0; i < midCount; i++) {
+      const t = i / (midCount - 1);
+      const arch = Math.sin(t * Math.PI);
+      const px = centerX + (t - 0.5) * spanW * 0.88;
+      const py = baseY - arch * towerH * 0.52 + (rand() - 0.5) * 28;
+      const rx = 54 + rand() * 40;
+      const ry = 44 + rand() * 32;
+      drawSculptedGouachePuff(
+        px,
+        py,
+        rx,
+        ry,
+        (rand() - 0.5) * 0.38,
+        lightAngle,
+        i % 3 === 0 ? 'sunlit_crown' : 'mid_billow',
+      );
+    }
+
+    const peakCount = 16;
+    for (let i = 0; i < peakCount; i++) {
+      const t = i / (peakCount - 1);
+      const arch = Math.pow(Math.sin(t * Math.PI), 1.25);
+      const asym = 1.0 + slopeDir * (t - 0.5) * 0.58;
+      const px = centerX + (t - 0.5) * spanW * 0.78;
+      const py = baseY - arch * asym * towerH + (rand() - 0.5) * 24;
+      const rx = 52 + arch * 48 + rand() * 22;
+      const ry = 46 + arch * 44 + rand() * 22;
+      drawSculptedGouachePuff(px, py, rx, ry, (rand() - 0.5) * 0.32, lightAngle, 'sunlit_crown');
+    }
+
+    for (let w = 0; w < 10; w++) {
+      const t = (w + 0.5) / 10;
+      const wx = centerX + (t - 0.5) * spanW * 0.82;
+      const wy = baseY - Math.sin(t * Math.PI) * towerH * (0.38 + rand() * 0.45);
+      drawFluidRibbonStroke(
+        wx,
+        wy,
+        105 + rand() * 140,
+        9 + rand() * 13,
+        (rand() - 0.5) * 0.16,
+        w % 2 === 0 ? pal.pureWhite : pal.warmRoseBlush,
+        0.92,
+      );
+    }
+  };
+
+  paintCumulusTowerBank(740, 565, 390, 235, 0.6, -0.35);
+  paintCumulusTowerBank(1310, 550, 410, 250, -0.6, 0.4);
+  paintCumulusTowerBank(420, 595, 480, 380, 0.75, -0.5);
+  paintCumulusTowerBank(1620, 585, 490, 395, -0.75, 0.5);
+
+  ctx.globalCompositeOperation = 'destination-in';
+  const vMaskGrad = ctx.createLinearGradient(0, 0, 0, H);
+  vMaskGrad.addColorStop(0.0, 'rgba(255,255,255,0.95)');
+  vMaskGrad.addColorStop(0.62, 'rgba(255,255,255,0.98)');
+  vMaskGrad.addColorStop(0.84, 'rgba(255,255,255,0.35)');
+  vMaskGrad.addColorStop(1.0, 'rgba(255,255,255,0.0)');
+  ctx.fillStyle = vMaskGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  const hMaskGrad = ctx.createLinearGradient(0, 0, W, 0);
+  hMaskGrad.addColorStop(0.0, 'rgba(255,255,255,0.0)');
+  hMaskGrad.addColorStop(0.07, 'rgba(255,255,255,1.0)');
+  hMaskGrad.addColorStop(0.93, 'rgba(255,255,255,1.0)');
+  hMaskGrad.addColorStop(1.0, 'rgba(255,255,255,0.0)');
+  ctx.fillStyle = hMaskGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.globalCompositeOperation = 'source-over';
   ctx.globalAlpha = 1.0;
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
   tex.needsUpdate = true;
+  cloudPanoramaCache.set(preset, tex);
   return tex;
 }
 
@@ -2572,6 +2613,1524 @@ export function createBuildingGraffitiMuralTexture(maxAnisotropy = 4): THREE.Can
   cachedGraffitiMuralTex = tex;
   return tex;
 }
+
+export function createCopacabanaWaveSidewalkTexture(maxAnisotropy = 4): THREE.CanvasTexture {
+  const W = 512;
+  const H = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#F5EFE6';
+  ctx.fillRect(0, 0, W, H);
+
+  const twoPi = Math.PI * 2;
+  const waveBands = [
+    { centerX: 112, amp: 64, width: 52, phase: 0 },
+    { centerX: 256, amp: 68, width: 54, phase: 0 },
+    { centerX: 400, amp: 64, width: 52, phase: 0 },
+  ];
+
+  ctx.fillStyle = '#262422';
+  for (const band of waveBands) {
+    ctx.beginPath();
+    for (let y = 0; y <= H; y += 3) {
+      const waveX =
+        band.centerX +
+        Math.sin((y / H) * twoPi * 3 + band.phase) * band.amp;
+      if (y === 0) ctx.moveTo(waveX - band.width * 0.5, y);
+      else ctx.lineTo(waveX - band.width * 0.5, y);
+    }
+    for (let y = H; y >= 0; y -= 3) {
+      const waveX =
+        band.centerX +
+        Math.sin((y / H) * twoPi * 3 + band.phase) * band.amp;
+      ctx.lineTo(waveX + band.width * 0.5, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.strokeStyle = 'rgba(120, 113, 108, 0.28)';
+  ctx.lineWidth = 1.5;
+  const step = 16;
+  for (let y = 0; y < H; y += step) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+  for (let x = 0; x < W; x += step) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, H);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = '#D6CFC4';
+  ctx.fillRect(0, 0, 24, H);
+  ctx.fillRect(W - 24, 0, 24, H);
+  ctx.fillStyle = '#78716C';
+  ctx.fillRect(22, 0, 4, H);
+  ctx.fillRect(W - 26, 0, 4, H);
+
+  ctx.fillStyle = '#57534E';
+  for (let y = 0; y < H; y += 64) {
+    ctx.fillRect(0, y, 26, 3);
+    ctx.fillRect(W - 26, y, 26, 3);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1, 28);
+  tex.anisotropy = maxAnisotropy;
+  return tex;
+}
+
+export function createGoldenBeachSandTexture(maxAnisotropy = 4): THREE.CanvasTexture {
+  const W = 512;
+  const H = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+
+  const sandGrad = ctx.createLinearGradient(0, 0, W, 0);
+  sandGrad.addColorStop(0.0, '#D97706');
+  sandGrad.addColorStop(0.22, '#EAB308');
+  sandGrad.addColorStop(0.58, '#D97706');
+  sandGrad.addColorStop(0.84, '#B45309');
+  sandGrad.addColorStop(1.0, '#92400E');
+  ctx.fillStyle = sandGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  let seed = 7712;
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) % 4294967296;
+    return seed / 4294967296;
+  };
+
+  for (let i = 0; i < 180; i++) {
+    const sx = rand() * (W * 0.88);
+    const sy = rand() * H;
+    const sw = 32 + rand() * 88;
+    const sh = 10 + rand() * 24;
+    ctx.fillStyle = i % 2 === 0 ? '#F59E0B' : '#B45309';
+    ctx.globalAlpha = i % 2 === 0 ? 0.24 : 0.18;
+    ctx.beginPath();
+    ctx.ellipse(sx, sy, sw * 0.5, sh * 0.5, (rand() - 0.5) * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1.0;
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1, 8);
+  tex.anisotropy = maxAnisotropy;
+  return tex;
+}
+
+let cachedRioWallGraffitiTex: THREE.CanvasTexture | null = null;
+
+export function createRioWallGraffitiTexture(maxAnisotropy = 4): THREE.CanvasTexture {
+  if (cachedRioWallGraffitiTex) return cachedRioWallGraffitiTex;
+
+  const W = 768;
+  const H = 384;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, W, H);
+
+  const purpleHalo = ctx.createRadialGradient(384, 200, 30, 384, 200, 290);
+  purpleHalo.addColorStop(0.0, 'rgba(147, 51, 234, 0.42)');
+  purpleHalo.addColorStop(0.55, 'rgba(168, 85, 247, 0.22)');
+  purpleHalo.addColorStop(1.0, 'rgba(126, 34, 206, 0.0)');
+  ctx.fillStyle = purpleHalo;
+  ctx.beginPath();
+  ctx.ellipse(384, 204, 310, 130, -0.08, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.save();
+  ctx.translate(255, 84);
+  ctx.rotate(-0.18);
+  ctx.fillStyle = 'rgba(147, 51, 234, 0.78)';
+  ctx.strokeStyle = '#3B0764';
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(-48, 22);
+  ctx.lineTo(-58, -26);
+  ctx.lineTo(-20, -2);
+  ctx.lineTo(0, -38);
+  ctx.lineTo(20, -2);
+  ctx.lineTo(58, -26);
+  ctx.lineTo(48, 22);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(384, 82);
+  ctx.rotate(-0.06);
+
+  ctx.fillStyle = '#581C87';
+  ctx.beginPath();
+  ctx.moveTo(-48, 30);
+  ctx.lineTo(-60, -24);
+  ctx.lineTo(-18, 2);
+  ctx.lineTo(0, -38);
+  ctx.lineTo(18, 2);
+  ctx.lineTo(60, -24);
+  ctx.lineTo(48, 30);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(-54, 24);
+  ctx.lineTo(-66, -30);
+  ctx.lineTo(-22, -4);
+  ctx.lineTo(0, -44);
+  ctx.lineTo(22, -4);
+  ctx.lineTo(66, -30);
+  ctx.lineTo(54, 24);
+  ctx.closePath();
+  const crownGrad = ctx.createLinearGradient(0, -44, 0, 24);
+  crownGrad.addColorStop(0.0, '#FDE047');
+  crownGrad.addColorStop(0.58, '#FACC15');
+  crownGrad.addColorStop(0.62, '#9333EA');
+  crownGrad.addColorStop(1.0, '#6B21A8');
+  ctx.fillStyle = crownGrad;
+  ctx.fill();
+
+  ctx.lineWidth = 10;
+  ctx.strokeStyle = '#141413';
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+
+  const crownJewels = [
+    { x: -66, y: -34, r: 8.5 },
+    { x: 0, y: -49, r: 10.0 },
+    { x: 66, y: -34, r: 8.5 },
+    { x: 0, y: 8, r: 7.5 },
+    { x: -28, y: 10, r: 6.0 },
+    { x: 28, y: 10, r: 6.0 },
+  ];
+  for (const jw of crownJewels) {
+    ctx.beginPath();
+    ctx.arc(jw.x, jw.y, jw.r, 0, Math.PI * 2);
+    ctx.fillStyle = '#A855F7';
+    ctx.fill();
+    ctx.lineWidth = 4.5;
+    ctx.strokeStyle = '#141413';
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(jw.x - jw.r * 0.25, jw.y - jw.r * 0.25, jw.r * 0.35, 0, Math.PI * 2);
+    ctx.fillStyle = '#F3E8FF';
+    ctx.fill();
+  }
+  ctx.restore();
+
+  const drips = [
+    { x: 145, y: 262, h: 48, col: '#7E22CE' },
+    { x: 196, y: 268, h: 36, col: '#141413' },
+    { x: 268, y: 260, h: 58, col: '#9333EA' },
+    { x: 356, y: 256, h: 46, col: '#141413' },
+    { x: 438, y: 252, h: 54, col: '#9333EA' },
+    { x: 525, y: 248, h: 62, col: '#7E22CE' },
+    { x: 604, y: 244, h: 42, col: '#141413' },
+  ];
+  ctx.lineCap = 'round';
+  for (const d of drips) {
+    ctx.strokeStyle = d.col;
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.moveTo(d.x, d.y);
+    ctx.lineTo(d.x, d.y + d.h);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(d.x, d.y + d.h + 4, 6.5, 0, Math.PI * 2);
+    ctx.fillStyle = d.col;
+    ctx.fill();
+  }
+
+  ctx.save();
+  ctx.translate(384, 212);
+  ctx.rotate(-0.07);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '900 132px "Fredoka", "Plus Jakarta Sans", sans-serif';
+
+  ctx.lineWidth = 34;
+  ctx.strokeStyle = '#9333EA';
+  ctx.lineJoin = 'round';
+  ctx.strokeText('Gamefy', 0, 0);
+
+  for (let s = 16; s >= 1; s -= 2) {
+    ctx.fillStyle = s > 8 ? '#3B0764' : '#141413';
+    ctx.fillText('Gamefy', -s * 0.55, s * 0.85);
+  }
+
+  ctx.lineWidth = 22;
+  ctx.strokeStyle = '#141413';
+  ctx.lineJoin = 'round';
+  ctx.strokeText('Gamefy', 0, 0);
+
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = '#A855F7';
+  ctx.strokeText('Gamefy', 0, 0);
+
+  const gamefyGrad = ctx.createLinearGradient(0, -64, 0, 66);
+  gamefyGrad.addColorStop(0.0, '#FFFFFF');
+  gamefyGrad.addColorStop(0.38, '#F3E8FF');
+  gamefyGrad.addColorStop(0.72, '#C084FC');
+  gamefyGrad.addColorStop(1.0, '#9333EA');
+  ctx.fillStyle = gamefyGrad;
+  ctx.fillText('Gamefy', 0, 0);
+
+  for (const [sx, sy] of [
+    [-312, -36],
+    [314, -44],
+    [-296, 42],
+    [304, 38],
+  ]) {
+    ctx.beginPath();
+    ctx.arc(sx, sy, 9, 0, Math.PI * 2);
+    ctx.fillStyle = '#A855F7';
+    ctx.fill();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#141413';
+    ctx.stroke();
+  }
+
+  ctx.restore();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy;
+  tex.needsUpdate = true;
+  cachedRioWallGraffitiTex = tex;
+  return tex;
+}
+
+const condoFacadeTexCache = new Map<number, THREE.CanvasTexture>();
+
+export function getCoastalCondoFacadeTexture(
+  variantIndex = 0,
+  maxAnisotropy = 4,
+): THREE.CanvasTexture {
+  const v = ((variantIndex % 4) + 4) % 4;
+  const cached = condoFacadeTexCache.get(v);
+  if (cached) return cached;
+
+  const W = 256;
+  const H = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+
+  const palettes = [
+    { wall: '#F8FAFC', pilaster: '#E2E8F0', slab: '#FFFFFF', rail: '#CBD5E1', glassTop: '#1E3A5F', glassBot: '#0F172A' },
+    { wall: '#F5EFE6', pilaster: '#E6DEC8', slab: '#FFFBEB', rail: '#D6CFC2', glassTop: '#2B4C7E', glassBot: '#172554' },
+    { wall: '#E2E8F0', pilaster: '#CBD5E1', slab: '#F8FAFC', rail: '#94A3B8', glassTop: '#0369A1', glassBot: '#0C4A6E' },
+    { wall: '#FB923C', pilaster: '#EA580C', slab: '#FFF7ED', rail: '#FDE68A', glassTop: '#1E293B', glassBot: '#0F172A' },
+  ];
+  const pal = palettes[v];
+
+  ctx.fillStyle = pal.wall;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = pal.pilaster;
+  ctx.fillRect(0, 0, 18, H);
+  ctx.fillRect(W - 18, 0, 18, H);
+  ctx.fillRect(118, 0, 20, H);
+
+  const floors = 9;
+  const floorH = H / floors;
+  for (let f = 0; f < floors; f++) {
+    const y = f * floorH;
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.28)';
+    ctx.fillRect(0, y + floorH - 8, W, 8);
+    ctx.fillStyle = pal.slab;
+    ctx.fillRect(0, y, W, 9);
+    ctx.fillStyle = pal.rail;
+    ctx.fillRect(14, y + floorH - 16, W - 28, 8);
+
+    const winX = [24, 70, 144, 190];
+    for (let wIdx = 0; wIdx < winX.length; wIdx++) {
+      const wx = winX[wIdx];
+      const wy = y + 14;
+      const ww = 38;
+      const wh = floorH - 30;
+
+      ctx.fillStyle = '#0F172A';
+      ctx.fillRect(wx - 2, wy - 2, ww + 4, wh + 4);
+
+      const g = ctx.createLinearGradient(wx, wy, wx, wy + wh);
+      g.addColorStop(0, pal.glassTop);
+      g.addColorStop(1, pal.glassBot);
+      ctx.fillStyle = g;
+      ctx.fillRect(wx, wy, ww, wh);
+
+      ctx.fillStyle = 'rgba(186, 230, 253, 0.35)';
+      ctx.beginPath();
+      ctx.moveTo(wx + 3, wy + 2);
+      ctx.lineTo(wx + 16, wy + 2);
+      ctx.lineTo(wx + 7, wy + wh - 2);
+      ctx.lineTo(wx + 3, wy + wh - 2);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = pal.slab;
+      ctx.fillRect(wx + Math.floor(ww / 2) - 1, wy, 2, wh);
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  condoFacadeTexCache.set(v, tex);
+  return tex;
+}
+
+let cachedAirplaneBannerTex: THREE.CanvasTexture | null = null;
+
+export function createAirplaneBannerTexture(maxAnisotropy = 4): THREE.CanvasTexture {
+  if (cachedAirplaneBannerTex) return cachedAirplaneBannerTex;
+
+  const W = 1024;
+  const H = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.clearRect(0, 0, W, H);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(12, 14);
+  ctx.lineTo(W - 14, 14);
+  ctx.lineTo(W - 118, H * 0.5);
+  ctx.lineTo(W - 14, H - 14);
+  ctx.lineTo(12, H - 14);
+  ctx.closePath();
+  ctx.clip();
+
+  const bgGrad = ctx.createLinearGradient(0, 14, 0, H - 14);
+  bgGrad.addColorStop(0, '#FFFFFF');
+  bgGrad.addColorStop(0.5, '#FFFBEB');
+  bgGrad.addColorStop(1, '#FEF3C7');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = 'rgba(126, 34, 206, 0.04)';
+  for (let x = 20; x < W; x += 18) {
+    ctx.fillRect(x, 0, 6, H);
+  }
+
+  const borderGrad = ctx.createLinearGradient(0, 0, W, 0);
+  borderGrad.addColorStop(0, '#6B21A8');
+  borderGrad.addColorStop(0.5, '#9333EA');
+  borderGrad.addColorStop(1, '#EC4899');
+  ctx.fillStyle = borderGrad;
+  ctx.fillRect(0, 14, W, 24);
+  ctx.fillRect(0, H - 38, W, 24);
+
+  ctx.fillStyle = '#FACC15';
+  ctx.fillRect(0, 38, W, 8);
+  ctx.fillRect(0, H - 46, W, 8);
+
+  ctx.fillStyle = '#581C87';
+  ctx.fillRect(12, 14, 26, H - 28);
+
+  ctx.save();
+  ctx.translate(118, H * 0.5 + 8);
+  ctx.fillStyle = '#9333EA';
+  ctx.strokeStyle = '#1E1B4B';
+  ctx.lineWidth = 7;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-42, 26);
+  ctx.lineTo(-50, -24);
+  ctx.lineTo(-18, 2);
+  ctx.lineTo(0, -34);
+  ctx.lineTo(18, 2);
+  ctx.lineTo(50, -24);
+  ctx.lineTo(42, 26);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#FACC15';
+  for (const [jx, jy] of [
+    [-50, -28],
+    [0, -38],
+    [50, -28],
+  ]) {
+    ctx.beginPath();
+    ctx.arc(jx, jy, 6.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '900 72px "Arial Black", Impact, sans-serif';
+
+  ctx.fillStyle = '#FACC15';
+  ctx.fillText('SEU ANÚNCIO AQUI!', 518, H * 0.5 + 7);
+
+  ctx.lineWidth = 13;
+  ctx.strokeStyle = '#1E1B4B';
+  ctx.strokeText('SEU ANÚNCIO AQUI!', 512, H * 0.5 + 1);
+
+  const txtGrad = ctx.createLinearGradient(0, H * 0.5 - 42, 0, H * 0.5 + 42);
+  txtGrad.addColorStop(0, '#7E22CE');
+  txtGrad.addColorStop(0.55, '#6B21A8');
+  txtGrad.addColorStop(1, '#3B0764');
+  ctx.fillStyle = txtGrad;
+  ctx.fillText('SEU ANÚNCIO AQUI!', 512, H * 0.5 + 1);
+  ctx.restore();
+
+  ctx.restore();
+
+  ctx.strokeStyle = '#1E1B4B';
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.moveTo(12, 14);
+  ctx.lineTo(W - 14, 14);
+  ctx.lineTo(W - 118, H * 0.5);
+  ctx.lineTo(W - 14, H - 14);
+  ctx.lineTo(12, H - 14);
+  ctx.closePath();
+  ctx.stroke();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy;
+  tex.needsUpdate = true;
+  cachedAirplaneBannerTex = tex;
+  return tex;
+}
+
+let cachedSandDriftTex: THREE.CanvasTexture | null = null;
+
+export function createBlownSandRoadDriftTexture(maxAnisotropy = 4): THREE.CanvasTexture {
+  if (cachedSandDriftTex) return cachedSandDriftTex;
+
+  const W = 512;
+  const H = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.clearRect(0, 0, W, H);
+
+  const baseGrad = ctx.createLinearGradient(W, 0, 64, 0);
+  baseGrad.addColorStop(0.0, 'rgba(245, 188, 56, 0.72)');
+  baseGrad.addColorStop(0.28, 'rgba(248, 198, 72, 0.48)');
+  baseGrad.addColorStop(0.58, 'rgba(251, 208, 92, 0.22)');
+  baseGrad.addColorStop(0.82, 'rgba(253, 224, 115, 0.06)');
+  baseGrad.addColorStop(1.0, 'rgba(253, 224, 115, 0.0)');
+
+  ctx.fillStyle = baseGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  for (let i = 0; i < 6; i++) {
+    const cy = ((i + 0.5) / 6) * H;
+    const radX = 180 + (i % 3) * 45;
+    const radY = 95 + (i % 2) * 30;
+    const softGrad = ctx.createRadialGradient(W - 20, cy, 10, W - 40, cy, radX);
+    softGrad.addColorStop(0.0, 'rgba(245, 179, 42, 0.28)');
+    softGrad.addColorStop(0.55, 'rgba(251, 196, 68, 0.12)');
+    softGrad.addColorStop(1.0, 'rgba(253, 224, 102, 0.0)');
+    ctx.save();
+    ctx.translate(W - 20, cy);
+    ctx.scale(1.0, radY / radX);
+    ctx.fillStyle = softGrad;
+    ctx.beginPath();
+    ctx.arc(0, 0, radX, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = maxAnisotropy;
+  tex.needsUpdate = true;
+  cachedSandDriftTex = tex;
+  return tex;
+}
+
+const kiteTextureCache = new Map<number, THREE.CanvasTexture>();
+
+export function createCartoonKiteTexture(
+  variantIndex: number,
+  maxAnisotropy = 4,
+): THREE.CanvasTexture {
+  const key = ((variantIndex % 6) + 6) % 6;
+  const cached = kiteTextureCache.get(key);
+  if (cached) return cached;
+
+  const W = 512;
+  const H = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.clearRect(0, 0, W, H);
+  const cx = W * 0.5;
+
+  const drawFivePointStar = (
+    sx: number,
+    sy: number,
+    outerR: number,
+    innerR: number,
+    fillHex: string,
+    strokeHex = '#0F172A',
+  ) => {
+    ctx.save();
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const r = i % 2 === 0 ? outerR : innerR;
+      const angle = -Math.PI * 0.5 + (i * Math.PI) / 5;
+      const px = sx + Math.cos(angle) * r;
+      const py = sy + Math.sin(angle) * r;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = fillHex;
+    ctx.fill();
+    if (strokeHex) {
+      ctx.strokeStyle = strokeHex;
+      ctx.lineWidth = 4;
+      ctx.stroke();
+    }
+    ctx.restore();
+  };
+
+  if (key === 1) {
+    const topY = 24;
+    const upperMidY = 168;
+    const lowerMidY = 300;
+    const botY = 486;
+    const leftX = 46;
+    const rightX = W - 46;
+    const lowerLeftX = 96;
+    const lowerRightX = W - 96;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(cx, topY);
+    ctx.lineTo(rightX, upperMidY);
+    ctx.lineTo(lowerRightX, lowerMidY);
+    ctx.lineTo(cx, botY);
+    ctx.lineTo(lowerLeftX, lowerMidY);
+    ctx.lineTo(leftX, upperMidY);
+    ctx.closePath();
+    ctx.clip();
+
+    ctx.fillStyle = '#16A34A';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = '#22C55E';
+    ctx.beginPath();
+    ctx.moveTo(cx, topY);
+    ctx.lineTo(rightX, upperMidY);
+    ctx.lineTo(cx, 232);
+    ctx.lineTo(leftX, upperMidY);
+    ctx.closePath();
+    ctx.fill();
+
+    const losTopY = 88;
+    const losMidY = 232;
+    const losBotY = 382;
+    const losLeftX = 82;
+    const losRightX = W - 82;
+
+    ctx.fillStyle = '#FACC15';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.moveTo(cx, losTopY);
+    ctx.lineTo(losRightX, losMidY);
+    ctx.lineTo(cx, losBotY);
+    ctx.lineTo(losLeftX, losMidY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    const globeR = 72;
+    ctx.fillStyle = '#1D4ED8';
+    ctx.beginPath();
+    ctx.arc(cx, losMidY, globeR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#0F172A';
+    ctx.stroke();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, losMidY, globeR - 3, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 18;
+    ctx.beginPath();
+    ctx.arc(cx - 18, losMidY + 95, 112, -Math.PI * 0.78, -Math.PI * 0.22);
+    ctx.stroke();
+    ctx.restore();
+
+    for (const [sx, sy] of [
+      [cx - 26, losMidY + 18],
+      [cx + 22, losMidY + 26],
+      [cx + 6, losMidY + 38],
+      [cx - 14, losMidY + 42],
+      [cx + 28, losMidY - 22],
+    ]) {
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.arc(sx, sy, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.moveTo(cx, topY);
+    ctx.lineTo(cx, botY);
+    ctx.moveTo(leftX, upperMidY);
+    ctx.lineTo(rightX, upperMidY);
+    ctx.moveTo(lowerLeftX, lowerMidY);
+    ctx.lineTo(lowerRightX, lowerMidY);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#FEF08A';
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    ctx.moveTo(cx, topY + 6);
+    ctx.lineTo(cx, botY - 6);
+    ctx.moveTo(leftX + 6, upperMidY);
+    ctx.lineTo(rightX - 6, upperMidY);
+    ctx.moveTo(lowerLeftX + 6, lowerMidY);
+    ctx.lineTo(lowerRightX - 6, lowerMidY);
+    ctx.stroke();
+
+    ctx.restore();
+
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 10;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx, topY);
+    ctx.lineTo(rightX, upperMidY);
+    ctx.lineTo(lowerRightX, lowerMidY);
+    ctx.lineTo(cx, botY);
+    ctx.lineTo(lowerLeftX, lowerMidY);
+    ctx.lineTo(leftX, upperMidY);
+    ctx.closePath();
+    ctx.stroke();
+  } else if (key === 2) {
+    const topY = 26;
+    const midY = 256;
+    const botY = 486;
+    const leftX = 26;
+    const rightX = W - 26;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(cx, topY);
+    ctx.lineTo(rightX, midY);
+    ctx.lineTo(cx, botY);
+    ctx.lineTo(leftX, midY);
+    ctx.closePath();
+    ctx.clip();
+
+    ctx.fillStyle = '#06B6D4';
+    ctx.fillRect(0, 0, W, H);
+
+    const stripeColors = ['#EC4899', '#FACC15', '#2563EB', '#22C55E', '#F97316'];
+    for (let s = 0; s < 5; s++) {
+      const inset = (s + 1) * 36;
+      ctx.fillStyle = stripeColors[s % stripeColors.length];
+      ctx.beginPath();
+      ctx.moveTo(cx, topY + inset);
+      ctx.lineTo(rightX - inset, midY);
+      ctx.lineTo(cx, botY - inset);
+      ctx.lineTo(leftX + inset, midY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#0F172A';
+      ctx.lineWidth = 5;
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.moveTo(cx, topY);
+    ctx.lineTo(cx, botY);
+    ctx.moveTo(leftX, midY);
+    ctx.quadraticCurveTo(cx, topY + 85, rightX, midY);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#FEF08A';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(cx, topY + 6);
+    ctx.lineTo(cx, botY - 6);
+    ctx.moveTo(leftX + 6, midY);
+    ctx.quadraticCurveTo(cx, topY + 85, rightX - 6, midY);
+    ctx.stroke();
+
+    ctx.restore();
+
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 10;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx, topY);
+    ctx.lineTo(rightX, midY);
+    ctx.lineTo(cx, botY);
+    ctx.lineTo(leftX, midY);
+    ctx.closePath();
+    ctx.stroke();
+  } else if (key === 0 || key === 3 || key === 5) {
+    const topY = 26;
+    const upperMidY = 176;
+    const lowerMidY = 306;
+    const botY = 484;
+    const leftX = 42;
+    const rightX = W - 42;
+    const lowerLeftX = 92;
+    const lowerRightX = W - 92;
+
+    const qTopLeft = key === 0 ? '#EF4444' : key === 3 ? '#EC4899' : '#F97316';
+    const qTopRight = key === 0 ? '#1D4ED8' : key === 3 ? '#06B6D4' : '#EF4444';
+    const qBotLeft = key === 0 ? '#22C55E' : key === 3 ? '#FACC15' : '#FACC15';
+    const qBotRight = key === 0 ? '#FACC15' : key === 3 ? '#9333EA' : '#EA580C';
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(cx, topY);
+    ctx.lineTo(rightX, upperMidY);
+    ctx.lineTo(lowerRightX, lowerMidY);
+    ctx.lineTo(cx, botY);
+    ctx.lineTo(lowerLeftX, lowerMidY);
+    ctx.lineTo(leftX, upperMidY);
+    ctx.closePath();
+    ctx.clip();
+
+    ctx.fillStyle = qTopLeft;
+    ctx.fillRect(0, 0, cx, 236);
+    ctx.fillStyle = qTopRight;
+    ctx.fillRect(cx, 0, cx, 236);
+    ctx.fillStyle = qBotLeft;
+    ctx.fillRect(0, 236, cx, H - 236);
+    ctx.fillStyle = qBotRight;
+    ctx.fillRect(cx, 236, cx, H - 236);
+
+    if (key === 3) {
+      drawFivePointStar(cx, 232, 92, 40, '#FEF08A', '#0F172A');
+    } else if (key === 5) {
+      ctx.fillStyle = '#FEF08A';
+      ctx.strokeStyle = '#0F172A';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(cx, 122);
+      ctx.lineTo(cx + 88, 232);
+      ctx.lineTo(cx, 342);
+      ctx.lineTo(cx - 88, 232);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      drawFivePointStar(cx, 232, 54, 24, '#EF4444', '#0F172A');
+    }
+
+    const glow = ctx.createRadialGradient(cx, 232, 10, cx, 232, 210);
+    glow.addColorStop(0.0, 'rgba(255, 255, 255, 0.24)');
+    glow.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.moveTo(cx, topY);
+    ctx.lineTo(cx, botY);
+    ctx.moveTo(leftX, upperMidY);
+    ctx.lineTo(rightX, upperMidY);
+    ctx.moveTo(lowerLeftX, lowerMidY);
+    ctx.lineTo(lowerRightX, lowerMidY);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#FEF08A';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(cx, topY + 6);
+    ctx.lineTo(cx, botY - 6);
+    ctx.moveTo(leftX + 6, upperMidY);
+    ctx.lineTo(rightX - 6, upperMidY);
+    ctx.moveTo(lowerLeftX + 6, lowerMidY);
+    ctx.lineTo(lowerRightX - 6, lowerMidY);
+    ctx.stroke();
+
+    ctx.fillStyle = '#F97316';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(cx, upperMidY, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.restore();
+
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 10;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx, topY);
+    ctx.lineTo(rightX, upperMidY);
+    ctx.lineTo(lowerRightX, lowerMidY);
+    ctx.lineTo(cx, botY);
+    ctx.lineTo(lowerLeftX, lowerMidY);
+    ctx.lineTo(leftX, upperMidY);
+    ctx.closePath();
+    ctx.stroke();
+  } else {
+    const pal = {
+      peak: '#FACC15',
+      mid: '#06B6D4',
+      wingL: '#22C55E',
+      wingR: '#16A34A',
+      center: '#EC4899',
+    };
+
+    const topY = 24;
+    const wingTipY = 305;
+    const innerArchY = 342;
+    const tailPointY = 484;
+    const leftTipX = 24;
+    const rightTipX = W - 24;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(cx, topY);
+    ctx.lineTo(rightTipX, wingTipY);
+    ctx.quadraticCurveTo(cx + 82, innerArchY, cx, tailPointY);
+    ctx.quadraticCurveTo(cx - 82, innerArchY, leftTipX, wingTipY);
+    ctx.closePath();
+    ctx.clip();
+
+    ctx.fillStyle = pal.wingL;
+    ctx.fillRect(0, 0, cx, H);
+    ctx.fillStyle = pal.wingR;
+    ctx.fillRect(cx, 0, cx, H);
+
+    ctx.fillStyle = pal.mid;
+    ctx.beginPath();
+    ctx.moveTo(cx, topY);
+    ctx.lineTo(rightTipX - 38, wingTipY - 42);
+    ctx.lineTo(cx, 272);
+    ctx.lineTo(leftTipX + 38, wingTipY - 42);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = pal.peak;
+    ctx.beginPath();
+    ctx.moveTo(cx, topY);
+    ctx.lineTo(rightTipX - 96, wingTipY - 98);
+    ctx.lineTo(cx, 210);
+    ctx.lineTo(leftTipX + 96, wingTipY - 98);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = pal.center;
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(cx, 150);
+    ctx.lineTo(cx + 38, 248);
+    ctx.lineTo(cx, 346);
+    ctx.lineTo(cx - 38, 248);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(leftTipX + 96, wingTipY - 98);
+    ctx.lineTo(cx, 210);
+    ctx.lineTo(rightTipX - 96, wingTipY - 98);
+    ctx.moveTo(leftTipX + 38, wingTipY - 42);
+    ctx.lineTo(cx, 272);
+    ctx.lineTo(rightTipX - 38, wingTipY - 42);
+    ctx.moveTo(cx, topY);
+    ctx.lineTo(cx, tailPointY);
+    ctx.stroke();
+
+    ctx.restore();
+
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 10;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx, topY);
+    ctx.lineTo(rightTipX, wingTipY);
+    ctx.quadraticCurveTo(cx + 82, innerArchY, cx, tailPointY);
+    ctx.quadraticCurveTo(cx - 82, innerArchY, leftTipX, wingTipY);
+    ctx.closePath();
+    ctx.stroke();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy;
+  tex.needsUpdate = true;
+  kiteTextureCache.set(key, tex);
+  return tex;
+}
+
+const kiteRabiolaTexCache = new Map<number, THREE.CanvasTexture>();
+
+export function createKiteRabiolaTexture(
+  variantIndex: number,
+  maxAnisotropy = 4,
+): THREE.CanvasTexture {
+  const key = ((variantIndex % 4) + 4) % 4;
+  const cached = kiteRabiolaTexCache.get(key);
+  if (cached) return cached;
+
+  const W = 128;
+  const H = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, W, H);
+
+  const cx = W * 0.5;
+
+  ctx.strokeStyle = '#0F172A';
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.moveTo(cx, 0);
+  ctx.lineTo(cx, H);
+  ctx.stroke();
+
+  ctx.strokeStyle = '#F8FAFC';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(cx, 0);
+  ctx.lineTo(cx, H);
+  ctx.stroke();
+
+  const colorSets = [
+    ['#22C55E', '#FACC15', '#1D4ED8', '#FFFFFF'],
+    ['#EF4444', '#FACC15', '#06B6D4', '#EC4899'],
+    ['#A855F7', '#F97316', '#FACC15', '#22C55E'],
+    ['#06B6D4', '#EC4899', '#FACC15', '#FFFFFF'],
+  ];
+  const palette = colorSets[key];
+
+  const numBows = 11;
+  for (let i = 0; i < numBows; i++) {
+    const t = i / (numBows - 1);
+    const y = 22 + t * (H - 46);
+    const bowHalfW = (52 - t * 18) * (i % 2 === 0 ? 1.0 : 0.9);
+    const bowH = 14 - t * 3;
+    const tilt = (i % 2 === 0 ? 1 : -1) * 0.14;
+    const col = palette[i % palette.length];
+
+    ctx.save();
+    ctx.translate(cx, y);
+    ctx.rotate(tilt);
+
+    ctx.fillStyle = col;
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 3.5;
+
+    ctx.beginPath();
+    ctx.moveTo(-bowHalfW, -bowH);
+    ctx.lineTo(0, -3);
+    ctx.lineTo(bowHalfW, -bowH);
+    ctx.lineTo(bowHalfW - 4, bowH);
+    ctx.lineTo(0, 3);
+    ctx.lineTo(-bowHalfW + 4, bowH);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#0F172A';
+    ctx.beginPath();
+    ctx.arc(0, 0, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy;
+  tex.needsUpdate = true;
+  kiteRabiolaTexCache.set(key, tex);
+  return tex;
+}
+
+let cachedMountainTreeCutoutTex: THREE.CanvasTexture | null = null;
+
+export function createMountainTreeFoliageCutoutTexture(maxAnisotropy = 4): THREE.CanvasTexture {
+  if (cachedMountainTreeCutoutTex) return cachedMountainTreeCutoutTex;
+
+  const W = 512;
+  const H = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, W, H);
+
+  const treeClusterPuffs: Array<{ cx: number; cy: number; rx: number; ry: number }> = [
+    { cx: 74, cy: 178, rx: 54, ry: 48 },
+    { cx: 438, cy: 180, rx: 54, ry: 46 },
+    { cx: 146, cy: 148, rx: 68, ry: 62 },
+    { cx: 366, cy: 150, rx: 66, ry: 60 },
+    { cx: 256, cy: 126, rx: 82, ry: 76 },
+    { cx: 198, cy: 142, rx: 70, ry: 64 },
+    { cx: 314, cy: 144, rx: 70, ry: 62 },
+    { cx: 112, cy: 196, rx: 64, ry: 48 },
+    { cx: 214, cy: 198, rx: 78, ry: 50 },
+    { cx: 306, cy: 198, rx: 78, ry: 50 },
+    { cx: 402, cy: 196, rx: 64, ry: 48 },
+  ];
+
+  ctx.fillStyle = '#2F656B';
+  for (const p of treeClusterPuffs) {
+    ctx.beginPath();
+    ctx.ellipse(p.cx, p.cy + 4, p.rx, p.ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = '#38765C';
+  for (const p of treeClusterPuffs) {
+    ctx.beginPath();
+    ctx.ellipse(p.cx, p.cy - 2, p.rx * 0.92, p.ry * 0.88, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = '#629E6E';
+  for (const p of treeClusterPuffs) {
+    ctx.beginPath();
+    ctx.ellipse(p.cx - 4, p.cy - 10, p.rx * 0.76, p.ry * 0.68, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = '#89BF84';
+  for (let i = 2; i < 7; i++) {
+    const p = treeClusterPuffs[i];
+    ctx.beginPath();
+    ctx.ellipse(p.cx - 7, p.cy - 18, p.rx * 0.52, p.ry * 0.42, -0.1, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.globalCompositeOperation = 'destination-in';
+  const alphaGrad = ctx.createLinearGradient(0, 40, 0, H);
+  alphaGrad.addColorStop(0.0, 'rgba(255,255,255,0.92)');
+  alphaGrad.addColorStop(0.68, 'rgba(255,255,255,0.88)');
+  alphaGrad.addColorStop(0.92, 'rgba(255,255,255,0.25)');
+  alphaGrad.addColorStop(1.0, 'rgba(255,255,255,0.0)');
+  ctx.fillStyle = alphaGrad;
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = 'source-over';
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy;
+  tex.needsUpdate = true;
+  cachedMountainTreeCutoutTex = tex;
+  return tex;
+}
+
+
+/**
+ * Builds the Cracked Volcanic-Reddish Asphalt Road Texture with a Single Dashed White/Cream Center Line
+ * matching the reference image ("Apocalyptic_Road_to_the_Inferno_3ca1a72e.png")!
+ */
+export function createInfernoRoadTexture(maxAnisotropy = 4): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d')!;
+
+  // Rich dark reddish-charcoal asphalt base bathed in warm crimson-amber firelight
+  const grad = ctx.createLinearGradient(0, 0, 512, 0);
+  grad.addColorStop(0.0, '#4A1815');
+  grad.addColorStop(0.14, '#3D1412');
+  grad.addColorStop(0.5, '#331110');
+  grad.addColorStop(0.86, '#3D1412');
+  grad.addColorStop(1.0, '#4A1815');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 512);
+
+  // Warm orange-red firelight reflection bands along left and right road shoulders
+  for (let i = 0; i < 16; i++) {
+    const y = i * 32;
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(234, 88, 12, 0.12)' : 'rgba(185, 28, 28, 0.10)';
+    ctx.fillRect(0, y, 96, 22);
+    ctx.fillRect(416, y, 96, 22);
+  }
+
+  // Subtle dark ash & scorch patches across the road surface
+  let rSeed = 4041;
+  const rand = () => {
+    rSeed = (rSeed * 1664525 + 1013904223) % 4294967296;
+    return rSeed / 4294967296;
+  };
+
+  for (let i = 0; i < 42; i++) {
+    const px = 24 + rand() * 464;
+    const py = rand() * 512;
+    const pw = 18 + rand() * 54;
+    const ph = 8 + rand() * 24;
+    ctx.fillStyle = i % 3 === 0 ? 'rgba(24, 6, 6, 0.36)' : 'rgba(127, 29, 29, 0.22)';
+    ctx.fillRect(px, py, pw, ph);
+  }
+
+  // Jagged asphalt fissures & cracks near the road edges
+  ctx.strokeStyle = '#180505';
+  ctx.lineWidth = 3;
+  for (let c = 0; c < 18; c++) {
+    const startX = c % 2 === 0 ? 12 + rand() * 120 : 380 + rand() * 120;
+    const startY = rand() * 512;
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(startX + (rand() - 0.5) * 44, startY + 24);
+    ctx.lineTo(startX + (rand() - 0.5) * 64, startY + 52);
+    ctx.stroke();
+  }
+
+  // Three Crisp Dashed White/Warm-Cream Road Stripes ("e tambem coloque 3 faixas na rua")
+  // Aligned across the left, center, and right road corridors (x = 118, 256, 394 on the 512px texture)
+  const stripeCenters = [118, 256, 394];
+  const dashCount = 4;
+  const segmentH = 512 / dashCount;
+  const stripeW = 14;
+  for (const cx of stripeCenters) {
+    const sx = Math.round(cx - stripeW / 2);
+    for (let d = 0; d < dashCount; d++) {
+      const dy = d * segmentH + 18;
+      const dh = segmentH - 46;
+      // Subtle dark outline border for maximum sharpness at distance
+      ctx.fillStyle = 'rgba(24, 6, 6, 0.58)';
+      ctx.fillRect(sx - 2, dy - 2, stripeW + 4, dh + 4);
+      // Warm cream-white road dash
+      ctx.fillStyle = '#F5D0C5';
+      ctx.fillRect(sx, dy, stripeW, dh);
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1, 14);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy;
+  return tex;
+}
+
+/**
+ * Builds the Cracked Volcanic Sidewalk Slab Texture for both sides of the Inferno road.
+ */
+export function createInfernoCrackedSidewalkTexture(maxAnisotropy = 4): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#6E322C';
+  ctx.fillRect(0, 0, 256, 256);
+
+  // Stone slab grid with dark soot seams
+  ctx.strokeStyle = '#2A0D0B';
+  ctx.lineWidth = 4;
+  for (let y = 0; y <= 256; y += 64) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(256, y);
+    ctx.stroke();
+  }
+  for (let x = 0; x <= 256; x += 64) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, 256);
+    ctx.stroke();
+  }
+
+  // Warm orange-red reflection highlights on slab tops
+  ctx.fillStyle = 'rgba(251, 146, 60, 0.16)';
+  ctx.fillRect(6, 6, 52, 52);
+  ctx.fillRect(134, 70, 52, 52);
+  ctx.fillRect(70, 198, 52, 52);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(2, 16);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy;
+  return tex;
+}
+
+/**
+ * Builds the Subterranean Crimson-Scarlet to Fiery Orange-Red Cavern Sky Backdrop Texture
+ * ("horizonte avermelhado e o ceu invez de ser ceu e umas montanhas cabeca pra baixo").
+ */
+export function createInfernoCavernSkyTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d')!;
+
+  // SphereGeometry maps zenith (+Y) to y=0 (0.0) and horizon equator (Y=0) to y=256 (0.50)!
+  const grad = ctx.createLinearGradient(0, 0, 0, 512);
+  grad.addColorStop(0.0, '#6B0F0F');
+  grad.addColorStop(0.18, '#991B1B');
+  grad.addColorStop(0.32, '#DC2626');
+  grad.addColorStop(0.42, '#EF4444');
+  grad.addColorStop(0.49, '#F97316');
+  grad.addColorStop(0.56, '#EA580C');
+  grad.addColorStop(1.0, '#7F1D1D');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 512);
+
+  // Subtle glowing atmospheric heat bands in the horizon sky (y = 140..255)
+  const horizonGlow = ctx.createRadialGradient(256, 232, 16, 256, 232, 240);
+  horizonGlow.addColorStop(0.0, 'rgba(253, 186, 116, 0.48)');
+  horizonGlow.addColorStop(0.45, 'rgba(239, 68, 68, 0.25)');
+  horizonGlow.addColorStop(1.0, 'rgba(153, 27, 27, 0.0)');
+  ctx.fillStyle = horizonGlow;
+  ctx.fillRect(0, 0, 512, 512);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+const infernoWallTexCache = new Map<number, THREE.CanvasTexture>();
+
+/**
+ * Builds a Scorched, Cracked Plaster & Exposed Brick Ruined House Facade Texture
+ * for the burning houses in the Inferno map ("as casas destruidas pegando fogo").
+ */
+export function getInfernoRuinedWallTexture(
+  variantIndex: number,
+  maxAnisotropy = 4,
+): THREE.CanvasTexture {
+  const idx = Math.abs(variantIndex) % 6;
+  const cached = infernoWallTexCache.get(idx);
+  if (cached) return cached;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+
+  const baseColors = ['#8C4237', '#7A352C', '#964B3E', '#6E2E26', '#853D32', '#733129'];
+  ctx.fillStyle = baseColors[idx];
+  ctx.fillRect(0, 0, 256, 256);
+
+  // Soot & fire-scorch gradient darkening the top of the ruined wall
+  const sootGrad = ctx.createLinearGradient(0, 0, 0, 256);
+  sootGrad.addColorStop(0.0, 'rgba(20, 5, 5, 0.62)');
+  sootGrad.addColorStop(0.45, 'rgba(35, 10, 8, 0.22)');
+  sootGrad.addColorStop(1.0, 'rgba(251, 146, 60, 0.18)');
+  ctx.fillStyle = sootGrad;
+  ctx.fillRect(0, 0, 256, 256);
+
+  // Exposed dark-red brick patches where plaster peeled off in the fire
+  ctx.fillStyle = '#4A1512';
+  ctx.strokeStyle = '#1F0706';
+  ctx.lineWidth = 2;
+  const patches = [
+    { x: 18, y: 28, rows: 3, cols: 3 },
+    { x: 148, y: 92, rows: 4, cols: 3 },
+    { x: 42, y: 164, rows: 3, cols: 4 },
+  ];
+  for (const p of patches) {
+    for (let r = 0; r < p.rows; r++) {
+      for (let c = 0; c < p.cols; c++) {
+        const bx = p.x + c * 22 + (r % 2) * 10;
+        const by = p.y + r * 12;
+        ctx.fillRect(bx, by, 20, 10);
+        ctx.strokeRect(bx, by, 20, 10);
+      }
+    }
+  }
+
+  // Structural wall cracks
+  ctx.strokeStyle = '#1C0605';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(64, 0);
+  ctx.lineTo(78, 48);
+  ctx.lineTo(58, 104);
+  ctx.moveTo(192, 32);
+  ctx.lineTo(174, 96);
+  ctx.lineTo(198, 156);
+  ctx.stroke();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy;
+  tex.needsUpdate = true;
+  infernoWallTexCache.set(idx, tex);
+  return tex;
+}
+
+let cachedInfernoWoodenBillboardTex: THREE.CanvasTexture | null = null;
+
+/**
+ * Builds the Weathered, Cracked Wooden Plank Billboard & House Sign Texture reading "SUA LOGO AQUI"
+ * ("se possivel coloque uns autdor no canto e escrito sua logo aqui. placa de madeira assim das casas e autdor meio que quebrado").
+ */
+export function getInfernoWoodenBillboardTexture(maxAnisotropy = 4): THREE.CanvasTexture {
+  if (cachedInfernoWoodenBillboardTex) return cachedInfernoWoodenBillboardTex;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+
+  // 1. Horizontal weathered wooden planks matching the Inferno house/fence wood palette
+  const plankColors = ['#8F3F2B', '#7A3221', '#994631', '#6E2B1C'];
+  const plankH = 64;
+  for (let p = 0; p < 4; p++) {
+    ctx.fillStyle = plankColors[p];
+    ctx.fillRect(0, p * plankH, 512, plankH);
+
+    // Subtle wood grain streaks along each plank
+    ctx.fillStyle = 'rgba(28, 7, 5, 0.24)';
+    ctx.fillRect(24, p * plankH + 14, 180, 5);
+    ctx.fillRect(260, p * plankH + 38, 210, 6);
+    ctx.fillStyle = 'rgba(251, 146, 60, 0.14)';
+    ctx.fillRect(80, p * plankH + 26, 220, 4);
+  }
+
+  // Soot & fire-scorch vignette around the wooden board edges
+  const scorchGrad = ctx.createRadialGradient(256, 128, 90, 256, 128, 300);
+  scorchGrad.addColorStop(0.0, 'rgba(0, 0, 0, 0.0)');
+  scorchGrad.addColorStop(1.0, 'rgba(18, 4, 3, 0.58)');
+  ctx.fillStyle = scorchGrad;
+  ctx.fillRect(0, 0, 512, 256);
+
+  // Dark horizontal seams between wooden planks + vertical plank joints
+  ctx.strokeStyle = '#1A0504';
+  ctx.lineWidth = 5;
+  for (let p = 1; p < 4; p++) {
+    ctx.beginPath();
+    ctx.moveTo(0, p * plankH);
+    ctx.lineTo(512, p * plankH);
+    ctx.stroke();
+  }
+  // Vertical board split / crack seams
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(168, 0);
+  ctx.lineTo(162, 64);
+  ctx.moveTo(356, 128);
+  ctx.lineTo(364, 256);
+  ctx.stroke();
+
+  // Iron nail heads at plank ends
+  ctx.fillStyle = '#180504';
+  for (let p = 0; p < 4; p++) {
+    for (const nx of [20, 492]) {
+      ctx.beginPath();
+      ctx.arc(nx, p * plankH + 18, 4.5, 0, Math.PI * 2);
+      ctx.arc(nx, p * plankH + 46, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Distressed painted inner frame border
+  ctx.strokeStyle = '#240806';
+  ctx.lineWidth = 8;
+  ctx.strokeRect(14, 14, 484, 228);
+  ctx.strokeStyle = 'rgba(253, 224, 71, 0.55)';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(20, 20, 472, 216);
+
+  // 2. Bold Stenciled / Painted "SUA LOGO AQUI" Lettering
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+
+  ctx.font = '900 72px "Arial Black", Impact, sans-serif';
+  ctx.strokeStyle = '#160403';
+  ctx.lineWidth = 13;
+  ctx.strokeText('SUA LOGO', 256, 92);
+  ctx.fillStyle = '#FEF08A';
+  ctx.fillText('SUA LOGO', 256, 92);
+
+  ctx.font = '900 78px "Arial Black", Impact, sans-serif';
+  ctx.strokeStyle = '#160403';
+  ctx.lineWidth = 13;
+  ctx.strokeText('AQUI', 256, 174);
+  ctx.fillStyle = '#FFFBEB';
+  ctx.fillText('AQUI', 256, 174);
+
+  // Re-draw thin dark plank seam lines and diagonal cracks over the painted text so it looks painted directly onto the broken wooden boards!
+  ctx.strokeStyle = 'rgba(26, 5, 4, 0.72)';
+  ctx.lineWidth = 3.5;
+  for (let p = 1; p < 4; p++) {
+    ctx.beginPath();
+    ctx.moveTo(0, p * plankH);
+    ctx.lineTo(512, p * plankH);
+    ctx.stroke();
+  }
+  // Diagonal wood fracture cracks
+  ctx.beginPath();
+  ctx.moveTo(48, 0);
+  ctx.lineTo(92, 76);
+  ctx.lineTo(74, 128);
+  ctx.moveTo(445, 256);
+  ctx.lineTo(412, 182);
+  ctx.stroke();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy;
+  tex.needsUpdate = true;
+  cachedInfernoWoodenBillboardTex = tex;
+  return tex;
+}
+
+
 
 
 

@@ -1,10 +1,19 @@
 import * as THREE from 'three';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import {
   DEFAULT_WORLD_CURVE_Y,
   WORLD_CURVE_START_Z,
   type HouseVariationSpec,
   type ObstacleKind,
   type TreeType,
+  computeBannerAirplanePose,
+  computeBeachKitePose,
+  computeCelestialSunMoonDiagonalPose,
+  computeSmoothLodTierOpacities,
+  computeInfernoAscendingRoadHeight,
+  computeInfernoFlyingCreaturePose,
+  computeInfernoMeteorPose,
 } from './rules';
 import {
   getHandPaintedWallTexture,
@@ -19,6 +28,17 @@ import {
   createBuildingGraffitiMuralTexture,
   getRioBuildingFacadeTexture,
   getFavelaHouseTexture,
+  createRioWallGraffitiTexture,
+  getCoastalCondoFacadeTexture,
+  createGoldenBeachSandTexture,
+  createAirplaneBannerTexture,
+  createBlownSandRoadDriftTexture,
+  createCartoonKiteTexture,
+  createKiteRabiolaTexture,
+  createMountainTreeFoliageCutoutTexture,
+  createPainterlyCloudPanoramaTexture,
+  getInfernoRuinedWallTexture,
+  getInfernoWoodenBillboardTexture,
 } from './textures';
 
 export interface HorizonDepthFogConfig {
@@ -35,6 +55,16 @@ export const worldCurveUniforms = {
   uWorldCurveY: { value: DEFAULT_WORLD_CURVE_Y },
   uWorldCurveX: { value: 0.0 },
   uCurveStartZ: { value: WORLD_CURVE_START_Z },
+  uLadeiraSlope: { value: 0.0 },
+  uRoadWindPhase: { value: 0.0 },
+  uPalmWindTime: { value: 0.0 },
+  uSunsetOrangeMix: { value: 0.0 },
+  uNightDarknessMix: { value: 0.0 },
+  uInfernoMapMix: { value: 0.0 },
+  uWindowEmissiveIntensity: { value: 0.0 },
+  uLampGlowOpacity: { value: 0.0 },
+  uSunWorldPos: { value: new THREE.Vector3(-102.0, 99.0, -252.0) },
+  uSunActiveOpacity: { value: 1.0 },
   uHorizonFogColor: { value: new THREE.Color('#F1D4B8') },
   uHorizonFogSkyTint: { value: new THREE.Color('#C8BFE7') },
   uHorizonFogPulse: { value: 0.0 },
@@ -42,9 +72,143 @@ export const worldCurveUniforms = {
 
 const curvedMaterialInstances = new WeakSet<THREE.Material>();
 
+export const GLSL_TROPICAL_CINEMATIC_GRADE = `
+uniform float uSunsetOrangeMix;
+uniform float uNightDarknessMix;
+uniform float uInfernoMapMix;
+
+vec3 applyTropicalCinematicGrade(vec3 rawCol) {
+  vec3 c = clamp(rawCol, 0.0, 1.0);
+  float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  float shadowMask = 1.0 - smoothstep(0.0, 0.48, luma);
+  float highlightMask = smoothstep(0.45, 0.96, luma);
+
+  // 1. Sombras levemente azuladas e profundas (Deep Cool-Azure Shadow Split-Toning)
+  vec3 coolShadowTint = vec3(0.055, 0.125, 0.245);
+  c = mix(c, mix(c * vec3(0.86, 0.93, 1.12), coolShadowTint, 0.24), shadowMask * 0.68);
+
+  // 2. Iluminação solar quente e dourada + Realces luminosos (Warm Golden Solar Highlights)
+  vec3 warmSunMultiplier = vec3(1.06, 1.01, 0.91);
+  c = mix(c, c * warmSunMultiplier + vec3(0.028, 0.020, 0.004), highlightMask * 0.65);
+
+  // 3. Contraste Médio-Alto (Smooth S-Curve Contrast)
+  vec3 sCurve = smoothstep(0.0, 1.0, c);
+  c = mix(c, sCurve, 0.22);
+
+  // 4. Cores tropicais intensas e saturadas sem exageros (Smart Vibrance Boost)
+  float newLuma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  float maxChan = max(c.r, max(c.g, c.b));
+  float minChan = min(c.r, min(c.g, c.b));
+  float sat = maxChan - minChan;
+  float vibranceBoost = 1.0 + 0.24 * (1.0 - sat * 0.75);
+  c = mix(vec3(newLuma), c, vibranceBoost);
+
+  // 5. Entardecer Alaranjado ("atardecer cenario fica meio alaranjado"):
+  if (uSunsetOrangeMix > 0.001) {
+    vec3 sunsetTint = c * vec3(1.18, 0.84, 0.56) + vec3(0.065, 0.024, -0.015);
+    vec3 sunsetShadow = mix(sunsetTint, vec3(0.22, 0.09, 0.14), shadowMask * 0.28);
+    c = mix(c, clamp(sunsetShadow, 0.0, 1.0), uSunsetOrangeMix * 0.82);
+  }
+
+  // 6. Noite Tropical ("sistema de dia e noite tambem"):
+  if (uNightDarknessMix > 0.001) {
+    float warmLightPreserve = smoothstep(0.62, 0.92, c.r) * smoothstep(0.45, 0.85, c.g);
+    vec3 nightCol = c * vec3(0.36, 0.48, 0.78) + vec3(0.01, 0.025, 0.065);
+    nightCol = mix(nightCol, c * vec3(1.08, 0.96, 0.76), warmLightPreserve * 0.85);
+    c = mix(c, clamp(nightCol, 0.0, 1.0), uNightDarknessMix * 0.86);
+  }
+
+  // 6b. Apocalyptic Inferno Controlled Crimson-Amber Grading
+  if (uInfernoMapMix > 0.001) {
+    float firePreserve = smoothstep(0.65, 0.94, rawCol.r) * smoothstep(0.35, 0.88, rawCol.g);
+    vec3 infernoMid = rawCol * vec3(1.16, 0.58, 0.44) + vec3(0.075, 0.014, 0.006);
+    vec3 infernoShadow = mix(infernoMid, vec3(0.11, 0.018, 0.020), shadowMask * 0.38);
+    vec3 infernoCol = mix(infernoShadow, rawCol * vec3(1.08, 0.98, 0.76), firePreserve * 0.88);
+    c = mix(c, clamp(infernoCol, 0.0, 1.0), uInfernoMapMix * 0.88);
+  }
+
+  // 7. Pretos suaves & Anti-glare highlight shoulder (Soft Blacks + Preserved Readability)
+  vec3 softBlackFloor = mix(vec3(0.022, 0.032, 0.056), vec3(0.038, 0.010, 0.012), uInfernoMapMix);
+  c = softBlackFloor + c * (vec3(0.985) - softBlackFloor);
+  return clamp(c, 0.0, 1.0);
+}
+`;
+
+function glslSmoothstep(edge0: number, edge1: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+function evalRoadCurveOffsetsAtZ(worldZ: number): { xOffset: number; yOffset: number } {
+  const curveStartZ = worldCurveUniforms.uCurveStartZ.value;
+  if (worldCurveUniforms.uInfernoMapMix.value > 0.5) {
+    return {
+      xOffset: 0,
+      yOffset: computeInfernoAscendingRoadHeight(worldZ, curveStartZ),
+    };
+  }
+  const curveY = worldCurveUniforms.uWorldCurveY.value;
+  const curveX = worldCurveUniforms.uWorldCurveX.value;
+  const ladeiraSlope = worldCurveUniforms.uLadeiraSlope.value;
+  const windPhase = worldCurveUniforms.uRoadWindPhase.value;
+
+  const curveDist = Math.max(0, -(worldZ - curveStartZ));
+  const curveDistSq = curveDist * curveDist;
+
+  const ladeiraBowl =
+    4.2 *
+    glslSmoothstep(14.0, 108.0, curveDist) *
+    (1.0 - 0.14 * glslSmoothstep(108.0, 175.0, curveDist));
+  const sCurveNear =
+    Math.sin(curveDist * 0.032 + windPhase) *
+    1.95 *
+    glslSmoothstep(16.0, 78.0, curveDist) *
+    ladeiraSlope;
+  const sCurveFar =
+    Math.cos(curveDist * 0.016 - windPhase * 0.65) *
+    1.45 *
+    glslSmoothstep(48.0, 165.0, curveDist) *
+    ladeiraSlope;
+
+  const yOffset = -(curveY * curveDistSq * 0.16 + ladeiraBowl * ladeiraSlope);
+  const xOffset = curveX * curveDistSq + sCurveNear + sCurveFar;
+  return { xOffset, yOffset };
+}
+
+/**
+ * Calcula exatamente a altura (yOffset), deslocamento lateral da curva (xOffset),
+ * inclinação longitudinal da ladeira (pitchX) e alinhamento direcional da curva (yawY)
+ * para manter todos os pneus dos veículos 100% colados no asfalto em qualquer ponto Z.
+ */
+export function sampleRoadSurfaceTransform(worldZ: number): {
+  xOffset: number;
+  yOffset: number;
+  pitchX: number;
+  yawY: number;
+} {
+  const center = evalRoadCurveOffsetsAtZ(worldZ);
+  const dz = 1.25;
+  const aheadTowardsCam = evalRoadCurveOffsetsAtZ(worldZ + dz);
+  const behindIntoHorizon = evalRoadCurveOffsetsAtZ(worldZ - dz);
+
+  const dy = aheadTowardsCam.yOffset - behindIntoHorizon.yOffset;
+  const dx = aheadTowardsCam.xOffset - behindIntoHorizon.xOffset;
+  const span = 2 * dz;
+
+  const pitchX = -Math.atan2(dy, span);
+  const yawY = Math.atan2(dx, span);
+
+  return {
+    xOffset: center.xOffset,
+    yOffset: center.yOffset,
+    pitchX,
+    yawY,
+  };
+}
+
 /**
  * Injects the world-space downward horizon curvature into any Three.js material vertex shader,
- * plus optional Dynamic Atmospheric Depth Fog for distant horizon buildings and mountains.
+ * plus optional Dynamic Atmospheric Depth Fog and Tropical Cinematic Color Grading.
  * Uses a WeakSet per Material instance so cloned materials (.clone()) always receive their own
  * onBeforeCompile curvature hook even when userData is shallow-copied!
  */
@@ -54,6 +218,8 @@ export function applyWorldCurvatureToMaterial(mat: THREE.Material): void {
   mat.userData.hasWorldCurvature = true;
 
   const fogCfg = mat.userData.horizonDepthFog as HorizonDepthFogConfig | undefined;
+  const skipColorGrade = Boolean(mat.userData.skipColorGrade);
+  const isPalmFrondMat = Boolean(mat.userData.isPalmFrondMat);
 
   const prevCompile = mat.onBeforeCompile;
   mat.onBeforeCompile = (shader, renderer) => {
@@ -61,15 +227,27 @@ export function applyWorldCurvatureToMaterial(mat: THREE.Material): void {
     shader.uniforms.uWorldCurveY = worldCurveUniforms.uWorldCurveY;
     shader.uniforms.uWorldCurveX = worldCurveUniforms.uWorldCurveX;
     shader.uniforms.uCurveStartZ = worldCurveUniforms.uCurveStartZ;
+    shader.uniforms.uLadeiraSlope = worldCurveUniforms.uLadeiraSlope;
+    shader.uniforms.uRoadWindPhase = worldCurveUniforms.uRoadWindPhase;
+    shader.uniforms.uPalmWindTime = worldCurveUniforms.uPalmWindTime;
+    shader.uniforms.uSunsetOrangeMix = worldCurveUniforms.uSunsetOrangeMix;
+    shader.uniforms.uNightDarknessMix = worldCurveUniforms.uNightDarknessMix;
+    shader.uniforms.uInfernoMapMix = worldCurveUniforms.uInfernoMapMix;
     shader.uniforms.uHorizonFogColor = worldCurveUniforms.uHorizonFogColor;
     shader.uniforms.uHorizonFogSkyTint = worldCurveUniforms.uHorizonFogSkyTint;
     shader.uniforms.uHorizonFogPulse = worldCurveUniforms.uHorizonFogPulse;
 
     if (!shader.vertexShader.includes('uniform float uWorldCurveY;')) {
       shader.vertexShader =
-        `uniform float uWorldCurveY;\nuniform float uWorldCurveX;\nuniform float uCurveStartZ;\nvarying vec3 vCurvedWorldPos;\nvarying float vCameraDepth;\n` +
+        `uniform float uWorldCurveY;\nuniform float uWorldCurveX;\nuniform float uCurveStartZ;\nuniform float uLadeiraSlope;\nuniform float uRoadWindPhase;\nuniform float uPalmWindTime;\nuniform float uInfernoMapMix;\nvarying vec3 vCurvedWorldPos;\nvarying float vCameraDepth;\n` +
         shader.vertexShader;
     }
+
+    const palmWindSnippet = isPalmFrondMat
+      ? `float palmFlutter = sin(uPalmWindTime * 3.4 + wp.z * 0.42 + wp.x * 0.58) * 0.22 + cos(uPalmWindTime * 5.2 - wp.z * 0.75) * 0.09;
+      wp.y += palmFlutter * 0.68;
+      wp.x += palmFlutter * 0.54;`
+      : '';
 
     shader.vertexShader = shader.vertexShader.replace(
       '#include <project_vertex>',
@@ -78,17 +256,65 @@ export function applyWorldCurvatureToMaterial(mat: THREE.Material): void {
         mvPosition = instanceMatrix * mvPosition;
       #endif
       vec4 wp = modelMatrix * mvPosition;
+      ${palmWindSnippet}
       float curveDist = max(0.0, -(wp.z - uCurveStartZ));
       float curveDistSq = curveDist * curveDist;
-      wp.y -= uWorldCurveY * curveDistSq;
-      wp.x += uWorldCurveX * curveDistSq;
+      float ladeiraBowl = 4.2 * smoothstep(14.0, 108.0, curveDist) * (1.0 - 0.14 * smoothstep(108.0, 175.0, curveDist));
+      float sCurveNear = sin(curveDist * 0.032 + uRoadWindPhase) * 1.95 * smoothstep(16.0, 78.0, curveDist) * uLadeiraSlope;
+      float sCurveFar = cos(curveDist * 0.016 - uRoadWindPhase * 0.65) * 1.45 * smoothstep(48.0, 165.0, curveDist) * uLadeiraSlope;
+      float beachDropY = -(uWorldCurveY * curveDistSq * 0.16 + ladeiraBowl * uLadeiraSlope);
+      float beachShiftX = uWorldCurveX * curveDistSq + sCurveNear + sCurveFar;
+
+      float infernoDip = -1.35 * smoothstep(2.0, 26.0, curveDist) * (1.0 - smoothstep(28.0, 72.0, curveDist));
+      float infernoClimbDist = min(166.0, max(0.0, curveDist - 24.0));
+      float infernoSkyClimb = pow(infernoClimbDist / 165.0, 1.72) * 34.5;
+      float infernoY = infernoDip + infernoSkyClimb;
+      float roadCorridorMask = 1.0 - smoothstep(14.0, 32.0, abs(wp.x));
+      float horizonPastPortal = smoothstep(162.0, 172.0, curveDist);
+      float pinchFactor = mix(-0.76 * smoothstep(18.0, 166.0, curveDist), -0.98, horizonPastPortal);
+      float effectivePinch = pinchFactor * mix(0.22, 1.0, roadCorridorMask);
+      float infernoPinchX = wp.x * effectivePinch;
+
+      wp.y *= mix(1.0, max(0.04, 1.0 + effectivePinch), uInfernoMapMix);
+      wp.y += mix(beachDropY, infernoY, uInfernoMapMix);
+      wp.x += mix(beachShiftX, infernoPinchX, uInfernoMapMix);
       vCurvedWorldPos = wp.xyz;
       mvPosition = viewMatrix * wp;
       vCameraDepth = -mvPosition.z;
       gl_Position = projectionMatrix * mvPosition;`,
     );
 
-    if (fogCfg && !shader.fragmentShader.includes('uniform vec3 uHorizonFogColor;')) {
+    if (!skipColorGrade && !shader.fragmentShader.includes('applyTropicalCinematicGrade')) {
+      shader.fragmentShader =
+        `uniform vec3 uHorizonFogColor;\nuniform vec3 uHorizonFogSkyTint;\nuniform float uHorizonFogPulse;\nvarying vec3 vCurvedWorldPos;\nvarying float vCameraDepth;\n` +
+        GLSL_TROPICAL_CINEMATIC_GRADE +
+        shader.fragmentShader;
+
+      if (fogCfg) {
+        const minF = fogCfg.minFog.toFixed(3);
+        const maxF = fogCfg.maxFog.toFixed(3);
+        const clearY = fogCfg.clearHeightY.toFixed(1);
+
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <dithering_fragment>',
+          `#include <dithering_fragment>
+          gl_FragColor.rgb = applyTropicalCinematicGrade(gl_FragColor.rgb);
+          float distDepthRatio = smoothstep(55.0, 155.0, vCameraDepth);
+          float verticalHaze = 1.0 - smoothstep(2.0, ${clearY}, vCurvedWorldPos.y);
+          float dynamicPulse = 0.045 * sin(vCurvedWorldPos.x * 0.06 + uHorizonFogPulse) + 0.03 * cos(vCurvedWorldPos.y * 0.08 - uHorizonFogPulse * 0.7);
+          float rawFogMix = mix(${minF}, ${maxF}, clamp(verticalHaze * 0.68 + distDepthRatio * 0.32 + dynamicPulse, 0.0, 1.0));
+          float finalDepthFog = clamp(rawFogMix * smoothstep(45.0, 85.0, vCameraDepth), 0.0, ${maxF});
+          vec3 atmosphericTint = mix(uHorizonFogColor, uHorizonFogSkyTint, clamp((vCurvedWorldPos.y - 4.0) / 38.0, 0.0, 0.65));
+          gl_FragColor.rgb = mix(gl_FragColor.rgb, atmosphericTint, finalDepthFog);`,
+        );
+      } else {
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <dithering_fragment>',
+          `#include <dithering_fragment>
+          gl_FragColor.rgb = applyTropicalCinematicGrade(gl_FragColor.rgb);`,
+        );
+      }
+    } else if (fogCfg && !shader.fragmentShader.includes('uniform vec3 uHorizonFogColor;')) {
       shader.fragmentShader =
         `uniform vec3 uHorizonFogColor;\nuniform vec3 uHorizonFogSkyTint;\nuniform float uHorizonFogPulse;\nvarying vec3 vCurvedWorldPos;\nvarying float vCameraDepth;\n` +
         shader.fragmentShader;
@@ -138,12 +364,14 @@ const cartoonInkLineMat = new THREE.LineBasicMaterial({
   transparent: true,
   opacity: 0.72,
 });
+cartoonInkLineMat.userData.skipColorGrade = true;
 applyWorldCurvatureToMaterial(cartoonInkLineMat);
 
 const cartoonInkHullMat = new THREE.MeshBasicMaterial({
   color: 0x1e1b18,
   side: THREE.BackSide,
 });
+cartoonInkHullMat.userData.skipColorGrade = true;
 applyWorldCurvatureToMaterial(cartoonInkHullMat);
 
 const edgesGeoCache = new WeakMap<THREE.BufferGeometry, THREE.EdgesGeometry>();
@@ -201,6 +429,7 @@ export function addCartoonOutlinesToGroup(root: THREE.Object3D): void {
 interface CachedLodLists {
   lod0OnlyNodes: THREE.Object3D[];
   lod1MaxNodes: THREE.Object3D[];
+  lod2MaxNodes: THREE.Object3D[];
   occludableLowerNodes: THREE.Object3D[];
 }
 
@@ -211,7 +440,25 @@ function getOrBuildLodCache(group: THREE.Object3D): CachedLodLists {
 
   const lod0OnlyNodes: THREE.Object3D[] = [];
   const lod1MaxNodes: THREE.Object3D[] = [];
+  const lod2MaxNodes: THREE.Object3D[] = [];
   const occludableLowerNodes: THREE.Object3D[] = [];
+
+  if (group.userData.keepAllMeshesVisible) {
+    group.traverse((obj) => {
+      if (obj === group) return;
+      if (obj instanceof THREE.LineSegments || obj.userData.isOutlineMesh) {
+        lod0OnlyNodes.push(obj);
+      }
+    });
+    const lists: CachedLodLists = {
+      lod0OnlyNodes,
+      lod1MaxNodes,
+      lod2MaxNodes,
+      occludableLowerNodes,
+    };
+    group.userData.cachedLodLists = lists;
+    return lists;
+  }
 
   group.traverse((obj) => {
     if (obj === group) return;
@@ -229,7 +476,7 @@ function getOrBuildLodCache(group: THREE.Object3D): CachedLodLists {
 
     if (obj instanceof THREE.Mesh) {
       if (obj.geometry?.type === 'TubeGeometry') {
-        // Overhead sagging wires visible in LOD0 & LOD1, hidden in far LOD2
+        // Overhead sagging wires visible in LOD0 & LOD1, hidden in far LOD2/LOD3
         lod1MaxNodes.push(obj);
         return;
       }
@@ -245,22 +492,25 @@ function getOrBuildLodCache(group: THREE.Object3D): CachedLodLists {
       } else if (approxVol < 1.85) {
         // Medium architectural details (windows, doors, water tanks, balconies, steps) -> LOD0 & LOD1
         lod1MaxNodes.push(obj);
+      } else if (approxVol < 16.0) {
+        // Secondary sub-volumes -> LOD0, LOD1, LOD2 (hidden in ultra-far LOD3 > 142m)
+        lod2MaxNodes.push(obj);
       }
     }
   });
 
-  const lists: CachedLodLists = { lod0OnlyNodes, lod1MaxNodes, occludableLowerNodes };
+  const lists: CachedLodLists = { lod0OnlyNodes, lod1MaxNodes, lod2MaxNodes, occludableLowerNodes };
   group.userData.cachedLodLists = lists;
   return lists;
 }
 
 /**
- * Applies automatic Level of Detail (LOD0 / LOD1 / LOD2) and Occlusion Culling
+ * Applies automatic Level of Detail (LOD0 / LOD1 / LOD2 / LOD3) and Occlusion Culling
  * to any 3D group in O(1) time when state is unchanged.
  */
 export function applyGroupLodState(
   group: THREE.Object3D,
-  lod: 0 | 1 | 2,
+  lod: 0 | 1 | 2 | 3,
   lowerTierOccluded = false,
 ): void {
   if (
@@ -273,7 +523,7 @@ export function applyGroupLodState(
   group.userData.currentLod = lod;
   group.userData.currentLowerOcc = lowerTierOccluded;
 
-  const { lod0OnlyNodes, lod1MaxNodes, occludableLowerNodes } = getOrBuildLodCache(group);
+  const { lod0OnlyNodes, lod1MaxNodes, lod2MaxNodes, occludableLowerNodes } = getOrBuildLodCache(group);
 
   const showLod0 = lod === 0;
   for (let i = 0; i < lod0OnlyNodes.length; i++) {
@@ -283,6 +533,11 @@ export function applyGroupLodState(
   const showLod1 = lod <= 1;
   for (let i = 0; i < lod1MaxNodes.length; i++) {
     lod1MaxNodes[i].visible = showLod1;
+  }
+
+  const showLod2 = lod <= 2;
+  for (let i = 0; i < lod2MaxNodes.length; i++) {
+    lod2MaxNodes[i].visible = showLod2;
   }
 
   const showLower = !lowerTierOccluded && lod <= 1;
@@ -302,7 +557,11 @@ interface HouseFadeMatEntry {
  * ("deixe mais fluido e suave a renderizacao das casas la na frente, para nao ficar aparecendo do nada")
  * across ALL meshes and outlines in the house group in O(1) time using per-slot cloned materials.
  */
-export function applyHouseDistanceOpacity(group: THREE.Object3D, opacity: number): void {
+export function applyHouseDistanceOpacity(
+  group: THREE.Object3D,
+  opacity: number,
+  _distanceAhead = 0,
+): void {
   const clamped = Math.max(0, Math.min(1, opacity));
   const rounded = Math.round(clamped * 50) / 50;
   if (group.userData.lastHouseOpacity === rounded) return;
@@ -1689,28 +1948,87 @@ export function buildBrazilianHouse(
   return houseGroup;
 }
 
-const streetlampNightConeMat = new THREE.MeshBasicMaterial({
-  color: 0xfde047,
+const streetlampUniforms = {
+  uNightIntensity: { value: 0.0 },
+};
+
+const streetlampNightConeMat = new THREE.ShaderMaterial({
+  uniforms: streetlampUniforms,
   transparent: true,
-  opacity: 0.0,
   depthWrite: false,
   blending: THREE.AdditiveBlending,
-  fog: false,
+  side: THREE.DoubleSide,
+  vertexShader: `
+    varying vec2 vUv;
+    varying float vCamDist;
+    void main() {
+      vUv = uv;
+      vec4 wp = modelMatrix * vec4(position, 1.0);
+      vCamDist = length(cameraPosition - wp.xyz);
+      gl_Position = projectionMatrix * viewMatrix * wp;
+    }
+  `,
+  fragmentShader: `
+    uniform float uNightIntensity;
+    varying vec2 vUv;
+    varying float vCamDist;
+    void main() {
+      if (uNightIntensity <= 0.005) discard;
+      // Fade suave vertical (mais brilhante perto da lâmpada no topo, desaparecendo suavemente para baixo)
+      float vertFade = smoothstep(0.0, 0.65, vUv.y) * (1.0 - smoothstep(0.88, 1.0, vUv.y));
+      // Fade radial suave para eliminar qualquer borda dura de cone/triângulo
+      float radialDist = abs(vUv.x - 0.5) * 2.0;
+      float radialSoft = exp(-radialDist * radialDist * 3.2);
+      // Light Fade Out com a distância da câmera (desaparece gradualmente ao longe)
+      float distFade = smoothstep(92.0, 18.0, vCamDist);
+      float alpha = vertFade * radialSoft * distFade * uNightIntensity * 0.22;
+      if (alpha <= 0.003) discard;
+      vec3 warmCol = mix(vec3(1.0, 0.78, 0.28), vec3(1.0, 0.96, 0.75), vUv.y);
+      gl_FragColor = vec4(warmCol, alpha);
+    }
+  `,
 });
 
-const streetlampNightBulbOrbMat = new THREE.MeshBasicMaterial({
-  color: 0xfffbeb,
+const streetlampNightBulbOrbMat = new THREE.ShaderMaterial({
+  uniforms: streetlampUniforms,
   transparent: true,
-  opacity: 0.0,
   depthWrite: false,
   blending: THREE.AdditiveBlending,
-  fog: false,
+  vertexShader: `
+    varying vec3 vNormalDir;
+    varying vec3 vViewDir;
+    varying float vCamDist;
+    void main() {
+      vec4 wp = modelMatrix * vec4(position, 1.0);
+      vCamDist = length(cameraPosition - wp.xyz);
+      vNormalDir = normalize(normalMatrix * normal);
+      vec4 mvPos = viewMatrix * wp;
+      vViewDir = normalize(-mvPos.xyz);
+      gl_Position = projectionMatrix * mvPos;
+    }
+  `,
+  fragmentShader: `
+    uniform float uNightIntensity;
+    varying vec3 vNormalDir;
+    varying vec3 vViewDir;
+    varying float vCamDist;
+    void main() {
+      float baseGlow = max(0.18, uNightIntensity);
+      float ndv = max(0.0, dot(vNormalDir, vViewDir));
+      float softHalo = pow(ndv, 2.2);
+      // Light Fade Out suave com a distância
+      float distFade = smoothstep(105.0, 14.0, vCamDist);
+      float alpha = softHalo * distFade * baseGlow * 0.68;
+      if (alpha <= 0.004) discard;
+      vec3 col = mix(vec3(1.0, 0.82, 0.32), vec3(1.0, 0.98, 0.88), ndv);
+      gl_FragColor = vec4(col, alpha);
+    }
+  `,
 });
 
 export function setNightStreetLightIntensity(nightFactor: number): void {
   const n = THREE.MathUtils.clamp(nightFactor, 0, 1);
-  streetlampNightConeMat.opacity = n * 0.24;
-  streetlampNightBulbOrbMat.opacity = n * 0.85;
+  streetlampUniforms.uNightIntensity.value = n;
 }
 
 /**
@@ -1780,17 +2098,17 @@ export function buildUtilityPoleWithWires(
 
   addCartoonOutlinesToGroup(group);
 
-  // Halo luminoso quente noturno nos postes (acende suavemente ao anoitecer — 0 custo durante o dia!)
+  // Halo luminoso quente nos postes com Light Fade Out suave pela distância (sem triângulos duros!)
   const nightHalo = new THREE.Mesh(sharedGeos.cone, streetlampNightConeMat);
-  nightHalo.scale.set(1.35, 3.6, 1.35);
-  nightHalo.position.set(roadDir * 1.22, poleH - 2.15, 0);
+  nightHalo.scale.set(0.95, 2.35, 0.95);
+  nightHalo.position.set(roadDir * 1.22, poleH - 1.55, 0);
   nightHalo.userData.noCartoonOutline = true;
   nightHalo.visible = true;
   group.add(nightHalo);
 
   const nightOrb = new THREE.Mesh(sharedGeos.sphere, streetlampNightBulbOrbMat);
-  nightOrb.scale.set(0.42, 0.28, 0.42);
-  nightOrb.position.set(roadDir * 1.22, poleH - 0.36, 0);
+  nightOrb.scale.set(0.52, 0.36, 0.52);
+  nightOrb.position.set(roadDir * 1.22, poleH - 0.35, 0);
   nightOrb.userData.noCartoonOutline = true;
   group.add(nightOrb);
 
@@ -2123,326 +2441,686 @@ const solidSkylineSteelMat = new THREE.MeshStandardMaterial({
   fog: false,
 });
 
+const cachedStoreSignMaterials: Record<string, THREE.MeshBasicMaterial> = {};
+
+function getCariocaBuildingSignMaterial(
+  kind: 'BAR' | 'PIZZARIA' | 'RIO' | 'LANCHONETE' | 'BRASIL_FLAG',
+): THREE.MeshBasicMaterial {
+  if (cachedStoreSignMaterials[kind]) return cachedStoreSignMaterials[kind];
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 192;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, 512, 192);
+
+  if (kind === 'BRASIL_FLAG') {
+    // Bandeira do Brasil vibrante com contorno cartoon
+    ctx.fillStyle = '#16a34a';
+    ctx.fillRect(0, 0, 512, 192);
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 10;
+    ctx.strokeRect(5, 5, 502, 182);
+
+    ctx.beginPath();
+    ctx.moveTo(256, 20);
+    ctx.lineTo(468, 96);
+    ctx.lineTo(256, 172);
+    ctx.lineTo(44, 96);
+    ctx.closePath();
+    ctx.fillStyle = '#facc15';
+    ctx.fill();
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#09090b';
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(256, 96, 48, 0, Math.PI * 2);
+    ctx.fillStyle = '#1d4ed8';
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 9;
+    ctx.arc(256, 114, 52, -Math.PI * 0.78, -Math.PI * 0.22);
+    ctx.stroke();
+  } else if (kind === 'BAR') {
+    ctx.fillStyle = '#dc2626';
+    ctx.beginPath();
+    ctx.roundRect(10, 16, 492, 160, 26);
+    ctx.fill();
+    ctx.lineWidth = 12;
+    ctx.strokeStyle = '#09090b';
+    ctx.stroke();
+
+    ctx.font = '900 108px Impact, Arial Black, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 14;
+    ctx.strokeStyle = '#09090b';
+    ctx.strokeText('BAR', 256, 102);
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('BAR', 256, 102);
+  } else if (kind === 'PIZZARIA') {
+    ctx.fillStyle = '#fef3c7';
+    ctx.beginPath();
+    ctx.roundRect(8, 12, 496, 168, 22);
+    ctx.fill();
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = '#09090b';
+    ctx.stroke();
+
+    ctx.font = '900 76px Impact, Arial Black, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 11;
+    ctx.strokeStyle = '#09090b';
+    ctx.strokeText('PIZZARIA', 28, 100);
+    ctx.fillStyle = '#15803d';
+    ctx.fillText('PIZZARIA', 28, 100);
+
+    // Fatia de pizza cartoon à direita
+    ctx.save();
+    ctx.translate(432, 96);
+    ctx.rotate(-0.2);
+    ctx.beginPath();
+    ctx.moveTo(-48, 38);
+    ctx.lineTo(44, -10);
+    ctx.lineTo(-12, -48);
+    ctx.closePath();
+    ctx.fillStyle = '#facc15';
+    ctx.fill();
+    ctx.lineWidth = 7;
+    ctx.strokeStyle = '#09090b';
+    ctx.stroke();
+    ctx.fillStyle = '#dc2626';
+    for (const [px, py] of [
+      [-14, 6],
+      [6, -6],
+      [-10, -20],
+    ]) {
+      ctx.beginPath();
+      ctx.arc(px, py, 8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  } else if (kind === 'RIO') {
+    ctx.fillStyle = '#1d4ed8';
+    ctx.beginPath();
+    ctx.roundRect(8, 12, 496, 168, 22);
+    ctx.fill();
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = '#09090b';
+    ctx.stroke();
+
+    ctx.font = '900 104px Impact, Arial Black, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 12;
+    ctx.strokeStyle = '#09090b';
+    ctx.strokeText('RIO', 42, 102);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('RIO', 42, 102);
+
+    // Silhueta branca do Cristo Redentor na placa "RIO"
+    ctx.save();
+    ctx.translate(385, 98);
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.arc(0, -44, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-58, -26);
+    ctx.lineTo(58, -26);
+    ctx.lineTo(58, -12);
+    ctx.lineTo(15, -10);
+    ctx.lineTo(20, 56);
+    ctx.lineTo(-20, 56);
+    ctx.lineTo(-15, -10);
+    ctx.lineTo(-58, -12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  } else {
+    // LANCHONETE
+    ctx.fillStyle = '#dc2626';
+    ctx.beginPath();
+    ctx.roundRect(10, 16, 492, 160, 24);
+    ctx.fill();
+    ctx.lineWidth = 12;
+    ctx.strokeStyle = '#fde047';
+    ctx.stroke();
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#09090b';
+    ctx.strokeRect(10, 16, 492, 160);
+
+    ctx.font = '900 72px Impact, Arial Black, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 11;
+    ctx.strokeStyle = '#09090b';
+    ctx.strokeText('LANCHONETE', 256, 100);
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('LANCHONETE', 256, 100);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex,
+    fog: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  });
+  cachedStoreSignMaterials[kind] = mat;
+  return mat;
+}
+
 /**
- * Builds Dynamic Rio de Janeiro High-Rise Buildings in Deep 3D Perspective:
- * Uses `fog: false` so horizon buildings are 100% solid and never look transparent against the sky,
- * and makes the Green Brasil Flag Tower (`v === 0`) much taller and wider with a huge Bandeira do Brasil!
+ * Item 10: Recria os 4 Prédios Cariocas Cartoon Individuais em 3D seguindo fielmente a imagem de referência
+ * (media_1794194967212_d1e76a06.jpg):
+ * - v === 0: Edifício Amarelo Solar com Varandas Curvas, Bandeira do Brasil na sacada, Ar-Condicionado e "BAR" no térreo.
+ * - v === 1: Edifício Azul Carioca com "PIZZARIA" no térreo, toldo verde/branco, floreiras com plantas, AC e caixa-d'água azul.
+ * - v === 2: Edifício Bege/Areia Art Déco com faixas verticais azuis, janelas de canto, plantas e loja "RIO" (com Cristo) no térreo.
+ * - v === 3: Edifício Verde-Abacate & Coral com Telhado Colonial de Cerâmica, Varal de Roupas Coloridas na sacada, AC, caixa-d'água azul e "LANCHONETE" no térreo.
  */
 export function buildRioSkylineBuilding(
   variantIndex: number,
   side: 'left' | 'right',
-  maxAnisotropy = 4,
+  _maxAnisotropy = 4,
 ): THREE.Group {
   const group = new THREE.Group();
   const v = ((variantIndex % 4) + 4) % 4;
   const streetSign = side === 'left' ? 1 : -1;
 
-  const isBrasilTower = v === 0;
-  const isCurvedWaveTower = v === 1;
-  const isArtDeco = v === 2;
+  // Materiais cartoon vivos sem neblina opaca para preservar cores vibrantes e leitura limpa
+  const makeCartoonWallMat = (hex: number) =>
+    new THREE.MeshStandardMaterial({
+      color: hex,
+      roughness: 0.58,
+      metalness: 0.06,
+      fog: false,
+    });
 
-  const paletteKey = isBrasilTower
-    ? 'brasil_green'
-    : isCurvedWaveTower
-      ? 'copacabana_wave'
-      : isArtDeco
-        ? 'art_deco_historic'
-        : 'ipanema_modern';
-
-  const facadeTex = getRioBuildingFacadeTexture(paletteKey, maxAnisotropy);
-  const facadeMat = new THREE.MeshStandardMaterial({
-    map: facadeTex,
-    color: 0xffffff,
-    roughness: 0.46,
-    metalness: 0.16,
+  const yellowWallMat = makeCartoonWallMat(0xfbbf24);
+  const yellowTrimMat = makeCartoonWallMat(0xfef08a);
+  const terracottaBaseMat = makeCartoonWallMat(0xea580c);
+  const blueWallMat = makeCartoonWallMat(0x2563eb);
+  const blueDarkTrimMat = makeCartoonWallMat(0x1d4ed8);
+  const beigeDecoWallMat = makeCartoonWallMat(0xfde68a);
+  const sandWarmWallMat = makeCartoonWallMat(0xfcd34d);
+  const coralWallMat = makeCartoonWallMat(0xf97316);
+  const limeGreenWallMat = makeCartoonWallMat(0x84cc16);
+  const clayRoofMat = makeCartoonWallMat(0xd95326);
+  const blueGlassMat = new THREE.MeshStandardMaterial({
+    color: 0x38bdf8,
+    roughness: 0.22,
+    metalness: 0.25,
     fog: false,
   });
+  const darkWindowFrameMat = makeCartoonWallMat(0x1e293b);
+  const creamShutterMat = makeCartoonWallMat(0xfef3c7);
+  const foliageGreenMat = makeCartoonWallMat(0x16a34a);
+  const acWhiteMat = makeCartoonWallMat(0xf8fafc);
+  const waterTankBlueMat = makeCartoonWallMat(0x0284c7);
+  const redAwningMat = makeCartoonWallMat(0xdc2626);
+  const greenAwningMat = makeCartoonWallMat(0x16a34a);
+  const blueAwningMat = makeCartoonWallMat(0x2563eb);
 
-  // The Green Brasil Flag Building is much larger and taller ("deixe o predio verde bem maior com bandeira brasil")
-  const W = isBrasilTower ? 15.2 : isCurvedWaveTower ? 10.4 : 9.8;
-  const D = isBrasilTower ? 12.6 : 9.8;
-  const H = isBrasilTower ? 46.5 : isCurvedWaveTower ? 28.5 : isArtDeco ? 26.0 : 29.0;
+  // Helper: Aparelho de Ar-Condicionado 3D com grade circular preta
+  const addAcUnit = (x: number, y: number, z: number, rotY = 0) => {
+    const acGroup = new THREE.Group();
+    acGroup.position.set(x, y, z);
+    acGroup.rotation.y = rotY;
+    const box = new THREE.Mesh(sharedGeos.unitBox, acWhiteMat);
+    box.scale.set(0.92, 0.66, 0.54);
+    acGroup.add(box);
+    const fan = new THREE.Mesh(sharedGeos.cylinder, darkWindowFrameMat);
+    fan.scale.set(0.24, 0.56, 0.24);
+    fan.rotation.x = Math.PI / 2;
+    fan.position.set(-0.14, 0, 0.02);
+    acGroup.add(fan);
+    group.add(acGroup);
+  };
 
-  // 1. Deep Ground-Anchored Architectural Podium (extends down to y = -24 so it never floats even under horizon curvature!)
-  const podium = new THREE.Mesh(sharedGeos.unitBox, solidSkylineMarbleMat);
-  podium.scale.set(W + 1.4, 28.0, D + 1.4);
-  podium.position.set(0, -10.5, 0);
+  // Helper: Caixa-d'Água Azul Cilíndrica Carioca no Telhado
+  const addBlueWaterTank = (x: number, y: number, z: number, radius = 1.65, height = 2.1) => {
+    const tank = new THREE.Mesh(sharedGeos.cylinder, waterTankBlueMat);
+    tank.scale.set(radius, height, radius);
+    tank.position.set(x, y + height * 0.5, z);
+    group.add(tank);
+    const lid = new THREE.Mesh(sharedGeos.cylinder, blueDarkTrimMat);
+    lid.scale.set(radius * 1.08, 0.28, radius * 1.08);
+    lid.position.set(x, y + height + 0.12, z);
+    group.add(lid);
+  };
+
+  // Helper: Antena de TV Metálica no Topo do Prédio
+  const addRooftopTvAntenna = (x: number, y: number, z: number) => {
+    const antGroup = new THREE.Group();
+    antGroup.position.set(x, y, z);
+    const mast = new THREE.Mesh(sharedGeos.cylinder, darkWindowFrameMat);
+    mast.scale.set(0.09, 3.6, 0.09);
+    mast.position.set(0, 1.8, 0);
+    antGroup.add(mast);
+    for (let i = 0; i < 3; i++) {
+      const bar = new THREE.Mesh(sharedGeos.unitBox, darkWindowFrameMat);
+      bar.scale.set(1.6 - i * 0.28, 0.08, 0.08);
+      bar.position.set(0, 2.2 + i * 0.6, 0);
+      bar.rotation.y = 0.35;
+      antGroup.add(bar);
+    }
+    group.add(antGroup);
+  };
+
+  // Helper: Floreira / Vaso com Plantas Tropicais Verdes na Janela ou Sacada
+  const addWindowPlanter = (x: number, y: number, z: number, w = 2.2) => {
+    const box = new THREE.Mesh(sharedGeos.unitBox, terracottaBaseMat);
+    box.scale.set(w, 0.48, 0.56);
+    box.position.set(x, y, z);
+    group.add(box);
+    for (const ox of [-w * 0.3, 0, w * 0.3]) {
+      const bush = new THREE.Mesh(sharedGeos.sphere, foliageGreenMat);
+      bush.scale.set(0.55, 0.48, 0.48);
+      bush.position.set(x + ox, y + 0.36, z + 0.06);
+      group.add(bush);
+    }
+  };
+
+  // Dimensões individuais variadas (alturas e larguras distintas conforme a imagem de referência!)
+  const W = v === 0 ? 11.2 : v === 1 ? 10.4 : v === 2 ? 11.0 : 10.6;
+  const D = v === 0 ? 9.6 : v === 1 ? 9.2 : v === 2 ? 9.4 : 9.2;
+  const H = v === 0 ? 31.0 : v === 1 ? 22.5 : v === 2 ? 29.5 : 21.5;
+
+  // Base arquitetônica cartoon decorada (tijolinho/pedra quente colonial, arcos e vitrines)
+  // para nunca exibir paredes cinzas estranhas na parte inferior dos prédios!
+  const warmStoneBaseMat = v === 0 ? terracottaBaseMat : v === 1 ? sandWarmWallMat : v === 2 ? coralWallMat : terracottaBaseMat;
+  const trimBandMat = creamShutterMat;
+
+  const podium = new THREE.Mesh(sharedGeos.unitBox, warmStoneBaseMat);
+  podium.scale.set(W + 0.5, 16.0, D + 0.5);
+  podium.position.set(0, -8.0, 0);
   group.add(podium);
 
-  const lobbyGlass = new THREE.Mesh(sharedGeos.unitBox, solidSkylineDarkMetalMat);
-  lobbyGlass.scale.set(W + 0.8, 2.8, D + 0.8);
-  lobbyGlass.position.set(0, 1.5, 0);
-  group.add(lobbyGlass);
+  // Faixas horizontais creme e arcos coloniais decorativos na base inferior do prédio
+  for (const bandY of [-0.35, -3.6, -7.2]) {
+    const plinthBand = new THREE.Mesh(sharedGeos.unitBox, trimBandMat);
+    plinthBand.scale.set(W + 0.78, 0.55, D + 0.78);
+    plinthBand.position.set(0, bandY, 0);
+    group.add(plinthBand);
+  }
+  for (const archX of [-W * 0.28, 0, W * 0.28]) {
+    const pilaster = new THREE.Mesh(sharedGeos.unitBox, trimBandMat);
+    pilaster.scale.set(0.85, 7.2, 0.45);
+    pilaster.position.set(archX, -3.6, D * 0.5 + 0.22);
+    group.add(pilaster);
 
-  // 2. Main High-Rise Tower Shaft (subdivided vertically so it bends smoothly with the curved horizon)
-  const mainTower = new THREE.Mesh(sharedGeos.tallBox, facadeMat);
-  mainTower.scale.set(W, H, D);
-  mainTower.position.set(0, H / 2, 0);
-  group.add(mainTower);
+    const shopArchWin = new THREE.Mesh(sharedGeos.unitBox, blueGlassMat);
+    shopArchWin.scale.set(1.65, 2.4, 0.36);
+    shopArchWin.position.set(archX, -2.1, D * 0.5 + 0.24);
+    group.add(shopArchWin);
+  }
 
-  // 3. Wrap-around Bold Cartoon 3D Architectural Reliefs on BOTH Camera-Facing (+Z) & Street-Facing (±X) Sides
-  if (isBrasilTower) {
-    const windowGlassCyanMat = new THREE.MeshStandardMaterial({
-      color: 0x38bdf8,
-      roughness: 0.22,
-      metalness: 0.15,
-      fog: false,
-      polygonOffset: true,
-      polygonOffsetFactor: -1,
-      polygonOffsetUnits: -1,
-    });
-    const windowLitGoldMat = new THREE.MeshBasicMaterial({
-      color: 0xfef08a,
-      fog: false,
-      polygonOffset: true,
-      polygonOffsetFactor: -2,
-      polygonOffsetUnits: -2,
-    });
+  if (v === 0) {
+    // =========================================================================
+    // PRÉDIO 1: EDIFÍCIO AMARELO SOLAR COM VARANDAS CURVAS, BANDEIRA DO BRASIL E "BAR"
+    // =========================================================================
+    const mainShaft = new THREE.Mesh(sharedGeos.tallBox, yellowWallMat);
+    mainShaft.scale.set(W, H, D);
+    mainShaft.position.set(0, H * 0.5, 0);
+    group.add(mainShaft);
 
-    // Vertical emerald-green structural pilasters on corners and street-facing center
-    for (const xCorner of [-W * 0.48, -W * 0.16, W * 0.16, W * 0.48]) {
-      const greenColumn = new THREE.Mesh(sharedGeos.tallBox, solidSkylineBrazilGreenMat);
-      greenColumn.scale.set(0.84, H + 0.8, D + 0.56);
-      greenColumn.position.set(xCorner, H / 2 + 0.4, 0);
-      group.add(greenColumn);
+    // Coluna cilíndrica curva na quina esquerda (varandas arredondadas!)
+    const roundedCorner = new THREE.Mesh(sharedGeos.cylinder, yellowWallMat);
+    roundedCorner.scale.set(3.2, H, 3.2);
+    roundedCorner.position.set(-W * 0.34, H * 0.5, D * 0.26);
+    group.add(roundedCorner);
+
+    // Térreo comercial "BAR" com toldo listrado vermelho/branco
+    const groundBase = new THREE.Mesh(sharedGeos.unitBox, terracottaBaseMat);
+    groundBase.scale.set(W + 0.4, 4.8, D + 0.4);
+    groundBase.position.set(0, 2.4, 0);
+    group.add(groundBase);
+
+    const barSign = new THREE.Mesh(
+      new THREE.PlaneGeometry(4.4, 1.55),
+      getCariocaBuildingSignMaterial('BAR'),
+    );
+    barSign.position.set(1.2, 4.15, D * 0.5 + 0.32);
+    barSign.userData.noCartoonOutline = true;
+    group.add(barSign);
+
+    // Toldo listrado vermelho e branco
+    for (let s = -2; s <= 2; s++) {
+      const stripe = new THREE.Mesh(
+        sharedGeos.unitBox,
+        s % 2 === 0 ? redAwningMat : acWhiteMat,
+      );
+      stripe.scale.set(1.05, 0.24, 1.85);
+      stripe.position.set(-2.2 + s * 1.02, 3.35, D * 0.5 + 0.85);
+      stripe.rotation.x = 0.32;
+      group.add(stripe);
     }
-    for (const zBand of [-D * 0.48, 0, D * 0.48]) {
-      const sidePilaster = new THREE.Mesh(sharedGeos.tallBox, solidSkylineBrazilGreenMat);
-      sidePilaster.scale.set(W + 0.56, H + 0.8, 0.84);
-      sidePilaster.position.set(0, H / 2 + 0.4, zBand);
-      group.add(sidePilaster);
+
+    // 5 Andares com Varandas Curvas à esquerda + Janelas Azuis à direita + Bandeira do Brasil!
+    for (let fl = 1; fl <= 5; fl++) {
+      const fy = 4.8 + (fl - 1) * 4.8;
+
+      // Laje branca arredondada da sacada esquerda
+      const balcSlab = new THREE.Mesh(sharedGeos.cylinder, acWhiteMat);
+      balcSlab.scale.set(3.65, 0.55, 3.65);
+      balcSlab.position.set(-W * 0.34, fy + 0.3, D * 0.28);
+      group.add(balcSlab);
+
+      // Guarda-corpo escuro da sacada
+      const rail = new THREE.Mesh(sharedGeos.cylinder, darkWindowFrameMat);
+      rail.scale.set(3.58, 0.95, 3.58);
+      rail.position.set(-W * 0.34, fy + 1.05, D * 0.28);
+      group.add(rail);
+
+      // Porta-janela azul na sacada
+      const balcWin = new THREE.Mesh(sharedGeos.unitBox, blueGlassMat);
+      balcWin.scale.set(2.3, 2.7, 0.36);
+      balcWin.position.set(-W * 0.28, fy + 1.9, D * 0.5 + 0.16);
+      group.add(balcWin);
+
+      if (fl % 2 === 1) {
+        addWindowPlanter(-W * 0.36, fy + 0.85, D * 0.5 + 0.55, 1.8);
+      }
+
+      // Janela azul direita
+      const rightWinFrame = new THREE.Mesh(sharedGeos.unitBox, darkWindowFrameMat);
+      rightWinFrame.scale.set(2.9, 2.3, 0.32);
+      rightWinFrame.position.set(W * 0.22, fy + 2.0, D * 0.5 + 0.12);
+      group.add(rightWinFrame);
+
+      const rightWinGlass = new THREE.Mesh(sharedGeos.unitBox, blueGlassMat);
+      rightWinGlass.scale.set(2.55, 1.95, 0.38);
+      rightWinGlass.position.set(W * 0.22, fy + 2.0, D * 0.5 + 0.16);
+      group.add(rightWinGlass);
+
+      if (fl === 2 || fl === 3) {
+        addAcUnit(W * 0.36, fy + 0.95, D * 0.5 + 0.36);
+      }
     }
 
-    // 3D Cartoon Glass Window Bays on the Front (+Z) and Street-Facing (±X) Facades
-    const bayOffsetsX = [-W * 0.32, 0, W * 0.32];
-    for (let bIdx = 0; bIdx < bayOffsetsX.length; bIdx++) {
-      const bx = bayOffsetsX[bIdx];
-      const glassBay = new THREE.Mesh(sharedGeos.tallBox, windowGlassCyanMat);
-      glassBay.scale.set(2.9, H - 5.2, 0.32);
-      glassBay.position.set(bx, H * 0.5, D / 2 + 0.22);
-      group.add(glassBay);
+    // Bandeira do Brasil pendurada com orgulho no 4º andar (igual à imagem de referência!)
+    const flagMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(3.8, 2.45),
+      getCariocaBuildingSignMaterial('BRASIL_FLAG'),
+    );
+    flagMesh.position.set(W * 0.22, 4.8 + 3 * 4.8 + 0.55, D * 0.5 + 0.42);
+    flagMesh.rotation.z = -0.06;
+    flagMesh.userData.noCartoonOutline = true;
+    group.add(flagMesh);
 
-      // Bold cartoon illuminated office windows aligned with the 8 cartoon floors
-      for (let fl = 1; fl <= 8; fl++) {
-        if ((fl + bIdx) % 2 === 0) {
-          const litPane = new THREE.Mesh(sharedGeos.unitBox, windowLitGoldMat);
-          litPane.scale.set(2.4, 2.2, 0.36);
-          litPane.position.set(bx, fl * 5.2 - 1.2, D / 2 + 0.28);
-          group.add(litPane);
+    // Cobertura / Terraço com plantas e antena
+    const penthouse = new THREE.Mesh(sharedGeos.unitBox, coralWallMat);
+    penthouse.scale.set(W * 0.62, 3.4, D * 0.62);
+    penthouse.position.set(0.4, H + 1.7, -0.3);
+    group.add(penthouse);
+    addWindowPlanter(-W * 0.22, H + 0.35, D * 0.32, 3.2);
+    addRooftopTvAntenna(1.8, H + 3.4, 0);
+  } else if (v === 1) {
+    // =========================================================================
+    // PRÉDIO 2: EDIFÍCIO AZUL CARIOCA COM "PIZZARIA", FLORERAS E CAIXA-D'ÁGUA AZUL
+    // =========================================================================
+    const mainShaft = new THREE.Mesh(sharedGeos.tallBox, blueWallMat);
+    mainShaft.scale.set(W, H, D);
+    mainShaft.position.set(0, H * 0.5, 0);
+    group.add(mainShaft);
+
+    // Térreo creme com placa "PIZZARIA" + fatia de pizza e toldo verde/branco
+    const groundBase = new THREE.Mesh(sharedGeos.unitBox, creamShutterMat);
+    groundBase.scale.set(W + 0.4, 5.0, D + 0.4);
+    groundBase.position.set(0, 2.5, 0);
+    group.add(groundBase);
+
+    const pizzaSign = new THREE.Mesh(
+      new THREE.PlaneGeometry(7.6, 2.2),
+      getCariocaBuildingSignMaterial('PIZZARIA'),
+    );
+    pizzaSign.position.set(0, 4.1, D * 0.5 + 0.32);
+    pizzaSign.userData.noCartoonOutline = true;
+    group.add(pizzaSign);
+
+    for (let s = -3; s <= 3; s++) {
+      const stripe = new THREE.Mesh(
+        sharedGeos.unitBox,
+        s % 2 === 0 ? greenAwningMat : acWhiteMat,
+      );
+      stripe.scale.set(1.12, 0.24, 1.9);
+      stripe.position.set(s * 1.1, 2.85, D * 0.5 + 0.88);
+      stripe.rotation.x = 0.34;
+      group.add(stripe);
+    }
+
+    // Frisos horizontais creme separando os andares + janelas com venezianas e floreiras
+    for (let fl = 1; fl <= 2; fl++) {
+      const fy = 5.4 + (fl - 1) * 7.6;
+
+      const cornice = new THREE.Mesh(sharedGeos.unitBox, creamShutterMat);
+      cornice.scale.set(W + 0.65, 0.62, D + 0.65);
+      cornice.position.set(0, fy, 0);
+      group.add(cornice);
+
+      for (const wx of [-W * 0.24, W * 0.24]) {
+        const winFrame = new THREE.Mesh(sharedGeos.unitBox, creamShutterMat);
+        winFrame.scale.set(3.1, 3.4, 0.32);
+        winFrame.position.set(wx, fy + 3.4, D * 0.5 + 0.14);
+        group.add(winFrame);
+
+        const winPane = new THREE.Mesh(
+          sharedGeos.unitBox,
+          fl === 1 && wx < 0 ? sandWarmWallMat : blueGlassMat,
+        );
+        winPane.scale.set(2.65, 2.95, 0.38);
+        winPane.position.set(wx, fy + 3.4, D * 0.5 + 0.18);
+        group.add(winPane);
+
+        if (wx < 0) {
+          addWindowPlanter(wx, fy + 1.55, D * 0.5 + 0.42, 2.8);
+        } else {
+          addAcUnit(wx + 0.2, fy + 1.35, D * 0.5 + 0.38);
         }
       }
     }
 
-    // Street-facing (±X) 3D glass window bays
-    for (const bz of [-D * 0.25, D * 0.25]) {
-      const sideGlassBay = new THREE.Mesh(sharedGeos.tallBox, windowGlassCyanMat);
-      sideGlassBay.scale.set(0.32, H - 5.2, 3.2);
-      sideGlassBay.position.set(streetSign * (W / 2 + 0.22), H * 0.5, bz);
-      group.add(sideGlassBay);
-    }
+    // Platibanda amarela superior + Caixa-d'Água Azul Cilíndrica + Antena
+    const roofRim = new THREE.Mesh(sharedGeos.unitBox, yellowWallMat);
+    roofRim.scale.set(W + 0.6, 0.95, D + 0.6);
+    roofRim.position.set(0, H + 0.45, 0);
+    group.add(roofRim);
 
-    // Horizontal wrap-around canary-yellow & white cartoon brise-soleil floor ledges (8 bold floors — zero flicker!)
-    for (let floor = 1; floor <= 8; floor++) {
-      const by = floor * 5.4;
-      const louverSlab = new THREE.Mesh(
-        sharedGeos.unitBox,
-        floor % 2 === 0 ? solidSkylineBrazilYellowMat : solidSkylineMarbleMat,
+    addBlueWaterTank(-1.2, H + 0.9, 0.4, 2.05, 2.45);
+    addWindowPlanter(2.4, H + 0.95, D * 0.28, 2.2);
+    addRooftopTvAntenna(2.2, H + 0.95, -0.5);
+  } else if (v === 2) {
+    // =========================================================================
+    // PRÉDIO 3: EDIFÍCIO BEGE ART DÉCO COM FAIXAS VERTICAIS AZUIS E LOJA "RIO" (CRISTO)
+    // =========================================================================
+    const mainShaft = new THREE.Mesh(sharedGeos.tallBox, beigeDecoWallMat);
+    mainShaft.scale.set(W, H, D);
+    mainShaft.position.set(0, H * 0.5, 0);
+    group.add(mainShaft);
+
+    // Duas faixas verticais azuis Art Déco percorrendo toda a altura do prédio
+    for (const sx of [0.35, 1.25]) {
+      const blueStripe = new THREE.Mesh(
+        sharedGeos.tallBox,
+        sx < 0.8 ? blueWallMat : blueGlassMat,
       );
-      louverSlab.scale.set(W + 1.05, 0.54, D + 1.05);
-      louverSlab.position.set(0, by, 0);
-      group.add(louverSlab);
+      blueStripe.scale.set(0.68, H + 1.8, D + 0.52);
+      blueStripe.position.set(sx, H * 0.5 + 0.9, 0);
+      group.add(blueStripe);
     }
 
-    // SCULPTED AERODYNAMIC "CORTA-VENTO" (WIND-CUTTER) SLANTED CROWN AT THE TOP
-    const crownBase = new THREE.Mesh(sharedGeos.unitBox, solidSkylineBrazilGreenMat);
-    crownBase.scale.set(W + 1.4, 1.5, D + 1.4);
-    crownBase.position.set(0, H + 0.75, 0);
-    group.add(crownBase);
+    // Loja térrea "RIO" com silhueta do Cristo Redentor e toldo azul
+    const rioSign = new THREE.Mesh(
+      new THREE.PlaneGeometry(8.2, 2.25),
+      getCariocaBuildingSignMaterial('RIO'),
+    );
+    rioSign.position.set(0, 4.35, D * 0.5 + 0.34);
+    rioSign.userData.noCartoonOutline = true;
+    group.add(rioSign);
 
-    const crownYellowBand = new THREE.Mesh(sharedGeos.unitBox, solidSkylineBrazilYellowMat);
-    crownYellowBand.scale.set(W + 1.55, 0.65, D + 1.55);
-    crownYellowBand.position.set(0, H + 1.75, 0);
-    group.add(crownYellowBand);
+    const blueAwning = new THREE.Mesh(sharedGeos.unitBox, blueAwningMat);
+    blueAwning.scale.set(6.8, 0.32, 1.85);
+    blueAwning.position.set(0, 2.95, D * 0.5 + 0.82);
+    blueAwning.rotation.x = 0.28;
+    group.add(blueAwning);
 
-    // Slanted Glass Sky-Lounge Penthouse inside the Wind-Cutter Crown
-    const skyLoungeGlass = new THREE.Mesh(sharedGeos.unitBox, windowGlassCyanMat);
-    skyLoungeGlass.scale.set(W * 0.82, 4.2, D * 0.76);
-    skyLoungeGlass.position.set(0, H + 3.8, -0.4);
-    group.add(skyLoungeGlass);
+    // 4 Andares de janelas de canto azuis, sacadas direitas com plantas e AC à esquerda
+    for (let fl = 1; fl <= 4; fl++) {
+      const fy = 5.6 + (fl - 1) * 5.4;
 
-    // 5 Sculpted Diagonal Sloped "Corta-Vento" Aerodynamic Fins sweeping upward across the crown
-    const finPositionsX = [-W * 0.44, -W * 0.22, 0, W * 0.22, W * 0.44];
-    for (let fIdx = 0; fIdx < finPositionsX.length; fIdx++) {
-      const fx = finPositionsX[fIdx];
-      const isOuterOrCenter = fIdx === 0 || fIdx === 2 || fIdx === 4;
-      const finMat = isOuterOrCenter ? solidSkylineBrazilGreenMat : solidSkylineBrazilYellowMat;
+      const band = new THREE.Mesh(sharedGeos.unitBox, creamShutterMat);
+      band.scale.set(W + 0.45, 0.48, D + 0.45);
+      band.position.set(0, fy, 0);
+      group.add(band);
 
-      const windFin = new THREE.Mesh(sharedGeos.unitBox, finMat);
-      windFin.scale.set(0.68, 6.2, D * 0.92);
-      windFin.position.set(fx, H + 4.4, -0.2);
-      windFin.rotation.x = 0.38;
-      group.add(windFin);
+      for (const wx of [-W * 0.22, W * 0.3]) {
+        const winGlass = new THREE.Mesh(sharedGeos.unitBox, blueGlassMat);
+        winGlass.scale.set(2.5, 2.65, 0.36);
+        winGlass.position.set(wx, fy + 2.3, D * 0.5 + 0.16);
+        group.add(winGlass);
+      }
+
+      addAcUnit(-W * 0.44, fy + 1.4, D * 0.5 + 0.28);
+      if (fl % 2 === 0) {
+        addWindowPlanter(W * 0.34, fy + 0.65, D * 0.5 + 0.36, 1.9);
+      }
     }
 
-    // Sloped Top Aerodynamic Wind-Deflector Roof Foil ("Aleta Superior Corta-Vento")
-    const topDeflectorFoil = new THREE.Mesh(sharedGeos.unitBox, solidSkylineBrazilYellowMat);
-    topDeflectorFoil.scale.set(W + 1.2, 0.62, D * 0.95);
-    topDeflectorFoil.position.set(0, H + 6.6, -0.5);
-    topDeflectorFoil.rotation.x = 0.36;
-    group.add(topDeflectorFoil);
-
-    const upperCrestFoil = new THREE.Mesh(sharedGeos.unitBox, solidSkylineBrazilGreenMat);
-    upperCrestFoil.scale.set(W * 0.92, 0.56, D * 0.68);
-    upperCrestFoil.position.set(0, H + 7.6, -1.2);
-    upperCrestFoil.rotation.x = 0.36;
-    group.add(upperCrestFoil);
-
-    // Spray-Painted Urban Graffiti & Pixo Mural ("remove as 2 bandeira predios, e faca como se fosse um desenho pichado no predio")
-    // Directly painted onto the skyscraper's facade with no flag frames or rooftop flagpoles
-    const graffitiTex = createBuildingGraffitiMuralTexture(maxAnisotropy);
-    const graffitiMat = new THREE.MeshBasicMaterial({
-      map: graffitiTex,
-      transparent: true,
-      alphaTest: 0.06,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-      fog: false,
-      polygonOffset: true,
-      polygonOffsetFactor: -3,
-      polygonOffsetUnits: -3,
-    });
-
-    // Large spray-painted graffiti throw-up + pixo tags across the front (+Z) facade
-    const frontGraffiti = new THREE.Mesh(new THREE.PlaneGeometry(W * 0.88, 9.6), graffitiMat);
-    frontGraffiti.position.set(0, H * 0.68, D / 2 + 0.34);
-    frontGraffiti.userData.noCartoonOutline = true;
-    group.add(frontGraffiti);
-
-    // Second higher pixo tag band near the upper crown
-    const upperGraffiti = new THREE.Mesh(new THREE.PlaneGeometry(W * 0.78, 6.2), graffitiMat);
-    upperGraffiti.position.set(0, H * 0.88, D / 2 + 0.34);
-    upperGraffiti.rotation.z = -0.04;
-    upperGraffiti.userData.noCartoonOutline = true;
-    group.add(upperGraffiti);
-
-    // Street-facing side facade graffiti & pixo mural
-    const sideGraffiti = new THREE.Mesh(new THREE.PlaneGeometry(D * 0.86, 9.2), graffitiMat);
-    sideGraffiti.rotation.y = streetSign * (Math.PI / 2);
-    sideGraffiti.position.set(streetSign * (W / 2 + 0.34), H * 0.68, 0);
-    sideGraffiti.userData.noCartoonOutline = true;
-    group.add(sideGraffiti);
-  } else if (isCurvedWaveTower) {
-    for (let b = 1; b <= 5; b++) {
-      const by = b * 5.0;
-      const wrapSlab = new THREE.Mesh(sharedGeos.unitBox, solidSkylineMarbleMat);
-      wrapSlab.scale.set(W + 1.05, 0.52, D + 1.05);
-      wrapSlab.position.set(streetSign * 0.25, by, 0.25);
-      group.add(wrapSlab);
-
-      const wrapGlass = new THREE.Mesh(sharedGeos.unitBox, solidSkylineEmeraldGlassMat);
-      wrapGlass.scale.set(W + 0.88, 0.85, D + 0.88);
-      wrapGlass.position.set(streetSign * 0.25, by + 0.68, 0.25);
-      group.add(wrapGlass);
-    }
-
-    const roofPergola = new THREE.Mesh(sharedGeos.unitBox, solidSkylineMarbleMat);
-    roofPergola.scale.set(W * 0.74, 2.2, D * 0.74);
-    roofPergola.position.set(0, H + 1.1, 0);
-    group.add(roofPergola);
-  } else if (isArtDeco) {
-    for (const offset of [-0.36, 0, 0.36]) {
-      const frontRib = new THREE.Mesh(sharedGeos.tallBox, solidSkylineConcreteMat);
-      frontRib.scale.set(0.62, H, D + 0.52);
-      frontRib.position.set(W * offset, H / 2, 0);
-      group.add(frontRib);
-
-      const sideRib = new THREE.Mesh(sharedGeos.tallBox, solidSkylineConcreteMat);
-      sideRib.scale.set(W + 0.52, H, 0.62);
-      sideRib.position.set(0, H / 2, D * offset);
-      group.add(sideRib);
-    }
-
-    const step1 = new THREE.Mesh(sharedGeos.unitBox, facadeMat);
-    step1.scale.set(W * 0.76, 3.2, D * 0.76);
-    step1.position.set(0, H + 1.6, 0);
+    // Topo escalonado Art Déco + Antena
+    const step1 = new THREE.Mesh(sharedGeos.unitBox, beigeDecoWallMat);
+    step1.scale.set(W * 0.72, 2.6, D * 0.72);
+    step1.position.set(0, H + 1.3, 0);
     group.add(step1);
 
-    const step2 = new THREE.Mesh(sharedGeos.unitBox, solidSkylineConcreteMat);
-    step2.scale.set(W * 0.48, 2.4, D * 0.48);
-    step2.position.set(0, H + 4.3, 0);
+    const step2 = new THREE.Mesh(sharedGeos.unitBox, creamShutterMat);
+    step2.scale.set(W * 0.42, 2.0, D * 0.42);
+    step2.position.set(-0.6, H + 3.4, 0);
     group.add(step2);
 
-    const decoSpire = new THREE.Mesh(sharedGeos.cylinder, solidSkylineSteelMat);
-    decoSpire.scale.set(0.12, 4.2, 0.12);
-    decoSpire.position.set(0, H + 7.2, 0);
-    group.add(decoSpire);
+    addRooftopTvAntenna(-0.4, H + 4.4, 0);
   } else {
-    for (let b = 1; b <= 5; b++) {
-      const by = b * 5.0;
-      const cornerBalcony = new THREE.Mesh(sharedGeos.unitBox, solidSkylineMarbleMat);
-      cornerBalcony.scale.set(W + 0.96, 0.52, D + 0.96);
-      cornerBalcony.position.set(streetSign * 0.22, by, 0.22);
-      group.add(cornerBalcony);
+    // =========================================================================
+    // PRÉDIO 4: EDIFÍCIO VERDE-ABACATE & CORAL COM TELHADO COLONIAL, VARAL DE ROUPAS E "LANCHONETE"
+    // =========================================================================
+    // Metade inferior Coral/Terracota + Andar superior Verde-Abacate
+    const lowerShaft = new THREE.Mesh(sharedGeos.tallBox, coralWallMat);
+    lowerShaft.scale.set(W, H * 0.66, D);
+    lowerShaft.position.set(0, H * 0.33, 0);
+    group.add(lowerShaft);
+
+    const upperShaft = new THREE.Mesh(sharedGeos.unitBox, limeGreenWallMat);
+    upperShaft.scale.set(W + 0.15, H * 0.36, D + 0.15);
+    upperShaft.position.set(0, H * 0.82, 0);
+    group.add(upperShaft);
+
+    // Térreo comercial "LANCHONETE" com toldo vermelho largo
+    const lanchSign = new THREE.Mesh(
+      new THREE.PlaneGeometry(7.2, 2.05),
+      getCariocaBuildingSignMaterial('LANCHONETE'),
+    );
+    lanchSign.position.set(0, 4.1, D * 0.5 + 0.34);
+    lanchSign.userData.noCartoonOutline = true;
+    group.add(lanchSign);
+
+    const redAwning = new THREE.Mesh(sharedGeos.unitBox, redAwningMat);
+    redAwning.scale.set(7.8, 0.34, 2.0);
+    redAwning.position.set(0, 2.8, D * 0.5 + 0.9);
+    redAwning.rotation.x = 0.32;
+    group.add(redAwning);
+
+    // Sacada do 2º andar com VARAL DE ROUPAS COLORIDAS (camisetas vermelha, amarela e azul!)
+    const balcY = 8.4;
+    const balcSlab = new THREE.Mesh(sharedGeos.unitBox, creamShutterMat);
+    balcSlab.scale.set(W * 0.76, 0.5, 1.55);
+    balcSlab.position.set(0, balcY, D * 0.5 + 0.65);
+    group.add(balcSlab);
+
+    const balcRail = new THREE.Mesh(sharedGeos.unitBox, darkWindowFrameMat);
+    balcRail.scale.set(W * 0.74, 1.05, 0.14);
+    balcRail.position.set(0, balcY + 0.75, D * 0.5 + 1.32);
+    group.add(balcRail);
+
+    // Roupas coloridas penduradas no varal da sacada (igual à imagem de referência!)
+    const clothesSpecs = [
+      { x: -1.65, mat: redAwningMat },
+      { x: 0.0, mat: yellowWallMat },
+      { x: 1.65, mat: blueGlassMat },
+    ];
+    for (const cl of clothesSpecs) {
+      const shirt = new THREE.Mesh(sharedGeos.unitBox, cl.mat);
+      shirt.scale.set(1.15, 1.45, 0.14);
+      shirt.position.set(cl.x, balcY + 1.85, D * 0.5 + 1.15);
+      shirt.rotation.z = cl.x * 0.04;
+      group.add(shirt);
     }
 
-    const penthouse = new THREE.Mesh(sharedGeos.unitBox, solidSkylineMarbleMat);
-    penthouse.scale.set(W * 0.72, 2.5, D * 0.72);
-    penthouse.position.set(0, H + 1.25, 0);
-    group.add(penthouse);
+    // Janelas com venezianas no 3º andar verde + aparelhos de ar-condicionado
+    for (const wx of [-W * 0.24, W * 0.24]) {
+      const upperWin = new THREE.Mesh(sharedGeos.unitBox, creamShutterMat);
+      upperWin.scale.set(2.5, 2.6, 0.34);
+      upperWin.position.set(wx, H * 0.82, D * 0.5 + 0.16);
+      group.add(upperWin);
+    }
+    addAcUnit(W * 0.26, H * 0.68, D * 0.5 + 0.38);
+    addAcUnit(-W * 0.42, H * 0.66, D * 0.5 + 0.34);
 
-    const spire = new THREE.Mesh(sharedGeos.cylinder, solidSkylineSteelMat);
-    spire.scale.set(0.11, 5.0, 0.11);
-    spire.position.set(0, H + 4.8, 0);
-    group.add(spire);
+    // Telhado Colonial de Cerâmica Laranja + Caixa-d'Água Azul + Antena
+    const roofSlopeFront = new THREE.Mesh(sharedGeos.unitBox, clayRoofMat);
+    roofSlopeFront.scale.set(W + 1.1, 0.42, D * 0.62);
+    roofSlopeFront.position.set(0, H + 0.85, D * 0.22);
+    roofSlopeFront.rotation.x = 0.36;
+    group.add(roofSlopeFront);
+
+    const roofSlopeBack = new THREE.Mesh(sharedGeos.unitBox, clayRoofMat);
+    roofSlopeBack.scale.set(W + 1.1, 0.42, D * 0.62);
+    roofSlopeBack.position.set(0, H + 0.85, -D * 0.22);
+    roofSlopeBack.rotation.x = -0.36;
+    group.add(roofSlopeBack);
+
+    addBlueWaterTank(1.6, H + 0.9, -0.6, 1.85, 2.2);
+    addRooftopTvAntenna(-2.0, H + 1.1, 0);
   }
 
-  // 4. Secondary Outer Skyline Tower (Layered Metropolitan Depth in Perspective, also fog: false!)
-  const secPalette =
-    v === 0 ? 'copacabana_wave' : v === 1 ? 'ipanema_modern' : v === 2 ? 'brasil_green' : 'art_deco_historic';
-  const secTex = getRioBuildingFacadeTexture(secPalette, maxAnisotropy);
-  const secMat = new THREE.MeshStandardMaterial({
-    map: secTex,
-    color: 0xe2e8f0,
-    roughness: 0.55,
-    metalness: 0.12,
-    fog: false,
-  });
-  const secH = (isBrasilTower ? 34.0 : H) + 6.5 + (v % 3) * 3.2;
-  const secW = 10.6;
-  const secD = 9.6;
-  const secTower = new THREE.Mesh(sharedGeos.tallBox, secMat);
-  secTower.scale.set(secW, secH + 8.0, secD);
-  secTower.position.set(-streetSign * 12.8, (secH - 4.0) / 2, -8.5);
-  group.add(secTower);
+  // Coqueiro / Palmeira Tropical na calçada ao lado do prédio (igual à imagem de referência!)
+  const cornerPalm = buildTropicalTree('palm');
+  cornerPalm.scale.setScalar(1.35);
+  cornerPalm.position.set(streetSign * (W * 0.5 + 1.3), 0, D * 0.42);
+  group.add(cornerPalm);
 
-  const secCrown = new THREE.Mesh(sharedGeos.unitBox, solidSkylineMarbleMat);
-  secCrown.scale.set(secW * 0.78, 2.4, secD * 0.78);
-  secCrown.position.set(-streetSign * 12.8, secH + 1.2, -8.5);
-  group.add(secCrown);
-
-  // Soft, subtle black cartoon outlines on the horizon skyscrapers ("coloque leves contorno preto nas montanhas e nos predios bem suave")
+  // Contornos pretos cartoon bem definidos nos volumes 3D de cada prédio
   addSoftBuildingOutlinesToGroup(group);
-  // Apply Dynamic Atmospheric Depth Fog to the distant skyline buildings ("efeito de Depth Fog dos predios e montanha bem dinamico")
   applyWorldCurvatureToGroup(group, {
-    minFog: 0.14,
-    maxFog: 0.52,
-    clearHeightY: 34.0,
+    minFog: 0.08,
+    maxFog: 0.38,
+    clearHeightY: 36.0,
   });
   return group;
 }
 
 const softBuildingEdgeMat = new THREE.LineBasicMaterial({
-  color: 0x141619,
+  color: 0x09090b,
   transparent: true,
-  opacity: 0.34,
+  opacity: 0.68,
   fog: false,
 });
 
 const softBuildingSilhouetteHullMat = new THREE.MeshBasicMaterial({
-  color: 0x141619,
+  color: 0x09090b,
   side: THREE.BackSide,
   transparent: true,
-  opacity: 0.32,
+  opacity: 0.72,
   fog: false,
 });
 
@@ -2483,7 +3161,7 @@ function addSoftBuildingOutlinesToGroup(root: THREE.Object3D): void {
  * Builds a Radiant, Illustrated Cartoon Sun with Golden Sunbeams Passing Behind the Horizon Mountains & Skyline,
  * smoothly descending and reddening at sunset, then fading cleanly as Night & Aurora Borealis emerge!
  */
-export function buildRealisticHorizonSun(): {
+export function buildRealisticHorizonSun(isPraia = false): {
   group: THREE.Group;
   update: (
     elapsed: number,
@@ -2539,21 +3217,21 @@ export function buildRealisticHorizonSun(): {
         float streak = exp(-abs(vUv.y) * 26.0) * smoothstep(0.98, 0.05, abs(vUv.x)) * (0.34 + 0.18 * uQuality);
         float lensRing = exp(-pow((r - 0.44) * 16.0, 2.0)) * 0.14 * uQuality;
 
-        float coreDisc = smoothstep(0.19, 0.125, r);
-        float innerGlow = smoothstep(0.38, 0.13, r) * 0.85;
-        float midCorona = smoothstep(0.68, 0.20, r) * 0.45;
-        float outerAura = smoothstep(1.0, 0.32, r) * 0.24;
+        float coreDisc = smoothstep(0.18, 0.12, r);
+        float innerGlow = smoothstep(0.36, 0.125, r) * 0.62;
+        float midCorona = smoothstep(0.64, 0.18, r) * 0.28;
+        float outerAura = smoothstep(0.95, 0.30, r) * 0.14;
 
-        vec3 pureSolarWhite = mix(vec3(1.0, 0.995, 0.95), vec3(1.0, 0.92, 0.72), uSunset);
-        vec3 warmGold = mix(vec3(1.0, 0.88, 0.38), vec3(1.0, 0.58, 0.20), uSunset);
-        vec3 richAmber = mix(vec3(1.0, 0.62, 0.22), vec3(0.96, 0.32, 0.26), uSunset);
-        vec3 softPeach = mix(vec3(0.99, 0.48, 0.28), vec3(0.76, 0.22, 0.48), uSunset);
+        vec3 pureSolarWhite = mix(vec3(1.0, 0.99, 0.96), vec3(1.0, 0.95, 0.84), uSunset);
+        vec3 warmGold = mix(vec3(1.0, 0.94, 0.72), vec3(1.0, 0.74, 0.45), uSunset);
+        vec3 richAmber = mix(vec3(0.99, 0.84, 0.58), vec3(0.96, 0.52, 0.42), uSunset);
+        vec3 softPeach = mix(vec3(0.98, 0.78, 0.58), vec3(0.82, 0.38, 0.56), uSunset);
 
         vec3 col = mix(softPeach, richAmber, smoothstep(0.95, 0.38, r));
         col = mix(col, warmGold, smoothstep(0.52, 0.18, r) + lensRing);
-        col = mix(col, pureSolarWhite, clamp(coreDisc + streak * 0.75 + godRays * 0.55, 0.0, 1.0));
+        col = mix(col, pureSolarWhite, clamp(coreDisc + streak * 0.65 + godRays * 0.48, 0.0, 1.0));
 
-        float alpha = clamp(coreDisc + innerGlow + midCorona + outerAura + godRays + streak + lensRing, 0.0, 1.0) * uOpacity;
+        float alpha = clamp(coreDisc + innerGlow + midCorona + outerAura + godRays * 0.75 + streak * 0.72 + lensRing, 0.0, 1.0) * uOpacity * 0.86;
         gl_FragColor = vec4(col, alpha);
       }
     `,
@@ -2587,9 +3265,9 @@ export function buildRealisticHorizonSun(): {
         float angle = atan(vUv.y, vUv.x);
         float shafts = pow(sin(angle * 7.0 + uTime * 0.08) * 0.5 + 0.5, 3.0) * smoothstep(1.0, 0.08, r);
         float diagShaft = exp(-abs(vUv.x * 0.62 + vUv.y * 0.78) * 5.5) * step(vUv.y, 0.15) * smoothstep(1.0, 0.1, r);
-        float intensity = (shafts * 0.16 + diagShaft * 0.22 + smoothstep(0.65, 0.0, r) * 0.24) * (0.65 + 0.35 * uQuality) * uOpacity;
-        vec3 dayBeam = mix(vec3(1.0, 0.68, 0.25), vec3(1.0, 0.94, 0.68), smoothstep(0.7, 0.0, r));
-        vec3 sunsetBeam = mix(vec3(0.95, 0.30, 0.36), vec3(1.0, 0.68, 0.32), smoothstep(0.7, 0.0, r));
+        float intensity = (shafts * 0.11 + diagShaft * 0.15 + smoothstep(0.65, 0.0, r) * 0.16) * (0.65 + 0.35 * uQuality) * uOpacity;
+        vec3 dayBeam = mix(vec3(1.0, 0.85, 0.58), vec3(1.0, 0.97, 0.86), smoothstep(0.7, 0.0, r));
+        vec3 sunsetBeam = mix(vec3(0.95, 0.48, 0.46), vec3(1.0, 0.78, 0.52), smoothstep(0.7, 0.0, r));
         vec3 beamColor = mix(dayBeam, sunsetBeam, uSunset);
         gl_FragColor = vec4(beamColor * intensity, intensity);
       }
@@ -2604,7 +3282,7 @@ export function buildRealisticHorizonSun(): {
   beamsQuad.position.set(4, -8, 0.5);
   group.add(beamsQuad);
 
-  group.position.set(-18.5, 74.0, -182.0);
+  group.position.set(isPraia ? 26.0 : -18.5, isPraia ? 64.0 : 74.0, -182.0);
 
   return {
     group,
@@ -2616,17 +3294,31 @@ export function buildRealisticHorizonSun(): {
     ) => {
       const vis = THREE.MathUtils.clamp(sunVisibility, 0, 1);
       group.visible = vis > 0.008;
+      worldCurveUniforms.uSunActiveOpacity.value = vis;
       if (!group.visible) return;
 
+      const sMix = THREE.MathUtils.clamp(sunsetFactor, 0, 1);
       sunUniforms.uTime.value = elapsed;
       sunUniforms.uQuality.value = qualityMultiplier;
       sunUniforms.uOpacity.value = vis;
-      sunUniforms.uSunset.value = THREE.MathUtils.clamp(sunsetFactor, 0, 1);
+      sunUniforms.uSunset.value = sMix;
       beamsQuad.visible = qualityMultiplier >= 0.45 && vis > 0.04;
 
-      // Desce suavemente de y = 75m (dia alto) até y = 16m atrás das montanhas ao anoitecer!
-      group.position.x = -18.5 - (1.0 - vis) * 12.0 + Math.sin(elapsed * 0.04) * 2.0;
-      group.position.y = 16.0 + vis * 58.0 + Math.cos(elapsed * 0.04) * 0.6;
+      if (isPraia) {
+        // Na Praia: o Sol começa alto no céu ensolarado e se põe horizontalmente no horizonte sobre o mar à direita (+X)!
+        const setProgress = 1.0 - vis;
+        group.position.x =
+          THREE.MathUtils.lerp(22.0, 56.0, Math.pow(setProgress, 0.85)) +
+          Math.sin(elapsed * 0.04) * 1.4;
+        group.position.y =
+          THREE.MathUtils.lerp(62.0, 9.5, Math.pow(setProgress, 1.12)) +
+          Math.cos(elapsed * 0.04) * 0.4;
+      } else {
+        // Na Vila/Favela: desce suavemente atrás das montanhas ao anoitecer
+        group.position.x = -18.5 - (1.0 - vis) * 12.0 + Math.sin(elapsed * 0.04) * 2.0;
+        group.position.y = 16.0 + vis * 58.0 + Math.cos(elapsed * 0.04) * 0.6;
+      }
+      worldCurveUniforms.uSunWorldPos.value.copy(group.position);
     },
   };
 }
@@ -2812,11 +3504,12 @@ function buildMountainForestTree(
  * chiseled ridges, and a seamless rounded summit dome.
  */
 function createSculptedMountainCragGeo(
-  topRadius = 0.18,
+  topRadius = 0.42,
   bottomRadius = 1.0,
   radialSegs = 18,
   heightSegs = 12,
   seed = 1.0,
+  flattenTop = false,
 ): THREE.BufferGeometry {
   const geo = new THREE.CylinderGeometry(topRadius, bottomRadius, 1.0, radialSegs, heightSegs, false);
   const pos = geo.attributes.position;
@@ -2829,28 +3522,35 @@ function createSculptedMountainCragGeo(
     const angle = Math.atan2(z, x);
 
     // Deep vertical rock flutes and craggy ribs matching the coastal mountain reference photo
-    const flute1 = Math.sin(angle * 5.0 + seed * 1.7) * 0.15;
-    const flute2 = Math.cos(angle * 9.0 - seed * 2.3 + hNorm * 2.2) * 0.09;
-    const flute3 = Math.sin(angle * 14.0 + seed * 3.1 - hNorm * 3.5) * 0.045;
-    const cliffStep = Math.sin(hNorm * 9.0 + angle * 3.0 + seed) * 0.05 * (1.0 - hNorm * 0.35);
+    const fluteAtten = flattenTop ? 1.0 - smoothstepLocal(0.75, 1.0, hNorm) * 0.55 : 1.0;
+    const flute1 = Math.sin(angle * 5.0 + seed * 1.7) * 0.14 * fluteAtten;
+    const flute2 = Math.cos(angle * 9.0 - seed * 2.3 + hNorm * 2.2) * 0.08 * fluteAtten;
+    const flute3 = Math.sin(angle * 14.0 + seed * 3.1 - hNorm * 3.5) * 0.04 * fluteAtten;
+    const cliffStep = Math.sin(hNorm * 9.0 + angle * 3.0 + seed) * 0.045 * (1.0 - hNorm * 0.4);
 
-    // Smoothly arch the top cap into an organic craggy summit dome so there is never a flat horizontal cylinder seam
-    const crownProfile = hNorm > 0.72 ? 1.0 - Math.pow((hNorm - 0.72) / 0.28, 1.55) * 0.42 : 1.0;
+    const crownProfile =
+      hNorm > 0.76
+        ? 1.0 - Math.pow((hNorm - 0.76) / 0.24, 1.45) * (flattenTop ? 0.14 : 0.24)
+        : 1.0;
     const radialScale = (1.0 + flute1 + flute2 + flute3 + cliffStep) * crownProfile;
 
     x *= radialScale;
     z *= radialScale;
 
-    // Arch the top disk vertices upward toward the center so the summit is a natural rounded rock peak
     if (y > 0.48) {
       const centerFactor = Math.max(0, 1.0 - rXZ / Math.max(0.05, topRadius));
-      y += centerFactor * 0.08 + Math.sin(angle * 3.0 + seed) * 0.018;
+      y += centerFactor * (flattenTop ? 0.016 : 0.038) + Math.sin(angle * 3.0 + seed) * 0.008;
     }
 
     pos.setXYZ(i, x, y, z);
   }
   geo.computeVertexNormals();
   return geo;
+}
+
+function smoothstepLocal(e0: number, e1: number, v: number): number {
+  const t = Math.max(0, Math.min(1, (v - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
 }
 
 /**
@@ -2976,6 +3676,10 @@ function createMountainSceneryShaderMat(): THREE.ShaderMaterial {
       uWorldCurveY: worldCurveUniforms.uWorldCurveY,
       uWorldCurveX: worldCurveUniforms.uWorldCurveX,
       uCurveStartZ: worldCurveUniforms.uCurveStartZ,
+      uLadeiraSlope: worldCurveUniforms.uLadeiraSlope,
+      uRoadWindPhase: worldCurveUniforms.uRoadWindPhase,
+      uSunsetOrangeMix: worldCurveUniforms.uSunsetOrangeMix,
+      uNightDarknessMix: worldCurveUniforms.uNightDarknessMix,
       uHorizonFogColor: worldCurveUniforms.uHorizonFogColor,
       uHorizonFogSkyTint: worldCurveUniforms.uHorizonFogSkyTint,
       uSunDir: { value: new THREE.Vector3(-0.74, 0.46, 0.48).normalize() },
@@ -2984,6 +3688,8 @@ function createMountainSceneryShaderMat(): THREE.ShaderMaterial {
       uniform float uWorldCurveY;
       uniform float uWorldCurveX;
       uniform float uCurveStartZ;
+      uniform float uLadeiraSlope;
+      uniform float uRoadWindPhase;
       attribute vec3 aCragLocalPos;
       varying vec3 vWorldPos;
       varying vec3 vScaleCorrectedNormal;
@@ -2995,11 +3701,14 @@ function createMountainSceneryShaderMat(): THREE.ShaderMaterial {
         vWorldPos = worldPosition.xyz;
         vScaleCorrectedNormal = normalize(mat3(modelMatrix) * normal);
 
-        // Apply world curvature in WORLD SPACE (identical to road & houses) so camera pitch/yaw never sways the mountains!
+        // Apply world curvature in WORLD SPACE
         float curveDist = max(0.0, -(worldPosition.z - uCurveStartZ));
         float curveSq = curveDist * curveDist;
-        worldPosition.y -= curveSq * uWorldCurveY;
-        worldPosition.x += curveSq * uWorldCurveX;
+        float ladeiraBowl = 4.2 * smoothstep(14.0, 108.0, curveDist) * (1.0 - 0.14 * smoothstep(108.0, 175.0, curveDist));
+        float sCurveNear = sin(curveDist * 0.032 + uRoadWindPhase) * 1.95 * smoothstep(16.0, 78.0, curveDist) * uLadeiraSlope;
+        float sCurveFar = cos(curveDist * 0.016 - uRoadWindPhase * 0.65) * 1.45 * smoothstep(48.0, 165.0, curveDist) * uLadeiraSlope;
+        worldPosition.y -= curveSq * uWorldCurveY * 0.16 + ladeiraBowl * uLadeiraSlope;
+        worldPosition.x += curveSq * uWorldCurveX + sCurveNear + sCurveFar;
 
         vec4 mvPosition = viewMatrix * worldPosition;
         gl_Position = projectionMatrix * mvPosition;
@@ -3012,6 +3721,7 @@ function createMountainSceneryShaderMat(): THREE.ShaderMaterial {
       varying vec3 vWorldPos;
       varying vec3 vScaleCorrectedNormal;
       varying vec3 vLocalPos;
+      ${GLSL_TROPICAL_CINEMATIC_GRADE}
 
       void main() {
         vec3 dpx = dFdx(vWorldPos);
@@ -3054,7 +3764,8 @@ function createMountainSceneryShaderMat(): THREE.ShaderMaterial {
         forestCol = mix(forestCol, sunlitEmerald, smoothstep(0.54, 0.78, lightMix));
         forestCol = mix(forestCol, sunlitRidgeLime, smoothstep(0.76, 0.96, lightMix) * (0.5 + 0.5 * canopyDetail));
 
-        float upperCragZone = smoothstep(0.28, 0.62, relHeight) * smoothstep(0.25, 0.65, localHeight);
+        float effHeight = max(relHeight, localHeight);
+        float upperCragZone = smoothstep(0.28, 0.62, effHeight) * smoothstep(0.22, 0.65, localHeight);
         float steepness = smoothstep(0.68, 0.25, abs(N.y));
         float verticalStriation = clamp((fluteWave * 0.5 + 0.5) * (fineCrag * 0.5 + 0.5) * 1.45, 0.0, 1.0);
         float rockMask = clamp(upperCragZone * steepness * (0.35 + 0.65 * verticalStriation), 0.0, 0.85);
@@ -3067,26 +3778,27 @@ function createMountainSceneryShaderMat(): THREE.ShaderMaterial {
 
         vec3 col = mix(forestCol, rockCol, rockMask);
 
-        float leftRim = smoothstep(0.32, 0.82, clamp(-N.x * 0.72 + N.y * 0.45, 0.0, 1.0)) * smoothstep(0.2, 0.8, relHeight);
+        float leftRim = smoothstep(0.32, 0.82, clamp(-N.x * 0.72 + N.y * 0.45, 0.0, 1.0)) * smoothstep(0.2, 0.8, effHeight);
         col += vec3(0.11, 0.17, 0.13) * leftRim * 0.45;
 
-        // Subtle atmospheric distance perspective haze since mountain is placed further back at z = -168
+        // Subtle atmospheric distance perspective haze
         vec3 coastalSkyHaze = vec3(0.46, 0.66, 0.83);
         float rightRidgeHaze = clamp((vWorldPos.x + 8.0) / 52.0, 0.0, 1.0) * 0.22;
         float shadowHaze = (1.0 - lightMix) * 0.18 + rightRidgeHaze + 0.06;
         col = mix(col, coastalSkyHaze, clamp(shadowHaze, 0.0, 0.36));
 
-        // Single-pass soft black cartoon contour along crag silhouettes and internal rock creases (zero transparent overdraw!)
+        // Single-pass soft black cartoon contour along crag silhouettes and internal rock creases
         vec3 V = normalize(cameraPosition - vWorldPos);
         float grazingSilhouette = 1.0 - abs(dot(smoothN, V));
         float ridgeCrease = clamp(length(fwidth(N)) * 2.2, 0.0, 1.0);
         float softBlackContour = clamp(
-          smoothstep(0.58, 0.86, grazingSilhouette) * 0.46 +
-          smoothstep(0.35, 0.85, ridgeCrease) * 0.22,
+          smoothstep(0.52, 0.82, grazingSilhouette) * 0.58 +
+          smoothstep(0.30, 0.80, ridgeCrease) * 0.28,
           0.0,
-          0.48
+          0.62
         );
-        col = mix(col, vec3(0.07, 0.09, 0.11), softBlackContour);
+        col = applyTropicalCinematicGrade(col);
+        col = mix(col, vec3(0.04, 0.06, 0.10), softBlackContour);
 
         gl_FragColor = vec4(col, 1.0);
       }
@@ -3098,11 +3810,420 @@ function createMountainSceneryShaderMat(): THREE.ShaderMaterial {
   return mat;
 }
 
+let sharedMountainTreeCutoutMat: THREE.ShaderMaterial | null = null;
+function getSharedMountainTreeCutoutMat(maxAnisotropy = 4): THREE.ShaderMaterial {
+  if (sharedMountainTreeCutoutMat) return sharedMountainTreeCutoutMat;
+  const tex = createMountainTreeFoliageCutoutTexture(maxAnisotropy);
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      uMap: { value: tex },
+      uWorldCurveY: worldCurveUniforms.uWorldCurveY,
+      uWorldCurveX: worldCurveUniforms.uWorldCurveX,
+      uCurveStartZ: worldCurveUniforms.uCurveStartZ,
+      uLadeiraSlope: worldCurveUniforms.uLadeiraSlope,
+      uRoadWindPhase: worldCurveUniforms.uRoadWindPhase,
+      uSunsetOrangeMix: worldCurveUniforms.uSunsetOrangeMix,
+      uNightDarknessMix: worldCurveUniforms.uNightDarknessMix,
+    },
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    fog: false,
+    vertexShader: `
+      uniform float uWorldCurveY;
+      uniform float uWorldCurveX;
+      uniform float uCurveStartZ;
+      uniform float uLadeiraSlope;
+      uniform float uRoadWindPhase;
+      varying vec2 vUv;
+      varying vec3 vWorldPos;
+
+      void main() {
+        vUv = uv;
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWorldPos = wp.xyz;
+
+        float curveDist = max(0.0, -(wp.z - uCurveStartZ));
+        float curveDistSq = curveDist * curveDist;
+        float ladeiraBowl = 4.2 * smoothstep(14.0, 108.0, curveDist) * (1.0 - 0.14 * smoothstep(108.0, 175.0, curveDist));
+        float sCurveNear = sin(curveDist * 0.032 + uRoadWindPhase) * 1.95 * smoothstep(16.0, 78.0, curveDist) * uLadeiraSlope;
+        float sCurveFar = cos(curveDist * 0.016 - uRoadWindPhase * 0.65) * 1.45 * smoothstep(48.0, 165.0, curveDist) * uLadeiraSlope;
+        wp.y -= uWorldCurveY * curveDistSq * 0.16 + ladeiraBowl * uLadeiraSlope;
+        wp.x += uWorldCurveX * curveDistSq + sCurveNear + sCurveFar;
+
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D uMap;
+      varying vec2 vUv;
+      varying vec3 vWorldPos;
+      ${GLSL_TROPICAL_CINEMATIC_GRADE}
+      void main() {
+        vec4 texel = texture2D(uMap, vUv);
+        if (texel.a < 0.05) discard;
+        vec3 coastalHaze = vec3(0.44, 0.65, 0.78);
+        vec3 col = mix(texel.rgb, coastalHaze, 0.24);
+        col = applyTropicalCinematicGrade(col);
+        gl_FragColor = vec4(col, texel.a * 0.88);
+      }
+    `,
+  });
+  sharedMountainTreeCutoutMat = mat;
+  return mat;
+}
+
+function buildMergedMountainTreeCutoutMesh(
+  cards: ReadonlyArray<{
+    x: number;
+    y: number;
+    z: number;
+    w: number;
+    h: number;
+    rotY?: number;
+    rotZ?: number;
+  }>,
+): THREE.Mesh {
+  const quadTemplate = new THREE.PlaneGeometry(1, 1, 2, 1);
+  const vPerCard = quadTemplate.attributes.position.count;
+  const idxTemplate = quadTemplate.index!.array;
+  const iPerCard = idxTemplate.length;
+
+  const totalVerts = cards.length * vPerCard;
+  const totalIndices = cards.length * iPerCard;
+
+  const positions = new Float32Array(totalVerts * 3);
+  const normals = new Float32Array(totalVerts * 3);
+  const uvs = new Float32Array(totalVerts * 2);
+  const indices = new Uint16Array(totalIndices);
+
+  const srcPos = quadTemplate.attributes.position;
+  const srcNorm = quadTemplate.attributes.normal;
+  const srcUv = quadTemplate.attributes.uv;
+
+  const mat4 = new THREE.Matrix4();
+  const normalMat = new THREE.Matrix3();
+  const euler = new THREE.Euler();
+  const quat = new THREE.Quaternion();
+  const posVec = new THREE.Vector3();
+  const scaleVec = new THREE.Vector3();
+  const vTmp = new THREE.Vector3();
+
+  for (let c = 0; c < cards.length; c++) {
+    const card = cards[c];
+    euler.set(-0.08, card.rotY ?? 0, card.rotZ ?? 0);
+    quat.setFromEuler(euler);
+    posVec.set(card.x, card.y, card.z);
+    scaleVec.set(card.w, card.h, 1.0);
+    mat4.compose(posVec, quat, scaleVec);
+    normalMat.getNormalMatrix(mat4);
+
+    const vBase = c * vPerCard;
+    for (let i = 0; i < vPerCard; i++) {
+      vTmp.set(srcPos.getX(i), srcPos.getY(i), srcPos.getZ(i)).applyMatrix4(mat4);
+      const outV = (vBase + i) * 3;
+      positions[outV] = vTmp.x;
+      positions[outV + 1] = vTmp.y;
+      positions[outV + 2] = vTmp.z;
+
+      vTmp.set(srcNorm.getX(i), srcNorm.getY(i), srcNorm.getZ(i)).applyMatrix3(normalMat).normalize();
+      normals[outV] = vTmp.x;
+      normals[outV + 1] = vTmp.y;
+      normals[outV + 2] = vTmp.z;
+
+      const outUv = (vBase + i) * 2;
+      uvs[outUv] = srcUv.getX(i);
+      uvs[outUv + 1] = srcUv.getY(i);
+    }
+
+    const iBase = c * iPerCard;
+    for (let j = 0; j < iPerCard; j++) {
+      indices[iBase + j] = vBase + idxTemplate[j];
+    }
+  }
+  quadTemplate.dispose();
+
+  const mergedGeo = new THREE.BufferGeometry();
+  mergedGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  mergedGeo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  mergedGeo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  mergedGeo.setIndex(new THREE.BufferAttribute(indices, 1));
+
+  const mesh = new THREE.Mesh(mergedGeo, getSharedMountainTreeCutoutMat());
+  mesh.name = 'Merged_Mountain_Tree_PNG_Cutouts';
+  mesh.matrixAutoUpdate = false;
+  mesh.updateMatrix();
+  return mesh;
+}
+
 /**
  * Builds the Optimized, Sculpted Realistic-Cartoon Coastal Mountain Massif:
  * - Uses `mergeMountainCragGeometries` to combine all 16 crag peaks & base apron slices into 1 single static BufferGeometry (1 draw call!).
  * - Uses optimized segment counts (18x12 / 16x10) and single-pass shader contour with zero transparent backface overdraw.
  * - Pristine natural summit peak without the statue as requested.
+ */
+const cristoSoapstoneMat = new THREE.MeshStandardMaterial({
+  color: 0xf4f6f9,
+  roughness: 0.48,
+  metalness: 0.05,
+  fog: false,
+});
+applyWorldCurvatureToMaterial(cristoSoapstoneMat);
+
+const cristoPedestalStoneMat = new THREE.MeshStandardMaterial({
+  color: 0xcbd5e1,
+  roughness: 0.68,
+  metalness: 0.05,
+  fog: false,
+});
+applyWorldCurvatureToMaterial(cristoPedestalStoneMat);
+
+const cristoLightBlackOutlineMat = new THREE.MeshBasicMaterial({
+  color: 0x111827,
+  side: THREE.BackSide,
+  transparent: true,
+  opacity: 0.86,
+  fog: false,
+});
+cristoLightBlackOutlineMat.userData.skipColorGrade = true;
+applyWorldCurvatureToMaterial(cristoLightBlackOutlineMat);
+
+/**
+ * Creates a vertex-normal-extruded BackSide material for a light black cartoon outline ("contorno leve preto")
+ * on the 3D FBX Cristo Redentor mesh, including world horizon curvature.
+ */
+function createCristoFbxNormalOutlineMaterial(localNormalOffset: number): THREE.ShaderMaterial {
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      uOutlineOffset: { value: localNormalOffset },
+      uWorldCurveY: worldCurveUniforms.uWorldCurveY,
+      uWorldCurveX: worldCurveUniforms.uWorldCurveX,
+      uCurveStartZ: worldCurveUniforms.uCurveStartZ,
+      uLadeiraSlope: worldCurveUniforms.uLadeiraSlope,
+      uRoadWindPhase: worldCurveUniforms.uRoadWindPhase,
+    },
+    side: THREE.BackSide,
+    transparent: true,
+    depthWrite: true,
+    fog: false,
+    vertexShader: `
+      uniform float uOutlineOffset;
+      uniform float uWorldCurveY;
+      uniform float uWorldCurveX;
+      uniform float uCurveStartZ;
+      uniform float uLadeiraSlope;
+      uniform float uRoadWindPhase;
+      void main() {
+        vec3 extruded = position + normalize(normal) * uOutlineOffset;
+        vec4 worldPosition = modelMatrix * vec4(extruded, 1.0);
+        float curveDist = max(0.0, -(worldPosition.z - uCurveStartZ));
+        float curveSq = curveDist * curveDist;
+        float ladeiraBowl = 4.2 * smoothstep(14.0, 108.0, curveDist) * (1.0 - 0.14 * smoothstep(108.0, 175.0, curveDist));
+        float sCurveNear = sin(curveDist * 0.032 + uRoadWindPhase) * 1.95 * smoothstep(16.0, 78.0, curveDist) * uLadeiraSlope;
+        float sCurveFar = cos(curveDist * 0.016 - uRoadWindPhase * 0.65) * 1.45 * smoothstep(48.0, 165.0, curveDist) * uLadeiraSlope;
+        worldPosition.y -= curveSq * uWorldCurveY * 0.16 + ladeiraBowl * uLadeiraSlope;
+        worldPosition.x += curveSq * uWorldCurveX + sCurveNear + sCurveFar;
+        gl_Position = projectionMatrix * viewMatrix * worldPosition;
+      }
+    `,
+    fragmentShader: `
+      void main() {
+        gl_FragColor = vec4(0.065, 0.085, 0.125, 0.88);
+      }
+    `,
+  });
+  curvedMaterialInstances.add(mat);
+  mat.userData.hasWorldCurvature = true;
+  return mat;
+}
+
+let cachedCristoFbxPromise: Promise<THREE.Group | null> | null = null;
+
+function loadCristoRedentor3DFbxTemplate(): Promise<THREE.Group | null> {
+  if (typeof window === 'undefined') return Promise.resolve(null);
+  if (!cachedCristoFbxPromise) {
+    const loader = new FBXLoader();
+    cachedCristoFbxPromise = new Promise((resolve) => {
+      loader.load(
+        '/assets/cristo/cristo_redentor.fbx',
+        (fbx) => resolve(fbx),
+        undefined,
+        () => resolve(null),
+      );
+    });
+  }
+  return cachedCristoFbxPromise;
+}
+
+/**
+ * Builds the Corcovado Summit Pedestal + Loads the 3D Cristo Redentor FBX Model
+ * (`/assets/cristo/cristo_redentor.fbx`) with a light black cartoon outline ("contorno leve preto")!
+ */
+function buildCristoRedentorSummitMonument(): THREE.Group {
+  const monumentGroup = new THREE.Group();
+  monumentGroup.name = 'Cristo_Redentor_Summit_Monument';
+
+  const addPedestalPart = (
+    geo: THREE.BufferGeometry,
+    sx: number,
+    sy: number,
+    sz: number,
+    py: number,
+  ) => {
+    const mesh = new THREE.Mesh(geo, cristoPedestalStoneMat);
+    mesh.scale.set(sx, sy, sz);
+    mesh.position.set(0, py, 0);
+    mesh.userData.hasCartoonOutline = true;
+
+    const hull = new THREE.Mesh(geo, cristoLightBlackOutlineMat);
+    hull.scale.set(1.045, 1.035, 1.045);
+    mesh.add(hull);
+
+    monumentGroup.add(mesh);
+  };
+
+  // 2. Instant Fallback Statue & Pedestal (shown immediately and replaced seamlessly once the 3D FBX finishes loading)
+  const fallbackStatue = new THREE.Group();
+  fallbackStatue.name = 'Cristo_Fallback_Statue';
+  const addPedestalToFallback = (
+    geo: THREE.BufferGeometry,
+    sx: number,
+    sy: number,
+    sz: number,
+    py: number,
+  ) => {
+    const mesh = new THREE.Mesh(geo, cristoPedestalStoneMat);
+    mesh.scale.set(sx, sy, sz);
+    mesh.position.set(0, py, 0);
+    mesh.userData.hasCartoonOutline = true;
+    const hull = new THREE.Mesh(geo, cristoLightBlackOutlineMat);
+    hull.scale.set(1.045, 1.035, 1.045);
+    mesh.add(hull);
+    fallbackStatue.add(mesh);
+  };
+  addPedestalToFallback(sharedGeos.cylinder, 4.8, 2.2, 4.2, 1.1);
+  addPedestalToFallback(sharedGeos.cylinder, 3.2, 3.8, 2.9, 4.0);
+  addPedestalToFallback(sharedGeos.unitBox, 4.6, 0.75, 4.2, 6.1);
+
+  const addFallbackPart = (
+    geo: THREE.BufferGeometry,
+    sx: number,
+    sy: number,
+    sz: number,
+    px: number,
+    py: number,
+    pz: number,
+    rotZ = 0,
+  ) => {
+    const m = new THREE.Mesh(geo, cristoSoapstoneMat);
+    m.scale.set(sx, sy, sz);
+    m.position.set(px, py, pz);
+    m.rotation.z = rotZ;
+    m.userData.hasCartoonOutline = true;
+    const h = new THREE.Mesh(geo, cristoLightBlackOutlineMat);
+    h.scale.set(1.05, 1.04, 1.05);
+    m.add(h);
+    fallbackStatue.add(m);
+  };
+  addFallbackPart(sharedGeos.cylinder, 1.95, 7.2, 1.45, 0, 9.9, 0);
+  addFallbackPart(sharedGeos.unitBox, 3.85, 6.4, 2.35, 0, 15.8, 0);
+  addFallbackPart(sharedGeos.unitBox, 15.8, 1.85, 1.72, 0, 17.4, 0);
+  addFallbackPart(sharedGeos.unitBox, 5.4, 2.35, 1.85, -4.4, 16.5, 0, 0.14);
+  addFallbackPart(sharedGeos.unitBox, 5.4, 2.35, 1.85, 4.4, 16.5, 0, -0.14);
+  addFallbackPart(sharedGeos.sphere, 1.42, 1.88, 1.48, 0, 21.0, 0.22);
+  monumentGroup.add(fallbackStatue);
+
+  // Subtle base terrace platform resting on the flattened Corcovado summit plateau
+  addPedestalPart(sharedGeos.cylinder, 5.6, 1.4, 5.2, 0.7);
+
+  // 3. Load the real 3D Cristo Redentor FBX model and mount it onto the summit plateau facing the spectators
+  loadCristoRedentor3DFbxTemplate().then((fbxTemplate) => {
+    if (!fbxTemplate) return;
+    const clonedFbx = SkeletonUtils.clone(fbxTemplate) as THREE.Group;
+    clonedFbx.updateMatrixWorld(true);
+
+    // Measure raw bounding box to auto-scale and center the statue on top of the terrace (y = 1.35)
+    const box = new THREE.Box3().setFromObject(clonedFbx);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+
+    const rawHeight = Math.max(0.001, size.y);
+    const targetHeight = 21.6; // Full monument height (pedestal + statue) matching iconic Corcovado proportion
+    const scaleFactor = targetHeight / rawHeight;
+
+    // Subtle vertex-normal extrusion in raw geometry units (~1.1% of statue height = "contorno leve preto")
+    const outlineMat = createCristoFbxNormalOutlineMaterial(rawHeight * 0.011);
+
+    const meshesToOutline: THREE.Mesh[] = [];
+    clonedFbx.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
+        mesh.frustumCulled = false;
+        mesh.userData.hasCartoonOutline = true;
+
+        // Upgrade material to bright soapstone while preserving any model texture or vertex colors
+        const origMat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+        const origMap = (origMat as THREE.MeshStandardMaterial)?.map || null;
+        const hasVertexColors = Boolean(mesh.geometry?.attributes?.color);
+
+        const stdMat = new THREE.MeshStandardMaterial({
+          color: origMap ? 0xffffff : 0xf4f6f9,
+          map: origMap,
+          vertexColors: hasVertexColors,
+          roughness: 0.44,
+          metalness: 0.05,
+          emissive: new THREE.Color(0x334155),
+          emissiveIntensity: 0.16,
+          fog: false,
+        });
+        applyWorldCurvatureToMaterial(stdMat);
+        mesh.material = stdMat;
+        meshesToOutline.push(mesh);
+      }
+    });
+
+    // Attach light black BackSide outline mesh to each 3D mesh part
+    for (const mesh of meshesToOutline) {
+      if (mesh.geometry) {
+        if (!mesh.geometry.attributes.normal) {
+          mesh.geometry.computeVertexNormals();
+        }
+        const outlineChild = new THREE.Mesh(mesh.geometry, outlineMat);
+        outlineChild.name = 'Cristo_Light_Black_Outline';
+        outlineChild.frustumCulled = false;
+        outlineChild.userData.hasCartoonOutline = true;
+        mesh.add(outlineChild);
+      }
+    }
+
+    const holder = new THREE.Group();
+    holder.name = 'Cristo_3D_FBX_Holder';
+    clonedFbx.scale.setScalar(scaleFactor);
+    clonedFbx.position.set(
+      -center.x * scaleFactor,
+      1.35 - box.min.y * scaleFactor,
+      -center.z * scaleFactor,
+    );
+    holder.add(clonedFbx);
+
+    // Raw FBX has open arms along Z and face/chest along +X; rotate -90 deg around Y so face & open arms point directly at the spectators (+Z)
+    holder.rotation.y = -Math.PI * 0.5;
+
+    monumentGroup.remove(fallbackStatue);
+    monumentGroup.add(holder);
+  });
+
+  return monumentGroup;
+}
+
+/**
+ * Builds the Optimized, Sculpted Realistic-Cartoon Coastal Mountain Massif:
+ * - Uses `mergeMountainCragGeometries` to combine all 16 crag peaks & base apron slices into 1 single static BufferGeometry (1 draw call!).
+ * - Flattened Corcovado summit plateau topped with the 3D Cristo Redentor model (`/assets/cristo/cristo_redentor.fbx`) and light black cartoon outline.
  */
 export function buildCorcovadoAndCristoRedentor(): THREE.Group {
   const vistaGroup = new THREE.Group();
@@ -3110,10 +4231,10 @@ export function buildCorcovadoAndCristoRedentor(): THREE.Group {
 
   const sceneryMountainMat = createMountainSceneryShaderMat();
 
-  const cragGeoMain = createSculptedMountainCragGeo(0.22, 1.0, 18, 12, 1.2);
-  const cragGeoTwin = createSculptedMountainCragGeo(0.18, 0.9, 16, 10, 2.5);
-  const cragGeoSub = createSculptedMountainCragGeo(0.24, 1.04, 16, 10, 3.8);
-  const apronGeo = createSculptedMountainCragGeo(0.28, 1.22, 16, 8, 5.1);
+  const cragGeoMain = createSculptedMountainCragGeo(0.54, 1.0, 18, 12, 1.2, true);
+  const cragGeoTwin = createSculptedMountainCragGeo(0.36, 0.92, 16, 10, 2.5, false);
+  const cragGeoSub = createSculptedMountainCragGeo(0.38, 1.04, 16, 10, 3.8, false);
+  const apronGeo = createSculptedMountainCragGeo(0.42, 1.22, 16, 8, 5.1, false);
 
   const cragParts: Array<{
     geo: THREE.BufferGeometry;
@@ -3163,6 +4284,26 @@ export function buildCorcovadoAndCristoRedentor(): THREE.Group {
   mergedMountainMesh.matrixAutoUpdate = false;
   mergedMountainMesh.updateMatrix();
   vistaGroup.add(mergedMountainMesh);
+
+  // 2b. Distant 2D PNG Tree Cutout Clusters along the Lower Base & Lateral Flanks of the Mountain
+  const mountainTreeCutoutMesh = buildMergedMountainTreeCutoutMesh([
+    { x: -35.5, y: 10.2, z: 18.0, w: 16.5, h: 7.4, rotY: 0.16, rotZ: 0.08 },
+    { x: -27.5, y: 11.8, z: 20.2, w: 17.5, h: 7.8, rotY: 0.12, rotZ: 0.06 },
+    { x: -20.5, y: 9.0, z: 23.2, w: 19.5, h: 7.8, rotY: 0.05, rotZ: 0.02 },
+    { x: -7.5, y: 9.4, z: 24.8, w: 21.0, h: 8.2, rotY: 0.0, rotZ: 0.0 },
+    { x: 6.5, y: 9.2, z: 24.2, w: 20.0, h: 8.0, rotY: -0.04, rotZ: -0.02 },
+    { x: 20.0, y: 8.8, z: 22.8, w: 18.5, h: 7.6, rotY: -0.08, rotZ: -0.03 },
+    { x: 28.5, y: 11.2, z: 19.8, w: 17.0, h: 7.6, rotY: -0.12, rotZ: -0.06 },
+    { x: 37.5, y: 9.8, z: 18.8, w: 16.5, h: 7.2, rotY: -0.16, rotZ: -0.05 },
+    { x: 45.5, y: 8.6, z: 17.6, w: 15.8, h: 6.8, rotY: -0.20, rotZ: -0.04 },
+  ]);
+  vistaGroup.add(mountainTreeCutoutMesh);
+
+  // 3. Place 3D Cristo Redentor Monument atop the flattened Corcovado summit plateau
+  const cristoStatue = buildCristoRedentorSummitMonument();
+  cristoStatue.scale.set(0.68, 0.68, 0.68);
+  cristoStatue.position.set(-2.2, 42.4, 1.0);
+  vistaGroup.add(cristoStatue);
 
   return vistaGroup;
 }
@@ -3375,16 +4516,38 @@ export function buildHillsideFavelaCluster(
     const tier = tiers[tIdx];
     const isUpperTier = tIdx === 2;
 
-    // Stepped stone retaining base under each elevated terrace
-    const retWallMat = (tIdx % 2 === 0 ? retainingStoneMat : hillsideSlopeMat).clone();
+    // Base arquitetônica em alvenaria de tijolinho colorido e vegetação tropical (substituindo paredes cinzas lisas!)
+    const basePal = FAVELA_PALETTES[(variantIndex + tIdx * 2) % FAVELA_PALETTES.length];
+    const retBrickTex = getFavelaHouseTexture(
+      basePal.wall,
+      basePal.trim,
+      true,
+      maxAnisotropy,
+      variantIndex * 7 + tIdx * 3,
+    );
+    const retWallMat = new THREE.MeshStandardMaterial({
+      map: retBrickTex,
+      color: 0xffffff,
+      roughness: 0.78,
+      metalness: 0.03,
+    });
     retWallMat.userData.isFavelaFadeMat = true;
     retWallMat.userData.isUpperFavelaTier = isUpperTier;
 
     const retWall = new THREE.Mesh(sharedGeos.unitBox, retWallMat);
-    retWall.scale.set(3.8, 5.6, 15.8);
-    retWall.position.set(outSign * tier.dist, tier.baseY - 2.8, 0);
+    retWall.scale.set(3.5, 4.8, 15.2);
+    retWall.position.set(outSign * tier.dist, tier.baseY - 2.4, 0);
     if (tIdx === 0) retWall.userData.occludableLowerTier = true;
     group.add(retWall);
+
+    // Moldura superior creme/terracota do patamar + arbustos tropicais verdes na base
+    const ledgeTrimMat = getFavelaRoofMat(basePal.trim).clone();
+    ledgeTrimMat.userData.isFavelaFadeMat = true;
+    ledgeTrimMat.userData.isUpperFavelaTier = isUpperTier;
+    const ledgeCap = new THREE.Mesh(sharedGeos.unitBox, ledgeTrimMat);
+    ledgeCap.scale.set(3.9, 0.34, 15.5);
+    ledgeCap.position.set(outSign * tier.dist, tier.baseY - 0.08, 0);
+    group.add(ledgeCap);
 
     for (let sIdx = 0; sIdx < tier.zSlots.length; sIdx++) {
       const seed = variantIndex * 19 + tIdx * 11 + sIdx * 5;
@@ -3607,14 +4770,14 @@ export function buildHorizonCitySkyline(maxAnisotropy = 4): {
   const group = new THREE.Group();
   group.name = 'Dynamic_Horizon_City_Skyline';
 
-  // Urban Skyline positioned at z = -108 .. -116 so the Green Mountains & Cristo Redentor (at z = -148)
-  // sit cleanly BEHIND the buildings ("deixe as montanhas atras dos predios")!
+  // Item 10: Posiciona os 4 prédios cariocas cartoon um pouco mais ao fundo (z = -124 .. -136),
+  // com alturas, larguras e ângulos variados, integrados naturalmente à frente das montanhas (z = -148)!
   const towerSpecs = [
-    { x: -7.5, z: -116, baseY: 6.5, variant: 2, scale: 0.72, hMult: 0.82 },
-    { x: 3.5, z: -114, baseY: 7.5, variant: 3, scale: 0.78, hMult: 0.92 },
-    { x: 16.2, z: -108, baseY: 9.0, variant: 0, scale: 1.05, hMult: 1.18 }, // Detailed Green Brasil Wind-Cutter Skyscraper!
-    { x: 30.2, z: -112, baseY: 9.2, variant: 1, scale: 0.88, hMult: 1.08 },
-    { x: 42.5, z: -114, baseY: 9.5, variant: 2, scale: 0.86, hMult: 1.06 },
+    { x: -8.5, z: -128, baseY: 7.2, variant: 1, scale: 0.92, hMult: 0.96, rotY: 0.12 }, // Azul "PIZZARIA"
+    { x: 5.2, z: -124, baseY: 7.4, variant: 0, scale: 0.96, hMult: 1.02, rotY: -0.08 }, // Amarelo Solar "BAR" + Bandeira do Brasil
+    { x: 19.8, z: -126, baseY: 7.8, variant: 2, scale: 0.95, hMult: 1.0, rotY: -0.14 }, // Bege Art Déco "RIO" + Cristo
+    { x: 33.8, z: -130, baseY: 8.2, variant: 3, scale: 0.94, hMult: 0.95, rotY: -0.18 }, // Verde & Coral "LANCHONETE" + Varal
+    { x: 47.0, z: -135, baseY: 8.5, variant: 1, scale: 0.88, hMult: 0.9, rotY: -0.22 },
   ];
 
   for (let i = 0; i < towerSpecs.length; i++) {
@@ -3623,7 +4786,7 @@ export function buildHorizonCitySkyline(maxAnisotropy = 4): {
     const bldg = buildRioSkylineBuilding(spec.variant, side, maxAnisotropy);
     bldg.scale.set(spec.scale, spec.scale * spec.hMult, spec.scale);
     bldg.position.set(spec.x, spec.baseY, spec.z);
-    bldg.rotation.y = spec.x < 0 ? 0.15 : -0.18;
+    bldg.rotation.y = spec.rotY;
     group.add(bldg);
   }
 
@@ -4772,6 +5935,8 @@ let cachedManholeShared: {
   exclDotGeo: THREE.SphereGeometry;
   coreWaterGeo: THREE.CylinderGeometry;
   outerWaterGeo: THREE.CylinderGeometry;
+  plumeCardGeo: THREE.PlaneGeometry;
+  puddlePlaneGeo: THREE.PlaneGeometry;
   crownFoamGeo: THREE.IcosahedronGeometry;
   dropletGeo: THREE.SphereGeometry;
   splashRingGeo: THREE.RingGeometry;
@@ -4780,17 +5945,298 @@ let cachedManholeShared: {
   abyssMat: THREE.MeshBasicMaterial;
   warnRedMat: THREE.MeshBasicMaterial;
   exclRedMat: THREE.MeshToonMaterial;
+  exclYellowMat: THREE.MeshBasicMaterial;
   waterCyanMat: THREE.MeshToonMaterial;
+  waterRoyalMat: THREE.MeshToonMaterial;
   waterLightMat: THREE.MeshBasicMaterial;
   foamWhiteMat: THREE.MeshBasicMaterial;
   outlineBlackMat: THREE.MeshBasicMaterial;
   outlineWhiteMat: THREE.MeshBasicMaterial;
+  plumeCutoutMat: THREE.MeshBasicMaterial;
+  puddleCutoutMat: THREE.MeshBasicMaterial;
 } | null = null;
+
+function createCartoonGeyserPlumeTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.clearRect(0, 0, 512, 512);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    const drawPlumeArch = (
+      startX: number,
+      startY: number,
+      cp1X: number,
+      cp1Y: number,
+      cp2X: number,
+      cp2Y: number,
+      endX: number,
+      endY: number,
+      baseWidth: number,
+      tipRadius: number,
+      curlDir: number,
+    ) => {
+      // 1. Contorno preto/azul-marinho grosso estilo HQ
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.bezierCurveTo(cp1X, cp1Y, cp2X, cp2Y, endX, endY);
+      ctx.lineWidth = baseWidth + 18;
+      ctx.strokeStyle = '#061229';
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(endX, endY, tipRadius + 9, 0, Math.PI * 2);
+      ctx.fillStyle = '#061229';
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(
+        endX + curlDir * (tipRadius * 0.65),
+        endY + tipRadius * 0.55,
+        tipRadius * 0.68 + 8,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fillStyle = '#061229';
+      ctx.fill();
+
+      // 2. Corpo externo azul royal vibrante
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.bezierCurveTo(cp1X, cp1Y, cp2X, cp2Y, endX, endY);
+      ctx.lineWidth = baseWidth;
+      ctx.strokeStyle = '#0284c7';
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(endX, endY, tipRadius, 0, Math.PI * 2);
+      ctx.fillStyle = '#0284c7';
+      ctx.fill();
+
+      // 3. Camada intermediária azul ciano luminoso
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.bezierCurveTo(cp1X, cp1Y, cp2X, cp2Y, endX - curlDir * 4, endY + 4);
+      ctx.lineWidth = baseWidth * 0.64;
+      ctx.strokeStyle = '#38bdf8';
+      ctx.stroke();
+
+      // 4. Crista de espuma branca na ponta curvada + filete central de espuma
+      ctx.beginPath();
+      ctx.arc(endX - curlDir * 3, endY - 4, tipRadius * 0.86, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(
+        endX + curlDir * (tipRadius * 0.65),
+        endY + tipRadius * 0.55,
+        tipRadius * 0.64,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.bezierCurveTo(cp1X, cp1Y - 6, cp2X, cp2Y - 8, endX - curlDir * 4, endY - 4);
+      ctx.lineWidth = baseWidth * 0.28;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    // Plumas laterais inferiores (esquerda e direita)
+    drawPlumeArch(246, 488, 210, 390, 130, 310, 82, 342, 42, 24, -1);
+    drawPlumeArch(266, 488, 305, 390, 385, 305, 434, 336, 42, 24, 1);
+
+    // Plumas médias (esquerda e direita)
+    drawPlumeArch(250, 492, 215, 320, 145, 195, 96, 224, 52, 30, -1);
+    drawPlumeArch(262, 492, 302, 315, 372, 185, 420, 212, 52, 30, 1);
+
+    // Plumas superiores altas (centro-esquerda, topo-direito e topo-central)
+    drawPlumeArch(252, 496, 232, 260, 180, 108, 148, 128, 58, 33, -1);
+    drawPlumeArch(260, 496, 286, 250, 338, 95, 368, 118, 58, 33, 1);
+    drawPlumeArch(256, 498, 252, 240, 258, 82, 286, 62, 68, 38, 1);
+    drawPlumeArch(256, 498, 256, 255, 232, 86, 222, 68, 62, 36, -1);
+
+    // Jorro branco central de alta pressão na base até o meio
+    ctx.beginPath();
+    ctx.moveTo(236, 498);
+    ctx.quadraticCurveTo(248, 310, 238, 165);
+    ctx.moveTo(256, 502);
+    ctx.quadraticCurveTo(256, 290, 262, 120);
+    ctx.moveTo(276, 498);
+    ctx.quadraticCurveTo(268, 320, 288, 175);
+    ctx.lineWidth = 14;
+    ctx.strokeStyle = '#ffffff';
+    ctx.stroke();
+
+    // Nuvens de espuma branca com contorno preto na base do jato
+    const foamPuffs = [
+      { x: 170, y: 472, r: 28 },
+      { x: 205, y: 482, r: 24 },
+      { x: 308, y: 482, r: 24 },
+      { x: 344, y: 470, r: 29 },
+      { x: 145, y: 484, r: 20 },
+      { x: 368, y: 484, r: 20 },
+    ];
+    for (const p of foamPuffs) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r + 7, 0, Math.PI * 2);
+      ctx.fillStyle = '#061229';
+      ctx.fill();
+    }
+    for (const p of foamPuffs) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = '#e0f2fe';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(p.x - 3, p.y - 4, p.r * 0.78, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+    }
+
+    // Gotas cartoon em formato de lágrima com contorno preto e brilho branco
+    const drawTeardrop = (x: number, y: number, angle: number, len: number, r: number) => {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+
+      ctx.beginPath();
+      ctx.moveTo(0, -len);
+      ctx.quadraticCurveTo(r + 6, 0, 0, r + 6);
+      ctx.quadraticCurveTo(-r - 6, 0, 0, -len);
+      ctx.fillStyle = '#061229';
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.moveTo(0, -len + 6);
+      ctx.quadraticCurveTo(r, 0, 0, r);
+      ctx.quadraticCurveTo(-r, 0, 0, -len + 6);
+      ctx.fillStyle = '#0284c7';
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(0, r * 0.15, r * 0.62, 0, Math.PI * 2);
+      ctx.fillStyle = '#38bdf8';
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(-r * 0.22, r * 0.25, r * 0.32, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.restore();
+    };
+
+    drawTeardrop(54, 272, 1.15, 42, 15);
+    drawTeardrop(46, 365, 1.32, 46, 16);
+    drawTeardrop(196, 48, 0.35, 38, 14);
+    drawTeardrop(398, 52, -0.55, 38, 14);
+    drawTeardrop(458, 258, -1.15, 42, 15);
+    drawTeardrop(464, 358, -1.32, 46, 16);
+
+    // Pontos de exclamação amarelos estilo HQ (! !) nas laterais superiores
+    const drawComicExclamation = (x: number, y: number, angle: number, scale: number) => {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+      ctx.scale(scale, scale);
+
+      // Barra trapezoidal com contorno preto grosso
+      ctx.beginPath();
+      ctx.moveTo(-14, -48);
+      ctx.lineTo(14, -48);
+      ctx.lineTo(7, 10);
+      ctx.lineTo(-7, 10);
+      ctx.closePath();
+      ctx.lineWidth = 12;
+      ctx.strokeStyle = '#061229';
+      ctx.stroke();
+      ctx.fillStyle = '#facc15';
+      ctx.fill();
+
+      // Ponto inferior
+      ctx.beginPath();
+      ctx.arc(0, 30, 9, 0, Math.PI * 2);
+      ctx.lineWidth = 10;
+      ctx.strokeStyle = '#061229';
+      ctx.stroke();
+      ctx.fillStyle = '#facc15';
+      ctx.fill();
+
+      ctx.restore();
+    };
+
+    drawComicExclamation(78, 172, -0.58, 0.92);
+    drawComicExclamation(114, 148, -0.25, 0.76);
+    drawComicExclamation(422, 146, 0.32, 0.92);
+    drawComicExclamation(452, 174, 0.65, 0.74);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function createCartoonGeyserPuddleTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.clearRect(0, 0, 256, 256);
+    const blobs = [
+      { x: 128, y: 128, rx: 92, ry: 68 },
+      { x: 64, y: 118, rx: 48, ry: 32 },
+      { x: 192, y: 134, rx: 46, ry: 30 },
+      { x: 96, y: 168, rx: 45, ry: 26 },
+      { x: 164, y: 92, rx: 42, ry: 25 },
+    ];
+    // Contorno escuro da poça no asfalto
+    ctx.fillStyle = '#061229';
+    for (const b of blobs) {
+      ctx.beginPath();
+      ctx.ellipse(b.x, b.y, b.rx + 7, b.ry + 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Azul royal da poça
+    ctx.fillStyle = '#0284c7';
+    for (const b of blobs) {
+      ctx.beginPath();
+      ctx.ellipse(b.x, b.y, b.rx, b.ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Reflexo ciano interno
+    ctx.fillStyle = '#38bdf8';
+    for (const b of blobs) {
+      ctx.beginPath();
+      ctx.ellipse(b.x, b.y - 2, b.rx * 0.72, b.ry * 0.68, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Anéis de espuma branca ao redor do bueiro
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.ellipse(128, 128, 56, 42, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
 
 /**
  * Constrói a Tampa de Bueiro Explosiva Cartoon na rua:
  * - Antes de estourar: tampa de ferro no asfalto + anel vermelho + Ponto de Exclamação (!) vermelho 3D pulsando acima!
- * - Quando o jogador se aproxima: a tampa voa girando pros ares e um jato de água cartoon jorra alto espirrando gotas pros lados!
+ * - Quando o jogador se aproxima: a tampa voa girando pros ares e um jato de água cartoon estilizado jorra alto com arcos de espuma, gotículas e sinais de impacto!
  */
 export function buildCartoonManholeHazard(): CartoonManholeHazardRig {
   if (!cachedManholeShared) {
@@ -4808,19 +6254,29 @@ export function buildCartoonManholeHazard(): CartoonManholeHazardRig {
     const exclBarGeo = new THREE.CylinderGeometry(0.135, 0.075, 0.68, 10);
     const exclDotGeo = new THREE.SphereGeometry(0.125, 10, 8);
 
-    // Coluna de água cônica com pivô na base (y = 0 -> y = 1)
-    const coreWaterGeo = new THREE.CylinderGeometry(0.36, 0.24, 1.0, 14, 1, true);
-    coreWaterGeo.translate(0, 0.5, 0);
+    // Coluna central 3D afunilada na base e abrindo no topo (formato chafariz cartoon)
+    const coreWaterGeo = new THREE.CylinderGeometry(0.46, 0.24, 0.95, 14, 1, true);
+    coreWaterGeo.translate(0, 0.475, 0);
 
-    const outerWaterGeo = new THREE.CylinderGeometry(0.52, 0.30, 0.92, 12, 1, true);
-    outerWaterGeo.translate(0, 0.46, 0);
+    const outerWaterGeo = new THREE.CylinderGeometry(0.62, 0.30, 0.88, 12, 1, true);
+    outerWaterGeo.translate(0, 0.44, 0);
 
-    const crownFoamGeo = new THREE.IcosahedronGeometry(0.42, 1);
-    const dropletGeo = new THREE.SphereGeometry(0.115, 8, 6);
-    dropletGeo.scale(0.85, 1.35, 0.85);
+    // Painel ilustrado HQ com pivô na base (y = 0 -> y = 1.18)
+    const plumeCardGeo = new THREE.PlaneGeometry(2.65, 1.22);
+    plumeCardGeo.translate(0, 0.58, 0);
+
+    const puddlePlaneGeo = new THREE.PlaneGeometry(3.4, 2.5);
+    puddlePlaneGeo.rotateX(-Math.PI / 2);
+
+    const crownFoamGeo = new THREE.IcosahedronGeometry(0.36, 1);
+    const dropletGeo = new THREE.SphereGeometry(0.125, 10, 8);
+    dropletGeo.scale(0.82, 1.45, 0.82);
 
     const splashRingGeo = new THREE.RingGeometry(0.32, 0.96, 20);
     splashRingGeo.rotateX(-Math.PI / 2);
+
+    const plumeTex = createCartoonGeyserPlumeTexture();
+    const puddleTex = createCartoonGeyserPuddleTexture();
 
     cachedManholeShared = {
       rimGeo,
@@ -4832,6 +6288,8 @@ export function buildCartoonManholeHazard(): CartoonManholeHazardRig {
       exclDotGeo,
       coreWaterGeo,
       outerWaterGeo,
+      plumeCardGeo,
+      puddlePlaneGeo,
       crownFoamGeo,
       dropletGeo,
       splashRingGeo,
@@ -4849,30 +6307,51 @@ export function buildCartoonManholeHazard(): CartoonManholeHazardRig {
         emissive: new THREE.Color(0x991b1b),
         emissiveIntensity: 0.45,
       }),
+      exclYellowMat: new THREE.MeshBasicMaterial({
+        color: 0xfacc15,
+      }),
       waterCyanMat: new THREE.MeshToonMaterial({
         color: 0x38bdf8,
         emissive: new THREE.Color(0x0284c7),
-        emissiveIntensity: 0.35,
+        emissiveIntensity: 0.42,
         transparent: true,
-        opacity: 0.92,
+        opacity: 0.95,
+        side: THREE.DoubleSide,
+      }),
+      waterRoyalMat: new THREE.MeshToonMaterial({
+        color: 0x0284c7,
+        emissive: new THREE.Color(0x0369a1),
+        emissiveIntensity: 0.35,
         side: THREE.DoubleSide,
       }),
       waterLightMat: new THREE.MeshBasicMaterial({
-        color: 0xbae6fd,
+        color: 0xe0f2fe,
         transparent: true,
-        opacity: 0.78,
+        opacity: 0.88,
         side: THREE.DoubleSide,
       }),
       foamWhiteMat: new THREE.MeshBasicMaterial({
-        color: 0xf8fafc,
+        color: 0xffffff,
       }),
       outlineBlackMat: new THREE.MeshBasicMaterial({
-        color: 0x0d0b0a,
+        color: 0x061229,
         side: THREE.BackSide,
       }),
       outlineWhiteMat: new THREE.MeshBasicMaterial({
         color: 0xffffff,
         side: THREE.BackSide,
+      }),
+      plumeCutoutMat: new THREE.MeshBasicMaterial({
+        map: plumeTex,
+        transparent: true,
+        alphaTest: 0.08,
+        side: THREE.DoubleSide,
+      }),
+      puddleCutoutMat: new THREE.MeshBasicMaterial({
+        map: puddleTex,
+        transparent: true,
+        alphaTest: 0.06,
+        depthWrite: false,
       }),
     };
   }
@@ -4885,7 +6364,7 @@ export function buildCartoonManholeHazard(): CartoonManholeHazardRig {
   const rimMesh = new THREE.Mesh(s.rimGeo, s.ironDarkMat);
   rimMesh.position.y = 0.022;
   const rimOutline = new THREE.Mesh(s.rimGeo, s.outlineBlackMat);
-  rimOutline.scale.set(1.05, 1.15, 1.05);
+  rimOutline.scale.set(1.06, 1.18, 1.06);
   rimMesh.add(rimOutline);
   root.add(rimMesh);
 
@@ -4935,31 +6414,131 @@ export function buildCartoonManholeHazard(): CartoonManholeHazardRig {
 
   root.add(exclamationGroup);
 
-  // 5. Jato de Água Cartoon Dinâmico + Gotas Espirrando pros Lados!
+  // 5. Jato de Água Cartoon/HQ 100% 3D Animado (sem PNG estático! Coluna de água viva + jatos curvos 3D + anéis ascendentes + 28 gotas voando!)
   const geyserGroup = new THREE.Group();
   geyserGroup.visible = false;
 
   const coreColumn = new THREE.Mesh(s.coreWaterGeo, s.waterCyanMat);
   const outerColumn = new THREE.Mesh(s.outerWaterGeo, s.waterLightMat);
-  coreColumn.add(outerColumn);
+  const columnBlackOutline = new THREE.Mesh(s.outerWaterGeo, s.outlineBlackMat);
+  columnBlackOutline.scale.set(1.15, 1.02, 1.15);
+  coreColumn.add(outerColumn, columnBlackOutline);
+
+  // Jatos laterais curvos em 3D (mesmo formato de chafariz cartoon, porém 100% 3D com volume e animação real!)
+  for (let p = 0; p < 6; p++) {
+    const pAngle = (p / 6) * Math.PI * 2;
+    const plumePivot = new THREE.Group();
+    plumePivot.rotation.y = pAngle;
+
+    const streamJet = new THREE.Mesh(
+      s.coreWaterGeo,
+      p % 2 === 0 ? s.waterRoyalMat : s.waterCyanMat,
+    );
+    streamJet.scale.set(0.38, 0.78 + (p % 2) * 0.14, 0.38);
+    streamJet.position.set(0.16, 0.08, 0);
+    streamJet.rotation.z = -0.34 - (p % 2) * 0.08;
+    const streamOut = new THREE.Mesh(s.coreWaterGeo, s.outlineBlackMat);
+    streamOut.scale.set(1.22, 1.04, 1.22);
+    streamJet.add(streamOut);
+
+    // Crista de espuma branca na ponta de cada jato curvo lateral
+    const curlTip = new THREE.Mesh(s.crownFoamGeo, s.foamWhiteMat);
+    curlTip.scale.set(0.58, 0.48, 0.58);
+    curlTip.position.set(0.42, 0.72 + (p % 2) * 0.12, 0);
+    const curlTipOut = new THREE.Mesh(s.crownFoamGeo, s.outlineBlackMat);
+    curlTipOut.scale.setScalar(1.22);
+    curlTip.add(curlTipOut);
+
+    plumePivot.add(streamJet, curlTip);
+    coreColumn.add(plumePivot);
+  }
+
+  // Filetes verticais brancos de espuma subindo pela coluna 3D
+  for (let f = 0; f < 4; f++) {
+    const fAng = (f / 4) * Math.PI * 2 + 0.4;
+    const foamStreak = new THREE.Mesh(s.exclBarGeo, s.foamWhiteMat);
+    foamStreak.scale.set(0.65, 1.18, 0.65);
+    foamStreak.position.set(Math.cos(fAng) * 0.28, 0.52, Math.sin(fAng) * 0.28);
+    foamStreak.rotation.z = -Math.cos(fAng) * 0.16;
+    foamStreak.rotation.x = Math.sin(fAng) * 0.16;
+    coreColumn.add(foamStreak);
+  }
+
   geyserGroup.add(coreColumn);
 
+  // Crista superior de espuma branca e azul com contornos pretos marcantes
   const foamCrown = new THREE.Mesh(s.crownFoamGeo, s.foamWhiteMat);
   const crownOutline = new THREE.Mesh(s.crownFoamGeo, s.outlineBlackMat);
-  crownOutline.scale.setScalar(1.09);
+  crownOutline.scale.setScalar(1.16);
   foamCrown.add(crownOutline);
+
+  for (let c = 0; c < 8; c++) {
+    const ang = (c / 8) * Math.PI * 2 + 0.35;
+    const subPuff = new THREE.Mesh(
+      s.crownFoamGeo,
+      c % 2 === 0 ? s.foamWhiteMat : s.waterCyanMat,
+    );
+    subPuff.scale.setScalar(0.64 + (c % 2) * 0.18);
+    subPuff.position.set(
+      Math.cos(ang) * 0.38,
+      -0.14 + (c % 2) * 0.2,
+      Math.sin(ang) * 0.38,
+    );
+    const subOut = new THREE.Mesh(s.crownFoamGeo, s.outlineBlackMat);
+    subOut.scale.setScalar(1.18);
+    subPuff.add(subOut);
+    foamCrown.add(subPuff);
+  }
   geyserGroup.add(foamCrown);
 
+  // Poça de água cartoon no asfalto + anel de espuma e tufos de espuma 3D na base
   const baseSplashRing = new THREE.Mesh(s.splashRingGeo, s.foamWhiteMat);
-  baseSplashRing.position.y = 0.06;
+  baseSplashRing.position.y = 0.055;
+  const baseSplashOut = new THREE.Mesh(s.splashRingGeo, s.outlineBlackMat);
+  baseSplashOut.scale.set(1.08, 1.08, 1.08);
+  baseSplashOut.position.y = -0.005;
+  baseSplashRing.add(baseSplashOut);
+
+  const puddleMesh = new THREE.Mesh(s.puddlePlaneGeo, s.puddleCutoutMat);
+  puddleMesh.position.y = -0.018;
+  baseSplashRing.add(puddleMesh);
+
+  // Nuvens de espuma 3D contornadas ao redor da boca do bueiro
+  for (let b = 0; b < 8; b++) {
+    const bAng = (b / 8) * Math.PI * 2;
+    const radius = 0.64 + (b % 2) * 0.14;
+    const basePuff = new THREE.Mesh(
+      s.crownFoamGeo,
+      b % 3 === 0 ? s.waterLightMat : s.foamWhiteMat,
+    );
+    const puffScale = 0.38 + (b % 2) * 0.12;
+    basePuff.scale.set(puffScale * 1.15, puffScale * 0.85, puffScale * 1.15);
+    basePuff.position.set(Math.cos(bAng) * radius, 0.11, Math.sin(bAng) * radius);
+    const puffOut = new THREE.Mesh(s.crownFoamGeo, s.outlineBlackMat);
+    puffOut.scale.setScalar(1.22);
+    basePuff.add(puffOut);
+    baseSplashRing.add(basePuff);
+  }
   geyserGroup.add(baseSplashRing);
 
+  // 28 Gotas 3D em formato de lágrima com contorno preto grosso e ponto de brilho branco voando continuamente!
   const sideDroplets: THREE.Mesh[] = [];
-  for (let i = 0; i < 10; i++) {
-    const drop = new THREE.Mesh(s.dropletGeo, i % 2 === 0 ? s.foamWhiteMat : s.waterCyanMat);
+  for (let i = 0; i < 28; i++) {
+    const dropMat =
+      i % 3 === 0 ? s.foamWhiteMat : i % 3 === 1 ? s.waterCyanMat : s.waterRoyalMat;
+    const drop = new THREE.Mesh(s.dropletGeo, dropMat);
+    const sizeMult = i < 8 ? 1.48 : i < 18 ? 1.12 : 0.82;
+    drop.userData.baseSizeMult = sizeMult;
+    drop.userData.speedMult = 1.85 + (i % 5) * 0.34;
+    drop.userData.radialSpread = 1.35 + (i % 4) * 0.48;
+    drop.userData.heightMult = 0.72 + (i % 3) * 0.24;
+    drop.userData.phaseSeed = (i / 28) + (i % 7) * 0.09;
     const dOut = new THREE.Mesh(s.dropletGeo, s.outlineBlackMat);
-    dOut.scale.setScalar(1.16);
-    drop.add(dOut);
+    dOut.scale.setScalar(1.26);
+    const specDot = new THREE.Mesh(s.exclDotGeo, s.foamWhiteMat);
+    specDot.scale.setScalar(0.34);
+    specDot.position.set(-0.035, 0.04, 0.075);
+    drop.add(dOut, specDot);
     geyserGroup.add(drop);
     sideDroplets.push(drop);
   }
@@ -5979,6 +7558,4900 @@ export function buildPizzaDeliveryZoneRig(
   };
 }
 
+/* =========================================================================================
+ * VILA TROPICAL PRAIA (MAPA 2: ORLA DE COPACABANA & MAR CARIOCA) BUILDERS & SCENERY
+ * ========================================================================================= */
 
+const condoSlabMat = new THREE.MeshStandardMaterial({
+  color: 0xf1f5f9,
+  roughness: 0.48,
+  metalness: 0.06,
+  fog: false,
+});
+
+const condoWarmCreamMat = new THREE.MeshStandardMaterial({
+  color: 0xfef3c7,
+  roughness: 0.52,
+  metalness: 0.05,
+  fog: false,
+});
+
+const condoBalconyGlassMat = new THREE.MeshStandardMaterial({
+  color: 0x38bdf8,
+  roughness: 0.22,
+  metalness: 0.25,
+  fog: false,
+});
+
+const condoDarkWindowMat = new THREE.MeshStandardMaterial({
+  color: 0x1e3a5f,
+  roughness: 0.3,
+  metalness: 0.2,
+  fog: false,
+});
+
+/**
+ * Builds a Rio Coastal Condominium Apartment Building ("Prédios de Condomínio Diferentes")
+ */
+export function buildCoastalCondominiumBuilding(
+  variantIndex: number,
+  maxAnisotropy = 4,
+  isDistantHorizon = false,
+): THREE.Group {
+  const group = new THREE.Group();
+  const v = ((variantIndex % 4) + 4) % 4;
+  group.name = `Coastal_Condominium_${v}`;
+
+  const facadeTex = getCoastalCondoFacadeTexture(v, maxAnisotropy);
+  const facadeMat = new THREE.MeshStandardMaterial({
+    map: facadeTex,
+    color: 0xffffff,
+    roughness: 0.52,
+    metalness: 0.08,
+    fog: false,
+  });
+
+  const W = v === 0 ? 8.8 : v === 1 ? 9.2 : v === 2 ? 8.4 : 8.8;
+  const D = 6.8;
+  const H = v === 0 ? 25.0 : v === 1 ? 21.5 : v === 2 ? 23.0 : 18.5;
+
+  // 1. Base Arquitetônica Cartoon com Textura de Fachada, Molduras Quentes e Vitrines Térreas
+  // (substituindo paredes cinzas lisas por acabamento detalhado de orla carioca!)
+  const foundation = new THREE.Mesh(sharedGeos.tallBox, facadeMat);
+  foundation.scale.set(W + 0.16, 16.0, D + 0.16);
+  foundation.position.set(0, -8.0, 0);
+  group.add(foundation);
+
+  for (const bandY of [0.15, -2.8, -5.8]) {
+    const baseCornice = new THREE.Mesh(sharedGeos.unitBox, condoWarmCreamMat);
+    baseCornice.scale.set(W + 0.56, 0.42, D + 0.56);
+    baseCornice.position.set(0, bandY, 0);
+    group.add(baseCornice);
+  }
+  if (!isDistantHorizon) {
+    // Vitrines azuis e floreiras tropicais na base voltada para a avenida da praia (+X e +Z)
+    const lobbyGlass = new THREE.Mesh(sharedGeos.unitBox, condoBalconyGlassMat);
+    lobbyGlass.scale.set(0.24, 2.2, D * 0.68);
+    lobbyGlass.position.set(W * 0.5 + 0.12, -1.35, 0);
+    group.add(lobbyGlass);
+  }
+
+  // 2. Main Residential Apartment Tower Shaft
+  const mainShaft = new THREE.Mesh(sharedGeos.tallBox, facadeMat);
+  mainShaft.scale.set(W, H, D);
+  mainShaft.position.set(0, H * 0.5, 0);
+  group.add(mainShaft);
+
+  const slabMat = v % 2 === 0 ? condoSlabMat : condoWarmCreamMat;
+
+  // 3. Projecting 3D Coastal Balconies ("Varandas de Condomínio")
+  if (!isDistantHorizon) {
+    const numBalconyFloors = v === 3 ? 5 : 6;
+    const floorStepY = (H - 2.6) / numBalconyFloors;
+
+    for (let fl = 1; fl <= numBalconyFloors; fl++) {
+      const by = fl * floorStepY + 0.6;
+
+      // Beach-facing (+X) projecting concrete balcony slab & glass railing
+      const beachSlab = new THREE.Mesh(sharedGeos.unitBox, slabMat);
+      beachSlab.scale.set(0.68, 0.32, D * 0.78);
+      beachSlab.position.set(W * 0.5 + 0.24, by, 0);
+      beachSlab.userData.lod2MaxNode = true;
+      group.add(beachSlab);
+
+      const beachRail = new THREE.Mesh(sharedGeos.unitBox, condoBalconyGlassMat);
+      beachRail.scale.set(0.12, 0.58, D * 0.76);
+      beachRail.position.set(W * 0.5 + 0.52, by + 0.42, 0);
+      beachRail.userData.lod2MaxNode = true;
+      group.add(beachRail);
+
+      // Camera-facing (+Z) twin recessed window & balcony ledges
+      for (const bx of [-W * 0.25, W * 0.25]) {
+        const frontBalcony = new THREE.Mesh(sharedGeos.unitBox, slabMat);
+        frontBalcony.scale.set(W * 0.34, 0.30, 0.58);
+        frontBalcony.position.set(bx, by, D * 0.5 + 0.20);
+        frontBalcony.userData.lod2MaxNode = true;
+        group.add(frontBalcony);
+
+        const frontWindow = new THREE.Mesh(sharedGeos.unitBox, condoDarkWindowMat);
+        frontWindow.scale.set(W * 0.28, floorStepY * 0.50, 0.14);
+        frontWindow.position.set(bx, by + floorStepY * 0.34, D * 0.5 + 0.05);
+        frontWindow.userData.lod2MaxNode = true;
+        group.add(frontWindow);
+      }
+    }
+  }
+
+  // 4. Clean Full-Width Flat Modernist Roofline Cornice Cap
+  const roofCornice = new THREE.Mesh(sharedGeos.unitBox, slabMat);
+  roofCornice.scale.set(W + 0.52, 0.68, D + 0.52);
+  roofCornice.position.set(0, H + 0.34, 0);
+  group.add(roofCornice);
+
+  applyWorldCurvatureToGroup(group, {
+    minFog: 0.04,
+    maxFog: 0.26,
+    clearHeightY: 36.0,
+  });
+  return group;
+}
+
+/**
+ * Builds the Distant Bay Condominium Skyline starting strictly BEYOND the scrolling hillside condo row
+ */
+export function buildCoastalHorizonCitySkyline(maxAnisotropy = 4): {
+  group: THREE.Group;
+  update: (elapsed: number, playerX: number) => void;
+} {
+  const group = new THREE.Group();
+  group.name = 'Rio_Coastal_Condominium_Bay_Skyline';
+
+  const condoSpecs = [
+    { x: -24.0, z: -168, baseY: 0.5, variant: 0, scale: 0.72, hMult: 0.74 },
+    { x: -14.5, z: -180, baseY: 0.2, variant: 1, scale: 0.64, hMult: 0.64 },
+    { x: -5.2, z: -192, baseY: 0.0, variant: 2, scale: 0.56, hMult: 0.54 },
+    { x: 3.8, z: -202, baseY: -0.1, variant: 0, scale: 0.48, hMult: 0.46 },
+  ];
+
+  for (let i = 0; i < condoSpecs.length; i++) {
+    const spec = condoSpecs[i];
+    const bldg = buildCoastalCondominiumBuilding(spec.variant, maxAnisotropy, true);
+    bldg.scale.set(spec.scale, spec.scale * spec.hMult, spec.scale);
+    bldg.position.set(spec.x, spec.baseY, spec.z);
+    bldg.rotation.y = 0.18;
+    bldg.updateMatrix();
+    bldg.matrixAutoUpdate = false;
+    group.add(bldg);
+  }
+  group.updateMatrix();
+  group.matrixAutoUpdate = false;
+
+  return {
+    group,
+    update: (_elapsed: number, _playerX: number) => {},
+  };
+}
+
+const coastalWallStoneMat = new THREE.MeshStandardMaterial({
+  color: 0xe9b872,
+  roughness: 0.76,
+  metalness: 0.04,
+});
+
+const coastalWallCapMat = new THREE.MeshStandardMaterial({
+  color: 0xd97706,
+  roughness: 0.72,
+  metalness: 0.05,
+});
+
+const benchWoodMat = new THREE.MeshStandardMaterial({
+  color: 0xc27838,
+  roughness: 0.72,
+  metalness: 0.05,
+});
+
+const trashBinBodyMat = new THREE.MeshStandardMaterial({
+  color: 0x27272a,
+  roughness: 0.65,
+  metalness: 0.25,
+});
+
+const palmTrunkRingMat = new THREE.MeshStandardMaterial({
+  color: 0x784421,
+  roughness: 0.85,
+  metalness: 0.03,
+});
+
+const palmTrunkDarkMat = new THREE.MeshStandardMaterial({
+  color: 0x5c3216,
+  roughness: 0.88,
+  metalness: 0.02,
+});
+
+const palmFrondBrightMat = new THREE.MeshStandardMaterial({
+  color: 0x22c55e,
+  roughness: 0.58,
+  metalness: 0.04,
+});
+palmFrondBrightMat.userData.isPalmFrondMat = true;
+
+const palmFrondDeepMat = new THREE.MeshStandardMaterial({
+  color: 0x15803d,
+  roughness: 0.62,
+  metalness: 0.04,
+});
+palmFrondDeepMat.userData.isPalmFrondMat = true;
+
+const coconutBrownMat = new THREE.MeshStandardMaterial({
+  color: 0x451a03,
+  roughness: 0.8,
+});
+
+const lifeguardWoodMat = new THREE.MeshStandardMaterial({
+  color: 0xb4692e,
+  roughness: 0.76,
+  metalness: 0.05,
+});
+
+const lifeguardRoofWoodMat = new THREE.MeshStandardMaterial({
+  color: 0x8c4a1c,
+  roughness: 0.8,
+  metalness: 0.04,
+});
+
+const beachPoleWhiteMat = new THREE.MeshStandardMaterial({
+  color: 0xf8fafc,
+  roughness: 0.4,
+  metalness: 0.2,
+});
+
+const umbrellaStripePalettes: Array<[number, number]> = [
+  [0xef4444, 0xffffff], // Red & White
+  [0x0284c7, 0xffffff], // Cobalt Ocean Blue & White
+  [0xfacc15, 0x16a34a], // Brasil Yellow & Green
+  [0x06b6d4, 0xffffff], // Tropical Turquoise & White
+  [0xf97316, 0xfffbeb], // Sunset Tangerine & Cream
+  [0x2563eb, 0xfacc15], // Royal Blue & Sun Gold
+];
+
+/**
+ * Builds a Tall, Curved Tropical Coconut Palm Tree ("Palmeira / Coqueiro da Praia")
+ */
+export function buildCoastalCoconutPalm(
+  variantIndex = 0,
+  scale = 1.0,
+  leanX = 0.22,
+): THREE.Group {
+  const group = new THREE.Group();
+  group.name = `Coastal_Coconut_Palm_${variantIndex}`;
+
+  const segCount = 7;
+  let curX = 0;
+  let curY = 0;
+  let curZ = 0;
+  const zLean = ((variantIndex % 3) - 1) * 0.05;
+
+  for (let i = 0; i < segCount; i++) {
+    const t = i / (segCount - 1);
+    const segH = 0.92 * scale;
+    const rBottom = (0.25 - t * 0.09) * scale;
+    const rTop = (0.23 - t * 0.09) * scale;
+
+    const segGeo = new THREE.CylinderGeometry(rTop, rBottom, segH, 7, 1);
+    const segMesh = new THREE.Mesh(
+      segGeo,
+      i % 2 === 0 ? palmTrunkRingMat : palmTrunkDarkMat,
+    );
+    segMesh.position.set(curX, curY + segH * 0.5, curZ);
+    segMesh.rotation.z = -leanX * (t * 0.65 + 0.15);
+    segMesh.rotation.x = zLean * t;
+    group.add(segMesh);
+
+    curX += Math.sin(leanX * (t * 0.65 + 0.15)) * segH;
+    curY += Math.cos(leanX * (t * 0.65 + 0.15)) * segH;
+    curZ -= Math.sin(zLean * t) * segH;
+  }
+
+  // Coconut cluster at the base of the crown
+  for (let c = 0; c < 4; c++) {
+    const a = (c / 4) * Math.PI * 2;
+    const nut = new THREE.Mesh(sharedGeos.sphere, coconutBrownMat);
+    nut.scale.set(0.18 * scale, 0.22 * scale, 0.18 * scale);
+    nut.position.set(
+      curX + Math.cos(a) * 0.22 * scale,
+      curY - 0.15 * scale,
+      curZ + Math.sin(a) * 0.22 * scale,
+    );
+    group.add(nut);
+  }
+
+  // Articulated Palm Crown Pivot
+  const crownPivot = new THREE.Group();
+  crownPivot.position.set(curX, curY, curZ);
+  crownPivot.userData.isPalmCrown = true;
+  crownPivot.userData.baseRotZ = -leanX * 0.45;
+  crownPivot.rotation.z = -leanX * 0.45;
+
+  const numFronds = 8;
+  for (let f = 0; f < numFronds; f++) {
+    const angle = (f / numFronds) * Math.PI * 2 + (variantIndex % 2) * 0.25;
+    const isUpper = f % 2 === 0;
+    const frondMat = isUpper ? palmFrondBrightMat : palmFrondDeepMat;
+
+    const frondArm = new THREE.Group();
+    frondArm.rotation.y = angle;
+    frondArm.rotation.z = isUpper ? -0.18 : -0.38;
+
+    const innerBlade = new THREE.Mesh(sharedGeos.unitBox, frondMat);
+    innerBlade.scale.set(1.35 * scale, 0.14 * scale, 0.62 * scale);
+    innerBlade.position.set(0.68 * scale, 0.22 * scale, 0);
+    innerBlade.rotation.z = 0.24;
+    innerBlade.rotation.x = 0.18;
+    frondArm.add(innerBlade);
+
+    const outerBlade = new THREE.Mesh(sharedGeos.unitBox, frondMat);
+    outerBlade.scale.set(1.28 * scale, 0.11 * scale, 0.48 * scale);
+    outerBlade.position.set(1.78 * scale, 0.02 * scale, 0);
+    outerBlade.rotation.z = -0.46;
+    outerBlade.rotation.x = -0.15;
+    frondArm.add(outerBlade);
+
+    crownPivot.add(frondArm);
+  }
+
+  group.add(crownPivot);
+  return group;
+}
+
+/**
+ * Builds a Dynamic Coastal Wooden-Support Outdoor Billboard
+ */
+export function buildWoodenBeachBillboard(
+  variantIndex = 0,
+  side: 'left' | 'right' = 'right',
+  maxAnisotropy = 4,
+): THREE.Group {
+  const group = new THREE.Group();
+  group.name = `Wooden_Beach_Billboard_${side}_${variantIndex}`;
+
+  const boardW = 4.55;
+  const boardH = 2.32;
+  const postH = 2.85;
+  const postSpanX = boardW * 0.62;
+
+  for (const px of [-postSpanX * 0.5, postSpanX * 0.5]) {
+    const baseBlock = new THREE.Mesh(sharedGeos.unitBox, lifeguardRoofWoodMat);
+    baseBlock.scale.set(0.42, 0.36, 0.56);
+    baseBlock.position.set(px, 0.18, 0);
+    group.add(baseBlock);
+
+    const timberPost = new THREE.Mesh(sharedGeos.unitBox, lifeguardWoodMat);
+    timberPost.scale.set(0.26, postH + boardH * 0.85, 0.26);
+    timberPost.position.set(px, (postH + boardH * 0.85) * 0.5, -0.14);
+    group.add(timberPost);
+
+    const rearStrut = new THREE.Mesh(sharedGeos.unitBox, lifeguardRoofWoodMat);
+    rearStrut.scale.set(0.20, postH * 1.18, 0.20);
+    rearStrut.position.set(px, postH * 0.52, -0.78);
+    rearStrut.rotation.x = 0.42;
+    group.add(rearStrut);
+
+    const kneeBrace = new THREE.Mesh(sharedGeos.unitBox, lifeguardRoofWoodMat);
+    kneeBrace.scale.set(0.16, 1.15, 0.16);
+    kneeBrace.position.set(px + (px < 0 ? 0.38 : -0.38), postH - 0.32, -0.14);
+    kneeBrace.rotation.z = px < 0 ? -0.68 : 0.68;
+    group.add(kneeBrace);
+  }
+
+  for (const cy of [1.15, postH - 0.12]) {
+    const crossBeam = new THREE.Mesh(sharedGeos.unitBox, lifeguardRoofWoodMat);
+    crossBeam.scale.set(postSpanX + 0.65, 0.22, 0.24);
+    crossBeam.position.set(0, cy, -0.14);
+    group.add(crossBeam);
+  }
+
+  const boardPivot = new THREE.Group();
+  boardPivot.position.set(0, postH + boardH * 0.5, 0.06);
+  boardPivot.userData.isDynamicBillboard = true;
+  boardPivot.userData.billboardPhase = variantIndex * 1.25 + (side === 'right' ? 0.0 : 1.5);
+
+  const woodFrameOuter = new THREE.Mesh(sharedGeos.unitBox, lifeguardRoofWoodMat);
+  woodFrameOuter.scale.set(boardW + 0.38, boardH + 0.36, 0.22);
+  boardPivot.add(woodFrameOuter);
+
+  const woodFrameInner = new THREE.Mesh(sharedGeos.unitBox, lifeguardWoodMat);
+  woodFrameInner.scale.set(boardW + 0.14, boardH + 0.14, 0.26);
+  boardPivot.add(woodFrameInner);
+
+  const adTex = createBillboardAdTexture(variantIndex, maxAnisotropy);
+  const adMat = new THREE.MeshBasicMaterial({
+    map: adTex,
+    color: 0xffffff,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  });
+  applyWorldCurvatureToMaterial(adMat);
+
+  const adPlaneFront = new THREE.Mesh(new THREE.PlaneGeometry(boardW, boardH), adMat);
+  adPlaneFront.position.set(0, 0, 0.15);
+  adPlaneFront.userData.noCartoonOutline = true;
+  boardPivot.add(adPlaneFront);
+
+  const woodCatwalk = new THREE.Mesh(sharedGeos.unitBox, lifeguardWoodMat);
+  woodCatwalk.scale.set(boardW + 0.25, 0.14, 0.52);
+  woodCatwalk.position.set(0, -boardH * 0.5 - 0.22, 0.18);
+  boardPivot.add(woodCatwalk);
+
+  for (const lx of [-boardW * 0.32, 0, boardW * 0.32]) {
+    const lightArm = new THREE.Mesh(sharedGeos.unitBox, sharedMats.darkMetal);
+    lightArm.scale.set(0.08, 0.36, 0.52);
+    lightArm.position.set(lx, boardH * 0.5 + 0.24, 0.22);
+    lightArm.rotation.x = 0.32;
+    boardPivot.add(lightArm);
+
+    const lightHood = new THREE.Mesh(sharedGeos.unitBox, sharedMats.darkMetal);
+    lightHood.scale.set(0.34, 0.12, 0.24);
+    lightHood.position.set(lx, boardH * 0.5 + 0.36, 0.44);
+    boardPivot.add(lightHood);
+  }
+
+  group.add(boardPivot);
+  group.rotation.y = side === 'right' ? -0.36 : 0.36;
+  return group;
+}
+
+function buildSingleBrazilianKiteWithRabiola(
+  parentGroup: THREE.Group,
+  _handX: number,
+  _handY: number,
+  _handZ: number,
+  anchorX: number,
+  anchorY: number,
+  anchorZ: number,
+  texVariant: number,
+  maxAnisotropy = 4,
+  facingSign = 1,
+): void {
+  const kitePivot = new THREE.Group();
+  kitePivot.position.set(anchorX, anchorY, anchorZ);
+  kitePivot.userData.isDynamicBeachKite = true;
+  kitePivot.userData.kiteVariant = texVariant;
+  kitePivot.userData.baseX = anchorX;
+  kitePivot.userData.baseY = anchorY;
+  kitePivot.userData.baseZ = anchorZ;
+  kitePivot.userData.noCartoonOutline = true;
+  kitePivot.userData.lod1MaxNode = true;
+
+  const key = ((texVariant % 6) + 6) % 6;
+  const kiteTex = createCartoonKiteTexture(key, maxAnisotropy);
+  const kiteCanopyMat = new THREE.MeshBasicMaterial({
+    map: kiteTex,
+    color: 0xffffff,
+    transparent: true,
+    alphaTest: 0.12,
+    side: THREE.DoubleSide,
+  });
+
+  const isHexPipa = key === 0 || key === 1 || key === 3 || key === 5;
+  const canopyW = isHexPipa ? 2.28 : 2.52;
+  const canopyH = isHexPipa ? 2.48 : 2.28;
+  const canopyMesh = new THREE.Mesh(new THREE.PlaneGeometry(canopyW, canopyH), kiteCanopyMat);
+  canopyMesh.rotation.y = -0.18 * facingSign;
+  canopyMesh.rotation.x = 0.22;
+  canopyMesh.userData.noCartoonOutline = true;
+  canopyMesh.userData.keepVisibleAtAllLods = true;
+  kitePivot.add(canopyMesh);
+
+  const ribbonTailGroup = new THREE.Group();
+  ribbonTailGroup.position.set(0, -canopyH * 0.45, 0);
+  ribbonTailGroup.userData.isKiteRibbonGroup = true;
+  ribbonTailGroup.userData.keepVisibleAtAllLods = true;
+  canopyMesh.add(ribbonTailGroup);
+
+  const rabiolaLen = 3.45;
+  const rabiolaGeo = new THREE.PlaneGeometry(0.56, rabiolaLen, 1, 10);
+  rabiolaGeo.translate(0, -rabiolaLen * 0.5, 0);
+
+  const rabiolaTex = createKiteRabiolaTexture(key, maxAnisotropy);
+  const rabiolaMat = new THREE.MeshBasicMaterial({
+    map: rabiolaTex,
+    color: 0xffffff,
+    transparent: true,
+    alphaTest: 0.12,
+    side: THREE.DoubleSide,
+  });
+  rabiolaMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uWindTime = worldCurveUniforms.uPalmWindTime;
+    shader.uniforms.uRibbonSeed = { value: key * 1.15 };
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        uniform float uWindTime;
+        uniform float uRibbonSeed;`,
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        float trailFrac = clamp(-position.y / 3.45, 0.0, 1.0);
+        float waveX = sin(trailFrac * 8.2 - uWindTime * 9.0 + uRibbonSeed) * 0.52 * pow(trailFrac, 1.15) + trailFrac * 0.48;
+        float waveZ = cos(trailFrac * 6.5 - uWindTime * 7.4 + uRibbonSeed * 1.3) * 0.24 * trailFrac;
+        transformed.x += waveX;
+        transformed.z += waveZ;`,
+      );
+  };
+  rabiolaMat.customProgramCacheKey = () => `kite-rabiola-main-${key}`;
+  applyWorldCurvatureToMaterial(rabiolaMat);
+
+  const rabiolaMesh = new THREE.Mesh(rabiolaGeo, rabiolaMat);
+  rabiolaMesh.rotation.z = 0.18 * facingSign;
+  rabiolaMesh.userData.noCartoonOutline = true;
+  rabiolaMesh.userData.keepVisibleAtAllLods = true;
+  ribbonTailGroup.add(rabiolaMesh);
+
+  parentGroup.add(kitePivot);
+}
+
+/**
+ * Builds the Left Sidewalk Retaining Wall Segment ("Muro de Contenção com Escadaria e Grafite")
+ */
+export function buildLeftCoastalRetainingWallSegment(
+  variantIndex: number,
+  maxAnisotropy = 4,
+): THREE.Group {
+  const group = new THREE.Group();
+  group.name = `Left_Coastal_Retaining_Wall_${variantIndex}`;
+  group.userData.keepAllMeshesVisible = true;
+
+  const segLenZ = 15.6;
+  const wallH = 2.45;
+  const wallThick = 1.15;
+
+  const wallPal = FAVELA_PALETTES[variantIndex % 4];
+  const wallTex = getFavelaHouseTexture(wallPal.wall, wallPal.trim, true, maxAnisotropy, variantIndex + 20);
+  const texturedWallMat = new THREE.MeshStandardMaterial({
+    map: wallTex,
+    color: 0xffffff,
+    roughness: 0.74,
+    metalness: 0.04,
+  });
+
+  const mainWall = new THREE.Mesh(sharedGeos.unitBox, texturedWallMat);
+  mainWall.scale.set(wallThick, wallH, segLenZ);
+  mainWall.position.set(-wallThick * 0.5, wallH * 0.5, 0);
+  group.add(mainWall);
+
+  const topCap = new THREE.Mesh(sharedGeos.unitBox, coastalWallCapMat);
+  topCap.scale.set(wallThick + 0.24, 0.26, segLenZ);
+  topCap.position.set(-wallThick * 0.5, wallH + 0.13, 0);
+  group.add(topCap);
+
+  // Pilastras coloniais creme e floreiras tropicais ao longo da base do muro
+  for (const pz of [-6.8, -2.2, 2.2, 6.8]) {
+    const pilaster = new THREE.Mesh(sharedGeos.unitBox, condoWarmCreamMat);
+    pilaster.scale.set(0.28, wallH + 0.18, 0.55);
+    pilaster.position.set(0.06, wallH * 0.5, pz);
+    group.add(pilaster);
+  }
+
+  // Escadaria colonial em terracota e madeira quente (substituindo blocos cinzas!)
+  const stairStartZ = 1.2;
+  for (let s = 0; s < 6; s++) {
+    const stepY = 0.35 + s * 0.38;
+    const stepZ = stairStartZ - s * 0.68;
+    const stepMesh = new THREE.Mesh(sharedGeos.unitBox, sharedMats.clayBrick);
+    stepMesh.scale.set(1.25, 0.36, 0.68);
+    stepMesh.position.set(-0.45, stepY, stepZ);
+    stepMesh.userData.lod2MaxNode = true;
+    group.add(stepMesh);
+
+    const baluster = new THREE.Mesh(sharedGeos.unitBox, condoWarmCreamMat);
+    baluster.scale.set(0.24, stepY + 0.52, 0.72);
+    baluster.position.set(0.08, (stepY + 0.52) * 0.5, stepZ);
+    baluster.userData.lod2MaxNode = true;
+    group.add(baluster);
+  }
+
+  // Street-art graffiti mural
+  const gamefyTex = createRioWallGraffitiTexture(maxAnisotropy);
+  const gamefyMat = new THREE.MeshBasicMaterial({
+    map: gamefyTex,
+    transparent: true,
+    alphaTest: 0.05,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  });
+  applyWorldCurvatureToMaterial(gamefyMat);
+
+  const muralPlane = new THREE.Mesh(new THREE.PlaneGeometry(5.15, 2.34), gamefyMat);
+  muralPlane.rotation.y = Math.PI / 2;
+  muralPlane.position.set(0.04, 1.32, 4.75);
+  muralPlane.userData.noCartoonOutline = true;
+  group.add(muralPlane);
+
+  // Wooden park bench
+  if (variantIndex % 2 === 0) {
+    const benchGroup = new THREE.Group();
+    benchGroup.position.set(0.62, 0, -4.5);
+
+    const seat = new THREE.Mesh(sharedGeos.unitBox, benchWoodMat);
+    seat.scale.set(0.68, 0.1, 2.15);
+    seat.position.set(0, 0.48, 0);
+    benchGroup.add(seat);
+
+    const back = new THREE.Mesh(sharedGeos.unitBox, benchWoodMat);
+    back.scale.set(0.1, 0.48, 2.15);
+    back.position.set(-0.28, 0.76, 0);
+    back.rotation.z = 0.12;
+    benchGroup.add(back);
+
+    for (const lz of [-0.88, 0, 0.88]) {
+      const legF = new THREE.Mesh(sharedGeos.unitBox, benchWoodMat);
+      legF.scale.set(0.12, 0.48, 0.12);
+      legF.position.set(0.22, 0.24, lz);
+      benchGroup.add(legF);
+
+      const legB = new THREE.Mesh(sharedGeos.unitBox, benchWoodMat);
+      legB.scale.set(0.12, 0.48, 0.12);
+      legB.position.set(-0.22, 0.24, lz);
+      benchGroup.add(legB);
+    }
+    group.add(benchGroup);
+  }
+
+  // Trash bin
+  const binGroup = new THREE.Group();
+  binGroup.position.set(0.45, 0, -2.35);
+  const binBody = new THREE.Mesh(sharedGeos.unitBox, trashBinBodyMat);
+  binBody.scale.set(0.58, 0.96, 0.62);
+  binBody.position.set(0, 0.48, 0);
+  binBody.userData.lod2MaxNode = true;
+  binGroup.add(binBody);
+
+  const binLid = new THREE.Mesh(sharedGeos.unitBox, sharedMats.darkMetal);
+  binLid.scale.set(0.64, 0.1, 0.68);
+  binLid.position.set(0, 0.98, 0);
+  binLid.userData.lod2MaxNode = true;
+  binGroup.add(binLid);
+  group.add(binGroup);
+
+  // Left palm
+  const leftPalm = buildCoastalCoconutPalm(variantIndex, 0.94, 0.14);
+  leftPalm.position.set(0.55, 0, -6.2);
+  group.add(leftPalm);
+
+  addCartoonOutlinesToGroup(group);
+
+  if (variantIndex === 0) {
+    buildSingleBrazilianKiteWithRabiola(
+      group,
+      -1.2,
+      3.6,
+      -1.8,
+      -1.4,
+      12.8,
+      -1.2,
+      1,
+      maxAnisotropy,
+      -1,
+    );
+  }
+
+  applyWorldCurvatureToGroup(group);
+  return group;
+}
+
+function buildBeachUmbrellaSet(variantIndex: number): THREE.Group {
+  const group = new THREE.Group();
+  const [colA, colB] = umbrellaStripePalettes[variantIndex % umbrellaStripePalettes.length];
+  const matA = new THREE.MeshStandardMaterial({ color: colA, roughness: 0.55 });
+  const matB = new THREE.MeshStandardMaterial({ color: colB, roughness: 0.55 });
+
+  const shadow = new THREE.Mesh(sharedGeos.contactShadow, sharedMats.contactShadow);
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.scale.set(1.55, 1.55, 1);
+  shadow.position.set(0, 0.03, 0);
+  group.add(shadow);
+
+  const umbrellaPivot = new THREE.Group();
+  umbrellaPivot.rotation.z = ((variantIndex % 3) - 1) * 0.12;
+  umbrellaPivot.rotation.x = ((variantIndex % 2) - 0.5) * 0.1;
+
+  const pole = new THREE.Mesh(sharedGeos.cylinder, beachPoleWhiteMat);
+  pole.scale.set(0.055, 2.35, 0.055);
+  pole.position.set(0, 1.15, 0);
+  umbrellaPivot.add(pole);
+
+  const numPanels = 8;
+  const radius = 1.62;
+  for (let p = 0; p < numPanels; p++) {
+    const a = (p / numPanels) * Math.PI * 2;
+    const panel = new THREE.Mesh(sharedGeos.unitBox, p % 2 === 0 ? matA : matB);
+    panel.scale.set(radius * 0.62, 0.09, radius * 0.44);
+    panel.position.set(Math.cos(a) * radius * 0.46, 2.18, Math.sin(a) * radius * 0.46);
+    panel.rotation.y = -a;
+    panel.rotation.z = -0.32;
+    panel.userData.keepVisibleAtAllLods = true;
+    umbrellaPivot.add(panel);
+  }
+
+  const cap = new THREE.Mesh(sharedGeos.cone, matA);
+  cap.scale.set(0.28, 0.22, 0.28);
+  cap.position.set(0, 2.38, 0);
+  umbrellaPivot.add(cap);
+
+  group.add(umbrellaPivot);
+
+  const chairColors = [0x0284c7, 0xef4444, 0xfacc15];
+  for (const sideDir of [-1, 1]) {
+    const chairMat = new THREE.MeshStandardMaterial({
+      color: chairColors[(variantIndex + (sideDir > 0 ? 1 : 0)) % chairColors.length],
+      roughness: 0.6,
+    });
+    const chair = new THREE.Group();
+    chair.position.set(sideDir * 0.72, 0.18, 0.15);
+    chair.rotation.y = 0.35 + sideDir * 0.12;
+
+    const seat = new THREE.Mesh(sharedGeos.unitBox, chairMat);
+    seat.scale.set(0.56, 0.08, 1.05);
+    seat.position.set(0, 0.06, 0);
+    seat.userData.lod2MaxNode = true;
+    chair.add(seat);
+
+    const backrest = new THREE.Mesh(sharedGeos.unitBox, chairMat);
+    backrest.scale.set(0.56, 0.62, 0.08);
+    backrest.position.set(0, 0.32, -0.45);
+    backrest.rotation.x = -0.45;
+    backrest.userData.lod2MaxNode = true;
+    chair.add(backrest);
+
+    group.add(chair);
+  }
+
+  return group;
+}
+
+function buildBeachTentGazebo(variantIndex: number): THREE.Group {
+  const group = new THREE.Group();
+  const canopyMat = new THREE.MeshStandardMaterial({
+    color: variantIndex % 2 === 0 ? 0x0ea5e9 : 0xfacc15,
+    roughness: 0.55,
+  });
+
+  const W = 2.55;
+  const H = 2.25;
+  for (const lx of [-W * 0.46, W * 0.46]) {
+    for (const lz of [-W * 0.46, W * 0.46]) {
+      const leg = new THREE.Mesh(sharedGeos.cylinder, beachPoleWhiteMat);
+      leg.scale.set(0.045, H, 0.045);
+      leg.position.set(lx, H * 0.5, lz);
+      group.add(leg);
+    }
+  }
+
+  const roof = new THREE.Mesh(sharedGeos.cone, canopyMat);
+  roof.scale.set(W * 0.82, 0.95, W * 0.82);
+  roof.rotation.y = Math.PI * 0.25;
+  roof.position.set(0, H + 0.42, 0);
+  roof.userData.keepVisibleAtAllLods = true;
+  group.add(roof);
+
+  const towelMat = new THREE.MeshStandardMaterial({
+    color: variantIndex % 2 === 0 ? 0xf43f5e : 0x06b6d4,
+    roughness: 0.8,
+  });
+  const towel = new THREE.Mesh(sharedGeos.unitBox, towelMat);
+  towel.scale.set(1.25, 0.04, 1.75);
+  towel.position.set(0, 0.04, 0);
+  towel.userData.lod2MaxNode = true;
+  group.add(towel);
+
+  return group;
+}
+
+/**
+ * Builds the Iconic Elevated Wooden Lifeguard Tower ("Posto Salva-Vidas de Madeira")
+ */
+export function buildWoodenLifeguardTower(): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'Wooden_Beach_Lifeguard_Tower';
+
+  const stiltH = 2.45;
+  const deckW = 2.65;
+  const deckD = 2.65;
+
+  for (const sx of [-0.95, 0.95]) {
+    for (const sz of [-0.95, 0.95]) {
+      const stilt = new THREE.Mesh(sharedGeos.unitBox, lifeguardWoodMat);
+      stilt.scale.set(0.24, stiltH + 0.6, 0.24);
+      stilt.position.set(sx, (stiltH - 0.3) * 0.5, sz);
+      stilt.userData.keepVisibleAtAllLods = true;
+      group.add(stilt);
+    }
+  }
+
+  for (const sz of [-0.95, 0.95]) {
+    for (const dir of [-1, 1]) {
+      const brace = new THREE.Mesh(sharedGeos.unitBox, lifeguardWoodMat);
+      brace.scale.set(2.45, 0.14, 0.14);
+      brace.position.set(0, stiltH * 0.52, sz);
+      brace.rotation.z = dir * 0.68;
+      brace.userData.lod2MaxNode = true;
+      group.add(brace);
+    }
+  }
+  for (const sx of [-0.95, 0.95]) {
+    for (const dir of [-1, 1]) {
+      const brace = new THREE.Mesh(sharedGeos.unitBox, lifeguardWoodMat);
+      brace.scale.set(0.14, 0.14, 2.45);
+      brace.position.set(sx, stiltH * 0.52, 0);
+      brace.rotation.x = dir * 0.68;
+      brace.userData.lod2MaxNode = true;
+      group.add(brace);
+    }
+  }
+
+  const deckPlatform = new THREE.Mesh(sharedGeos.unitBox, lifeguardWoodMat);
+  deckPlatform.scale.set(deckW, 0.24, deckD);
+  deckPlatform.position.set(0, stiltH, 0);
+  deckPlatform.userData.keepVisibleAtAllLods = true;
+  group.add(deckPlatform);
+
+  const railH = 0.82;
+  for (const rx of [-deckW * 0.46, deckW * 0.46]) {
+    for (const rz of [-deckD * 0.46, deckD * 0.46]) {
+      const post = new THREE.Mesh(sharedGeos.unitBox, lifeguardWoodMat);
+      post.scale.set(0.14, railH, 0.14);
+      post.position.set(rx, stiltH + railH * 0.5, rz);
+      post.userData.lod2MaxNode = true;
+      group.add(post);
+    }
+  }
+  for (const rz of [-deckD * 0.46, deckD * 0.46]) {
+    const railBar = new THREE.Mesh(sharedGeos.unitBox, lifeguardWoodMat);
+    railBar.scale.set(deckW, 0.12, 0.12);
+    railBar.position.set(0, stiltH + railH, rz);
+    railBar.userData.lod2MaxNode = true;
+    group.add(railBar);
+  }
+  for (const rx of [-deckW * 0.46, deckW * 0.46]) {
+    const railBar = new THREE.Mesh(sharedGeos.unitBox, lifeguardWoodMat);
+    railBar.scale.set(0.12, 0.12, deckD);
+    railBar.position.set(rx, stiltH + railH, 0);
+    railBar.userData.lod2MaxNode = true;
+    group.add(railBar);
+  }
+
+  const cabW = 1.82;
+  const cabH = 1.95;
+  const cabD = 1.82;
+  const cabin = new THREE.Mesh(sharedGeos.unitBox, lifeguardWoodMat);
+  cabin.scale.set(cabW, cabH, cabD);
+  cabin.position.set(0, stiltH + cabH * 0.5 + 0.1, 0);
+  cabin.userData.keepVisibleAtAllLods = true;
+  group.add(cabin);
+
+  const winFront = new THREE.Mesh(sharedGeos.unitBox, condoDarkWindowMat);
+  winFront.scale.set(cabW * 0.65, 0.68, cabD + 0.08);
+  winFront.position.set(0, stiltH + cabH * 0.64, 0);
+  group.add(winFront);
+
+  const winSide = new THREE.Mesh(sharedGeos.unitBox, condoDarkWindowMat);
+  winSide.scale.set(cabW + 0.08, 0.68, cabD * 0.65);
+  winSide.position.set(0, stiltH + cabH * 0.64, 0);
+  group.add(winSide);
+
+  const roofBaseY = stiltH + cabH + 0.12;
+  const roofL = new THREE.Mesh(sharedGeos.unitBox, lifeguardRoofWoodMat);
+  roofL.scale.set(1.55, 0.18, 2.45);
+  roofL.position.set(-0.62, roofBaseY + 0.28, 0);
+  roofL.rotation.z = 0.36;
+  roofL.userData.keepVisibleAtAllLods = true;
+  group.add(roofL);
+
+  const roofR = new THREE.Mesh(sharedGeos.unitBox, lifeguardRoofWoodMat);
+  roofR.scale.set(1.55, 0.18, 2.45);
+  roofR.position.set(0.62, roofBaseY + 0.28, 0);
+  roofR.rotation.z = -0.36;
+  roofR.userData.keepVisibleAtAllLods = true;
+  group.add(roofR);
+
+  return group;
+}
+
+let sharedSandDriftRoadMat: THREE.MeshBasicMaterial | null = null;
+function getSharedSandDriftRoadMat(maxAnisotropy = 4): THREE.MeshBasicMaterial {
+  if (!sharedSandDriftRoadMat) {
+    const driftTex = createBlownSandRoadDriftTexture(maxAnisotropy);
+    sharedSandDriftRoadMat = new THREE.MeshBasicMaterial({
+      map: driftTex,
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.44,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -3,
+    });
+    applyWorldCurvatureToMaterial(sharedSandDriftRoadMat);
+  }
+  return sharedSandDriftRoadMat;
+}
+
+function buildBeachKiteAndSoftFocusBeachgoers(
+  variantIndex: number,
+  maxAnisotropy = 4,
+): THREE.Group {
+  const group = new THREE.Group();
+  group.name = `Beach_Kite_And_Beachgoers_${variantIndex}`;
+  group.userData.keepAllMeshesVisible = true;
+  group.userData.noCartoonOutline = true;
+
+  const sandYAtX = (x: number) => Math.min(0.08, -(x - 9.85) * 0.03);
+
+  const personX = 16.55 + (variantIndex % 3) * 0.55;
+  const personZ = -1.2 + (variantIndex % 2) * 2.4;
+
+  const shirtColors = [0xff4d6d, 0x00b4d8, 0xffbe0b, 0x8338ec, 0x06d6a0, 0xfb5607];
+  const shortsColors = [0x1d3557, 0xf1faee, 0x2b2d42, 0x023e8a, 0x3a0ca3, 0x118ab2];
+
+  const createSoftFocusPerson = (
+    px: number,
+    pz: number,
+    shirtHex: number,
+    shortsHex: number,
+    isFlyingKite: boolean,
+    scale = 1.0,
+  ) => {
+    const pGroup = new THREE.Group();
+    pGroup.position.set(px, sandYAtX(px), pz);
+    pGroup.scale.setScalar(scale);
+    pGroup.userData.noCartoonOutline = true;
+
+    const shells: Array<[number, number, boolean]> = [
+      [1.0, 0.76, false],
+      [1.46, 0.28, true],
+    ];
+    for (const [shellScale, shellOpacity, isOuterBokeh] of shells) {
+      const skinMat = new THREE.MeshBasicMaterial({
+        color: 0xd99b72,
+        transparent: true,
+        opacity: shellOpacity,
+        depthWrite: false,
+      });
+      const shirtMat = new THREE.MeshBasicMaterial({
+        color: shirtHex,
+        transparent: true,
+        opacity: shellOpacity,
+        depthWrite: false,
+      });
+      const shortsMat = new THREE.MeshBasicMaterial({
+        color: shortsHex,
+        transparent: true,
+        opacity: shellOpacity,
+        depthWrite: false,
+      });
+
+      const torso = new THREE.Mesh(sharedGeos.cylinder, shirtMat);
+      torso.scale.set(0.14 * shellScale, 0.42 * shellScale, 0.11 * shellScale);
+      torso.position.set(0, 0.88, 0);
+      torso.userData.noCartoonOutline = true;
+      torso.userData.lod2MaxNode = isOuterBokeh;
+      pGroup.add(torso);
+
+      const shorts = new THREE.Mesh(sharedGeos.unitBox, shortsMat);
+      shorts.scale.set(0.26 * shellScale, 0.24 * shellScale, 0.19 * shellScale);
+      shorts.position.set(0, 0.56, 0);
+      shorts.userData.noCartoonOutline = true;
+      shorts.userData.lod2MaxNode = isOuterBokeh;
+      pGroup.add(shorts);
+
+      for (const lx of [-0.07, 0.07]) {
+        const leg = new THREE.Mesh(sharedGeos.cylinder, skinMat);
+        leg.scale.set(0.055 * shellScale, 0.46, 0.055 * shellScale);
+        leg.position.set(lx, 0.24, 0);
+        leg.userData.noCartoonOutline = true;
+        leg.userData.lod2MaxNode = isOuterBokeh;
+        pGroup.add(leg);
+      }
+
+      const head = new THREE.Mesh(sharedGeos.sphere, skinMat);
+      head.scale.setScalar(0.145 * shellScale);
+      head.position.set(0, 1.28, 0);
+      head.userData.noCartoonOutline = true;
+      head.userData.lod2MaxNode = isOuterBokeh;
+      pGroup.add(head);
+
+      if (isFlyingKite && !isOuterBokeh) {
+        const arm = new THREE.Mesh(sharedGeos.cylinder, skinMat);
+        arm.scale.set(0.048 * shellScale, 0.42, 0.048 * shellScale);
+        arm.position.set(0.16, 1.18, -0.05);
+        arm.rotation.z = -0.52;
+        arm.userData.noCartoonOutline = true;
+        arm.userData.lod2MaxNode = true;
+        pGroup.add(arm);
+      }
+    }
+    return pGroup;
+  };
+
+  const kiteFlyer = createSoftFocusPerson(
+    personX,
+    personZ,
+    shirtColors[variantIndex % shirtColors.length],
+    shortsColors[variantIndex % shortsColors.length],
+    true,
+    0.95,
+  );
+  group.add(kiteFlyer);
+
+  const companionX = personX + 1.15;
+  const companionZ = personZ + 2.2;
+  const companion = createSoftFocusPerson(
+    companionX,
+    companionZ,
+    shirtColors[(variantIndex + 2) % shirtColors.length],
+    shortsColors[(variantIndex + 3) % shortsColors.length],
+    true,
+    0.9,
+  );
+  group.add(companion);
+
+  if (variantIndex % 2 === 0) {
+    const kiteVariants = [1, 0, 2];
+    const slotIdx = (variantIndex >> 1) % kiteVariants.length;
+    buildSingleBrazilianKiteWithRabiola(
+      group,
+      personX + 0.35,
+      sandYAtX(personX) + 1.28,
+      personZ - 0.05,
+      13.2 + slotIdx * 1.4,
+      12.6 + slotIdx * 3.2,
+      personZ - 1.5,
+      kiteVariants[slotIdx],
+      maxAnisotropy,
+      1,
+    );
+  }
+
+  return group;
+}
+
+export function buildBeachfrontPropCluster(variantIndex: number, maxAnisotropy = 4): THREE.Group {
+  const group = new THREE.Group();
+  group.name = `Beachfront_Prop_Cluster_${variantIndex}`;
+  group.userData.keepAllMeshesVisible = true;
+
+  const sandYAtX = (x: number) => Math.min(0.08, -(x - 9.85) * 0.03);
+
+  const sandDriftRoadMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(5.4, 15.2, 2, 2),
+    getSharedSandDriftRoadMat(maxAnisotropy),
+  );
+  sandDriftRoadMesh.rotation.x = -Math.PI / 2;
+  sandDriftRoadMesh.position.set(6.25, 0.238, 0);
+  sandDriftRoadMesh.userData.noCartoonOutline = true;
+  sandDriftRoadMesh.userData.lod2MaxNode = true;
+  group.add(sandDriftRoadMesh);
+
+  for (const bz of [-5.2, 0.0, 5.2]) {
+    const bollardRoad = new THREE.Mesh(sharedGeos.cylinder, lifeguardWoodMat);
+    bollardRoad.scale.set(0.11, 0.68, 0.11);
+    bollardRoad.position.set(6.36, 0.45, bz);
+    bollardRoad.userData.lod2MaxNode = true;
+    group.add(bollardRoad);
+
+    const bollardSand = new THREE.Mesh(sharedGeos.cylinder, coastalWallStoneMat);
+    bollardSand.scale.set(0.1, 0.56, 0.1);
+    bollardSand.position.set(9.78, 0.38, bz + 2.6);
+    bollardSand.userData.lod2MaxNode = true;
+    group.add(bollardSand);
+  }
+
+  if (variantIndex % 3 === 0) {
+    const beachBillboard = buildWoodenBeachBillboard(variantIndex, 'right', maxAnisotropy);
+    beachBillboard.scale.setScalar(0.84);
+    beachBillboard.position.set(10.05, 0.08, 3.6);
+    beachBillboard.rotation.y = -0.34;
+    group.add(beachBillboard);
+  }
+
+  const palmX = 10.85 + (variantIndex % 2) * 0.95;
+  const promenadePalm = buildCoastalCoconutPalm(
+    variantIndex,
+    1.04 + (variantIndex % 3) * 0.07,
+    0.26,
+  );
+  promenadePalm.position.set(palmX, sandYAtX(palmX), -2.4);
+  group.add(promenadePalm);
+
+  if (variantIndex % 2 === 1) {
+    const palm2X = 13.05;
+    const sandPalm = buildCoastalCoconutPalm(variantIndex + 3, 0.92, -0.16);
+    sandPalm.position.set(palm2X, sandYAtX(palm2X), 4.4);
+    group.add(sandPalm);
+  }
+
+  const umb1X = 12.6 + (variantIndex % 3) * 0.75;
+  const umb1 = buildBeachUmbrellaSet(variantIndex * 2);
+  umb1.position.set(umb1X, sandYAtX(umb1X), 2.8);
+  group.add(umb1);
+
+  const umb2X = 14.45 + ((variantIndex + 1) % 3) * 0.65;
+  const umb2 = buildBeachUmbrellaSet(variantIndex * 2 + 1);
+  umb2.position.set(umb2X, sandYAtX(umb2X), -3.6);
+  group.add(umb2);
+
+  if (variantIndex % 3 === 0) {
+    const towerX = 15.85;
+    const lifeguardTower = buildWoodenLifeguardTower();
+    lifeguardTower.position.set(towerX, sandYAtX(towerX), 0.8);
+    lifeguardTower.rotation.y = -0.16;
+    group.add(lifeguardTower);
+  } else if (variantIndex % 3 === 1) {
+    const tentX = 15.25;
+    const beachTent = buildBeachTentGazebo(variantIndex);
+    beachTent.position.set(tentX, sandYAtX(tentX), 1.6);
+    beachTent.rotation.y = 0.22;
+    group.add(beachTent);
+  }
+
+  addCartoonOutlinesToGroup(group);
+
+  const kiteAndBeachgoers = buildBeachKiteAndSoftFocusBeachgoers(variantIndex, maxAnisotropy);
+  group.add(kiteAndBeachgoers);
+
+  applyWorldCurvatureToGroup(group);
+  return group;
+}
+
+/**
+ * Builds the Complete Right-Side Golden Beach Sand, Dynamic Animated Ocean with Shimmering Solar Reflection
+ */
+export function buildBeachSandAndOceanBackdrop(maxAnisotropy = 4): {
+  group: THREE.Group;
+  sandTex: THREE.CanvasTexture;
+  update: (elapsed: number, moveZ: number) => void;
+} {
+  const group = new THREE.Group();
+  group.name = 'Rio_Golden_Beach_And_Dynamic_Ocean';
+
+  const sandTex = createGoldenBeachSandTexture(maxAnisotropy);
+  const sandMat = new THREE.MeshStandardMaterial({
+    map: sandTex,
+    color: 0xffffff,
+    roughness: 0.84,
+    metalness: 0.04,
+    fog: false,
+  });
+  applyWorldCurvatureToMaterial(sandMat);
+
+  const sandGeo = new THREE.PlaneGeometry(38.0, 330.0, 18, 72);
+  sandGeo.rotateX(-Math.PI / 2);
+  const sandPos = sandGeo.attributes.position;
+  for (let i = 0; i < sandPos.count; i++) {
+    const lx = sandPos.getX(i);
+    const lz = sandPos.getZ(i);
+    const bayCurveX = -Math.pow(Math.max(0, -lz - 20.0) / 235.0, 1.35) * 2.8;
+    const worldX = 27.0 + lx + bayCurveX;
+    const slopeY = Math.min(0.1, -(worldX - 9.85) * 0.03);
+    sandPos.setX(i, lx + bayCurveX);
+    sandPos.setY(i, slopeY);
+  }
+  sandGeo.computeVertexNormals();
+
+  const sandMesh = new THREE.Mesh(sandGeo, sandMat);
+  sandMesh.position.set(27.0, 0, -142.0);
+  sandMesh.updateMatrix();
+  sandMesh.matrixAutoUpdate = false;
+  group.add(sandMesh);
+
+  const oceanUniforms = {
+    uTime: { value: 0 },
+    uWorldCurveY: worldCurveUniforms.uWorldCurveY,
+    uWorldCurveX: worldCurveUniforms.uWorldCurveX,
+    uCurveStartZ: worldCurveUniforms.uCurveStartZ,
+    uLadeiraSlope: worldCurveUniforms.uLadeiraSlope,
+    uRoadWindPhase: worldCurveUniforms.uRoadWindPhase,
+    uSunsetOrangeMix: worldCurveUniforms.uSunsetOrangeMix,
+    uNightDarknessMix: worldCurveUniforms.uNightDarknessMix,
+    uSunWorldPos: worldCurveUniforms.uSunWorldPos,
+    uSunActiveOpacity: worldCurveUniforms.uSunActiveOpacity,
+  };
+
+  const oceanMat = new THREE.ShaderMaterial({
+    uniforms: oceanUniforms,
+    transparent: true,
+    depthWrite: true,
+    fog: false,
+    vertexShader: `
+      uniform float uTime;
+      uniform float uWorldCurveY;
+      uniform float uWorldCurveX;
+      uniform float uCurveStartZ;
+      uniform float uLadeiraSlope;
+      uniform float uRoadWindPhase;
+      varying vec3 vOceanWorldPos;
+      varying float vShoreDist;
+      varying float vWaveCrest;
+
+      void main() {
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+
+        float bayShiftX = -pow(max(0.0, -wp.z - 20.0) / 235.0, 1.35) * 2.8;
+        float shorelineX = 17.8 + bayShiftX;
+        float shoreDist = wp.x - shorelineX;
+        vShoreDist = shoreDist;
+
+        float swellEnv = smoothstep(-2.0, 10.0, shoreDist);
+        float wave1 = sin(wp.x * 0.28 + wp.z * 0.09 + uTime * 2.15) * 0.18 * swellEnv;
+        float wave2 = cos(wp.x * 0.16 - wp.z * 0.14 + uTime * 1.55) * 0.13 * swellEnv;
+        float surfSurge = sin(shoreDist * 0.65 + uTime * 2.6 + sin(wp.z * 0.08) * 1.4) * 0.06;
+        vWaveCrest = (wave1 + wave2) / max(0.01, 0.31 * swellEnv);
+
+        wp.y += wave1 + wave2 + surfSurge;
+        vOceanWorldPos = wp.xyz;
+
+        float curveDist = max(0.0, -(wp.z - uCurveStartZ));
+        float curveDistSq = curveDist * curveDist;
+        float ladeiraBowl = 4.2 * smoothstep(14.0, 108.0, curveDist) * (1.0 - 0.14 * smoothstep(108.0, 175.0, curveDist));
+        float sCurveNear = sin(curveDist * 0.032 + uRoadWindPhase) * 1.95 * smoothstep(16.0, 78.0, curveDist) * uLadeiraSlope;
+        float sCurveFar = cos(curveDist * 0.016 - uRoadWindPhase * 0.65) * 1.45 * smoothstep(48.0, 165.0, curveDist) * uLadeiraSlope;
+
+        float heatMask = smoothstep(85.0, 165.0, curveDist);
+        float heatWaveY = sin(wp.x * 0.38 + wp.z * 0.15 - uTime * 5.2) * 0.24 * heatMask;
+        float heatWaveX = cos(wp.z * 0.22 + uTime * 4.4) * 0.32 * heatMask;
+
+        wp.y -= uWorldCurveY * curveDistSq * 0.16 + ladeiraBowl * uLadeiraSlope - heatWaveY;
+        wp.x += uWorldCurveX * curveDistSq + sCurveNear + sCurveFar + heatWaveX;
+
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform vec3 uSunWorldPos;
+      uniform float uSunActiveOpacity;
+      varying vec3 vOceanWorldPos;
+      varying float vShoreDist;
+      varying float vWaveCrest;
+      ${GLSL_TROPICAL_CINEMATIC_GRADE}
+
+      void main() {
+        float distZ = max(0.0, -vOceanWorldPos.z);
+        float horizonHeat = smoothstep(80.0, 175.0, distZ);
+        float heatShimmer = sin(vOceanWorldPos.z * 0.45 - uTime * 6.2 + vOceanWorldPos.x * 0.3) * 0.55 * horizonHeat;
+
+        float zWave = sin(vOceanWorldPos.z * 0.095 + uTime * 0.75) * 1.05
+                    + cos(vOceanWorldPos.z * 0.21 - uTime * 1.15) * 0.45;
+        float swash = sin(uTime * 2.2 + vOceanWorldPos.z * 0.06) * 0.85;
+        float d = vShoreDist + zWave + swash + heatShimmer * 0.35;
+
+        if (d < -1.35) discard;
+
+        vec3 shallowTurquoise = vec3(0.16, 0.78, 0.89);
+        vec3 midAquaCyan      = vec3(0.02, 0.62, 0.82);
+        vec3 richCerulean     = vec3(0.02, 0.43, 0.74);
+        vec3 deepCobaltBlue   = vec3(0.02, 0.28, 0.58);
+
+        vec3 waterCol = mix(shallowTurquoise, midAquaCyan, smoothstep(0.0, 6.5, d));
+        waterCol = mix(waterCol, richCerulean, smoothstep(5.5, 16.0, d));
+        waterCol = mix(waterCol, deepCobaltBlue, smoothstep(14.0, 42.0, d));
+
+        float wavePhase1 = sin(d * 0.68 + uTime * 2.4 + sin(vOceanWorldPos.z * 0.11) * 1.6);
+        float wavePhase2 = cos(vOceanWorldPos.x * 0.36 - vOceanWorldPos.z * 0.18 - uTime * 1.8);
+        float crestHighlight = smoothstep(0.52, 0.88, wavePhase1 * 0.65 + wavePhase2 * 0.35);
+        vec3 warmCrestRim = mix(vec3(0.24, 0.32, 0.36), vec3(0.98, 0.68, 0.25), 0.55 + 0.35 * uSunsetOrangeMix);
+        waterCol = mix(waterCol, waterCol + warmCrestRim, crestHighlight * 0.62);
+
+        float shoreEdgeFoam = smoothstep(1.95, -0.35, d);
+        float breakingLine1 = smoothstep(0.72, 0.93, sin(d * 0.92 + uTime * 2.5)) * smoothstep(14.0, 1.0, d);
+        float breakingLine2 = smoothstep(0.78, 0.95, cos(d * 0.52 + uTime * 1.9 - vOceanWorldPos.z * 0.08)) * smoothstep(26.0, 4.0, d) * 0.76;
+
+        float totalFoam = clamp(shoreEdgeFoam + breakingLine1 + breakingLine2, 0.0, 1.0);
+        vec3 foamColor = mix(vec3(0.98, 0.99, 1.0), vec3(1.0, 0.91, 0.74), 0.32 + 0.42 * uSunsetOrangeMix);
+        vec3 finalCol = mix(waterCol, foamColor, totalFoam);
+
+        float sunOverOceanFactor = smoothstep(18.0, 36.0, uSunWorldPos.x) * uSunActiveOpacity * (1.0 - uNightDarknessMix);
+        if (sunOverOceanFactor > 0.005) {
+          float camToWaterZ = max(1.0, 7.6 - vOceanWorldPos.z);
+          float camToSunZ = max(1.0, 7.6 - uSunWorldPos.z);
+          float rayFrac = clamp(camToWaterZ / camToSunZ, 0.24, 1.0);
+          float sunCenterX = max(21.5, uSunWorldPos.x * rayFrac) + heatShimmer * 1.25;
+          float distFromSunPathX = abs(vOceanWorldPos.x - sunCenterX);
+          float pathWidth = mix(4.2, 16.5, clamp(distZ / 165.0, 0.0, 1.0));
+          float sunPathEnvelope = exp(-pow(distFromSunPathX / max(1.0, pathWidth), 1.6)) * smoothstep(18.0, 52.0, distZ);
+
+          float glitterWave = sin(vOceanWorldPos.z * 0.85 + uTime * 4.2 + sin(vOceanWorldPos.x * 1.4 - uTime * 2.8) * 1.8) * 0.5 + 0.5;
+          float glitterFacet = smoothstep(0.24, 0.84, glitterWave * 0.65 + crestHighlight * 0.55);
+
+          float wetSandMirror = smoothstep(5.5, -0.6, d) * exp(-pow(abs(vOceanWorldPos.x - (19.5 + heatShimmer * 0.4)) / 5.2, 1.5)) * smoothstep(22.0, 55.0, distZ);
+
+          float totalSunReflection = clamp(sunPathEnvelope * (0.52 + 0.85 * glitterFacet) + wetSandMirror * 0.72, 0.0, 1.0) * sunOverOceanFactor;
+          vec3 sunReflectDeepAmber = vec3(0.99, 0.56, 0.10);
+          vec3 sunReflectBrightGold = vec3(1.0, 0.96, 0.72);
+          vec3 sunReflectCol = mix(sunReflectDeepAmber, sunReflectBrightGold, clamp(glitterFacet * 0.78 + wetSandMirror * 0.5, 0.0, 1.0));
+          finalCol = mix(finalCol, sunReflectCol, totalSunReflection * (0.88 + 0.12 * uSunsetOrangeMix));
+
+          float horizonGlowMix = smoothstep(115.0, 205.0, distZ) * sunPathEnvelope * sunOverOceanFactor;
+          vec3 horizonSunHaze = mix(vec3(1.0, 0.80, 0.44), vec3(1.0, 0.62, 0.20), uSunsetOrangeMix);
+          finalCol = mix(finalCol, horizonSunHaze, horizonGlowMix * 0.54);
+        }
+
+        finalCol = applyTropicalCinematicGrade(finalCol);
+        float alpha = smoothstep(-1.35, 0.22, d);
+        gl_FragColor = vec4(finalCol, alpha);
+      }
+    `,
+  });
+
+  const oceanGeo = new THREE.PlaneGeometry(240.0, 330.0, 54, 72);
+  oceanGeo.rotateX(-Math.PI / 2);
+  const oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
+  oceanMesh.position.set(126.0, -0.22, -142.0);
+  oceanMesh.updateMatrix();
+  oceanMesh.matrixAutoUpdate = false;
+  group.add(oceanMesh);
+
+  // Sculpted Rio Coastal Rocky Island on the Horizon
+  const islandGroup = new THREE.Group();
+  islandGroup.name = 'Sculpted_Coastal_Horizon_Island';
+  islandGroup.position.set(66.0, -0.2, -184.0);
+  islandGroup.rotation.y = -0.18;
+  islandGroup.updateMatrix();
+  islandGroup.matrixAutoUpdate = false;
+
+  const islandShaderMat = createMountainSceneryShaderMat();
+  const cragIslePeak = createSculptedMountainCragGeo(0.46, 1.0, 16, 10, 1.8, false);
+  const cragIsleShoulder = createSculptedMountainCragGeo(0.38, 1.04, 14, 8, 3.2, false);
+  const cragIsleApron = createSculptedMountainCragGeo(0.44, 1.24, 14, 8, 4.7, false);
+
+  const islandMergedGeo = mergeMountainCragGeometries([
+    { geo: cragIsleApron, x: -6.5, y: 4.2, z: 1.4, sx: 14.0, sy: 10.5, sz: 11.0, rotY: 0.45 },
+    { geo: cragIsleApron, x: 5.5, y: 3.8, z: 1.0, sx: 13.5, sy: 9.2, sz: 10.5, rotY: 1.65 },
+    { geo: cragIslePeak, x: 1.2, y: 9.8, z: 0.0, sx: 13.8, sy: 22.4, sz: 12.2, rotY: 0.72, rotZ: -0.04 },
+    { geo: cragIsleShoulder, x: -8.6, y: 6.8, z: 0.6, sx: 11.2, sy: 15.6, sz: 10.6, rotY: 1.95, rotZ: 0.06 },
+    { geo: cragIsleShoulder, x: 9.4, y: 5.6, z: -0.5, sx: 9.8, sy: 12.4, sz: 9.4, rotY: 1.15, rotZ: -0.08 },
+  ]);
+  cragIslePeak.dispose();
+  cragIsleShoulder.dispose();
+  cragIsleApron.dispose();
+
+  const islandMassifMesh = new THREE.Mesh(islandMergedGeo, islandShaderMat);
+  islandMassifMesh.matrixAutoUpdate = false;
+  islandMassifMesh.updateMatrix();
+  islandGroup.add(islandMassifMesh);
+
+  const islandTreeCutoutMesh = buildMergedMountainTreeCutoutMesh([
+    { x: -10.5, y: 4.2, z: 14.6, w: 12.5, h: 6.4, rotY: 0.16, rotZ: 0.05 },
+    { x: -1.5, y: 4.8, z: 15.8, w: 14.2, h: 7.2, rotY: 0.0, rotZ: 0.0 },
+    { x: 7.8, y: 4.0, z: 14.4, w: 12.0, h: 6.2, rotY: -0.16, rotZ: -0.05 },
+  ]);
+  islandGroup.add(islandTreeCutoutMesh);
+  group.add(islandGroup);
+
+  return {
+    group,
+    sandTex,
+    update: (elapsed: number, moveZ: number) => {
+      oceanUniforms.uTime.value = elapsed;
+      if (moveZ > 0) {
+        sandTex.offset.y = (sandTex.offset.y + moveZ / 24.0) % 1;
+      }
+    },
+  };
+}
+
+/**
+ * Builds the 3D Vaulted Overhead & Horizon Cloud Canopy ("nuvens desse mapa da praia")
+ * Callable for BOTH Mapa da Favela and Mapa da Praia!
+ */
+export function buildVaultedCloudCanopy(): {
+  mesh: THREE.Mesh;
+  update: (elapsed: number, effSunset: number, effNight: number) => void;
+} {
+  const cloudFlowUniforms = {
+    uTime: { value: 0 },
+    uSunWorldPos: { value: new THREE.Vector3(-102.0, 99.0, -252.0) },
+    uCloudTopColor: { value: new THREE.Color('#FFFFFF') },
+    uCloudMidColor: { value: new THREE.Color('#E0F2FE') },
+    uCloudShadowColor: { value: new THREE.Color('#7DD3FC') },
+    uSunGlowColor: { value: new THREE.Color('#FDE68A') },
+    uCloudOpacity: { value: 0.64 },
+  };
+
+  const cloudFlowShaderMat = new THREE.ShaderMaterial({
+    uniforms: cloudFlowUniforms,
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    side: THREE.DoubleSide,
+    fog: false,
+    vertexShader: `
+      varying vec2 vUv;
+      varying vec3 vWorldPos;
+      void main() {
+        vUv = uv;
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWorldPos = wp.xyz;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform vec3 uSunWorldPos;
+      uniform vec3 uCloudTopColor;
+      uniform vec3 uCloudMidColor;
+      uniform vec3 uCloudShadowColor;
+      uniform vec3 uSunGlowColor;
+      uniform float uCloudOpacity;
+      varying vec2 vUv;
+      varying vec3 vWorldPos;
+
+      float hash21(vec2 p) {
+        p = fract(p * vec2(127.1, 311.7));
+        p += dot(p, p + 34.45);
+        return fract(p.x * p.y);
+      }
+
+      float smoothNoise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+        return mix(
+          mix(hash21(i + vec2(0.0, 0.0)), hash21(i + vec2(1.0, 0.0)), u.x),
+          mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), u.x),
+          u.y
+        );
+      }
+
+      float fbmFlow(vec2 p) {
+        float v = 0.0;
+        float amp = 0.52;
+        mat2 rot = mat2(0.80, -0.60, 0.60, 0.80);
+        for (int i = 0; i < 4; i++) {
+          v += amp * smoothNoise(p);
+          p = rot * p * 2.03 + vec2(13.7, 9.2);
+          amp *= 0.48;
+        }
+        return v;
+      }
+
+      void main() {
+        float envY = smoothstep(0.0, 0.05, vUv.y) * smoothstep(1.0, 0.92, vUv.y);
+        float envX = smoothstep(0.0, 0.08, vUv.x) * smoothstep(1.0, 0.92, vUv.x);
+        float envelope = envY * envX;
+        if (envelope <= 0.005) discard;
+
+        float perspFreqY = mix(1.0, 2.35, vUv.y * vUv.y);
+        float perspFreqX = mix(0.72, 1.65, vUv.y);
+        vec2 flowCoord = vec2(
+          (vUv.x - 0.5) * 6.4 * perspFreqX - uTime * 0.025,
+          vUv.y * 6.2 * perspFreqY - uTime * 0.014
+        );
+
+        vec2 warp1 = vec2(
+          fbmFlow(flowCoord + vec2(0.0, uTime * 0.014)),
+          fbmFlow(flowCoord + vec2(4.3, -uTime * 0.011))
+        );
+        vec2 warp2 = vec2(
+          fbmFlow(flowCoord * 1.32 + warp1 * 1.45 + vec2(1.8, -uTime * 0.016)),
+          fbmFlow(flowCoord * 1.32 + warp1 * 1.45 + vec2(7.1, uTime * 0.012))
+        );
+
+        float cloudField = fbmFlow(flowCoord * 1.08 + warp2 * 1.28);
+        float waveAll = 0.5 + 0.5 * sin(vUv.y * 22.0 * perspFreqY * 0.55 + warp1.x * 2.5 - uTime * 0.08);
+        float waveCross = 0.5 + 0.5 * cos(vUv.x * 9.5 - vUv.y * 8.5 + warp1.y * 2.2 - uTime * 0.05);
+        float horizonBoost = smoothstep(0.42, 0.88, vUv.y) * 0.14;
+        float skyCoverage = 0.74 + 0.36 * (waveAll * 0.58 + waveCross * 0.42) + horizonBoost;
+
+        float combinedDensity = cloudField * skyCoverage;
+        float density = smoothstep(0.30, 0.68, combinedDensity) * envelope;
+        density = pow(density, 1.06);
+        if (density <= 0.008) discard;
+
+        float lightGrad = clamp((1.0 - vUv.y * 0.65) * 0.28 + smoothstep(0.28, 0.76, combinedDensity) * 0.72, 0.0, 1.0);
+        vec3 col = mix(uCloudShadowColor, uCloudMidColor, smoothstep(0.0, 0.48, lightGrad));
+        col = mix(col, uCloudTopColor, smoothstep(0.40, 0.90, lightGrad));
+
+        float sunDist = length(vec2((vWorldPos.x - uSunWorldPos.x) * 0.65, vWorldPos.y - uSunWorldPos.y));
+        float sunHalo = exp(-sunDist * 0.018);
+        col = mix(col, uSunGlowColor, sunHalo * 0.52);
+
+        float alpha = clamp(density * uCloudOpacity, 0.0, 0.64);
+        gl_FragColor = vec4(col, alpha);
+      }
+    `,
+  });
+
+  const cloudVaultGeo = new THREE.PlaneGeometry(460, 296, 48, 64);
+  const cPos = cloudVaultGeo.attributes.position;
+  const cUv = cloudVaultGeo.attributes.uv;
+  for (let i = 0; i < cPos.count; i++) {
+    const u = cUv.getX(i);
+    const v = cUv.getY(i);
+    const invV = 1.0 - v;
+
+    const wx = (u - 0.5) * 460.0;
+    const wz = invV * invV * 28.0 + 2.0 * invV * v * -256.0 + v * v * -268.0;
+    const lateralDome = Math.pow((u - 0.5) * 2.0, 2.0) * 9.0 * (1.0 - v * 0.65);
+    const wy = invV * invV * 34.0 + 2.0 * invV * v * 68.0 + v * v * -6.0 - lateralDome;
+
+    cPos.setXYZ(i, wx, wy, wz);
+  }
+  cloudVaultGeo.computeVertexNormals();
+
+  const cloudPanoramaMesh = new THREE.Mesh(cloudVaultGeo, cloudFlowShaderMat);
+  cloudPanoramaMesh.name = 'Vaulted_Overhead_Horizon_Cloud_Canopy';
+  cloudPanoramaMesh.renderOrder = 1;
+  cloudPanoramaMesh.frustumCulled = false;
+
+  const cCloudTopDay = new THREE.Color('#FFFFFF');
+  const cCloudTopSunset = new THREE.Color('#FFF7ED');
+  const cCloudTopNight = new THREE.Color('#93C5FD');
+
+  const cCloudMidDay = new THREE.Color('#E0F2FE');
+  const cCloudMidSunset = new THREE.Color('#FDBA74');
+  const cCloudMidNight = new THREE.Color('#3B82F6');
+
+  const cCloudShadDay = new THREE.Color('#7DD3FC');
+  const cCloudShadSunset = new THREE.Color('#C2410C');
+  const cCloudShadNight = new THREE.Color('#1E3A8A');
+
+  const cCloudGlowDay = new THREE.Color('#FEF08A');
+  const cCloudGlowSunset = new THREE.Color('#FEF08A');
+  const cCloudGlowNight = new THREE.Color('#60A5FA');
+
+  return {
+    mesh: cloudPanoramaMesh,
+    update: (elapsed: number, effSunset: number, effNight: number) => {
+      cloudFlowUniforms.uTime.value = elapsed;
+      cloudFlowUniforms.uCloudTopColor.value
+        .copy(cCloudTopDay)
+        .lerp(cCloudTopSunset, effSunset)
+        .lerp(cCloudTopNight, effNight);
+      cloudFlowUniforms.uCloudMidColor.value
+        .copy(cCloudMidDay)
+        .lerp(cCloudMidSunset, effSunset)
+        .lerp(cCloudMidNight, effNight);
+      cloudFlowUniforms.uCloudShadowColor.value
+        .copy(cCloudShadDay)
+        .lerp(cCloudShadSunset, effSunset)
+        .lerp(cCloudShadNight, effNight);
+      cloudFlowUniforms.uSunGlowColor.value
+        .copy(cCloudGlowDay)
+        .lerp(cCloudGlowSunset, effSunset)
+        .lerp(cCloudGlowNight, effNight);
+      cloudFlowUniforms.uCloudOpacity.value =
+        (0.64 - 0.02 * effSunset) * (1.0 - effNight) + 0.38 * effNight;
+    },
+  };
+}
+
+/**
+ * Builds the Vibrant Cinematic Low Horizon Sun, Rising Moon, and Twinkling 3D Starfield
+ */
+export function buildCinematicOceanHorizonSun(): {
+  group: THREE.Group;
+  update: (
+    elapsed: number,
+    preset: 'tropical_morning' | 'sunset_dramatic' | 'violet_dusk',
+    autoCycle?: boolean,
+  ) => { effSunset: number; effNight: number; cyclePos: number };
+} {
+  const group = new THREE.Group();
+  group.name = 'Cinematic_Ocean_Horizon_Sun_Moon_And_Twinkling_Stars';
+
+  const sunUniforms = {
+    uTime: { value: 0 },
+    uCoreColor: { value: new THREE.Color('#FFFEFA') },
+    uCoronaColor: { value: new THREE.Color('#FDE68A') },
+    uOuterGlowColor: { value: new THREE.Color('#FDBA74') },
+    uRayIntensity: { value: 0.78 },
+    uSunOpacity: { value: 1.0 },
+    uMoonOpacity: { value: 0.0 },
+    uStarfieldOpacity: { value: 0.0 },
+    uNightMix: { value: 0.0 },
+  };
+
+  const sunGlowMat = new THREE.ShaderMaterial({
+    uniforms: sunUniforms,
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    fog: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform vec3 uCoreColor;
+      uniform vec3 uCoronaColor;
+      uniform vec3 uOuterGlowColor;
+      uniform float uRayIntensity;
+      uniform float uSunOpacity;
+      varying vec2 vUv;
+
+      void main() {
+        if (uSunOpacity <= 0.01) discard;
+        vec2 p = (vUv - 0.5) * 2.0;
+        float r = length(p);
+        if (r > 1.0) discard;
+
+        float angle = atan(p.y, p.x);
+        float rAnamorphic = length(vec2(p.x * 0.76, p.y * 1.32));
+
+        float ray1 = sin(angle * 12.0 - uTime * 0.28) * 0.5 + 0.5;
+        float ray2 = cos(angle * 18.0 + uTime * 0.22) * 0.5 + 0.5;
+        float ray3 = sin(angle * 6.0 + uTime * 0.12) * 0.5 + 0.5;
+        float sunburstRays = (pow(ray1, 4.0) * 0.54 + pow(ray2, 3.5) * 0.32 + pow(ray3, 2.5) * 0.24)
+                            * smoothstep(0.92, 0.18, r) * uRayIntensity;
+
+        float coreDisk = smoothstep(0.22, 0.145, r);
+        float innerCorona = exp(-r * 4.2) * 0.68;
+        float outerBloom = exp(-rAnamorphic * 2.1) * 0.36;
+
+        vec3 col = mix(uOuterGlowColor, uCoronaColor, smoothstep(0.78, 0.28, rAnamorphic));
+        col = mix(col, uCoreColor, clamp(coreDisk * 1.25 + sunburstRays * 0.38, 0.0, 1.0));
+
+        float alpha = clamp(coreDisk + innerCorona * 0.66 + sunburstRays * 0.56 + outerBloom * 0.40, 0.0, 1.0)
+                    * smoothstep(1.0, 0.72, r) * uSunOpacity * 0.88;
+        gl_FragColor = vec4(col, alpha);
+      }
+    `,
+  });
+
+  const sunQuad = new THREE.Mesh(new THREE.PlaneGeometry(112, 112), sunGlowMat);
+  sunQuad.position.set(-102.0, 99.0, -252.0);
+  sunQuad.rotation.y = -0.14;
+  sunQuad.renderOrder = 3;
+  group.add(sunQuad);
+
+  const moonGlowMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: sunUniforms.uTime,
+      uMoonOpacity: sunUniforms.uMoonOpacity,
+    },
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    fog: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uMoonOpacity;
+      varying vec2 vUv;
+
+      void main() {
+        if (uMoonOpacity <= 0.01) discard;
+        vec2 p = (vUv - 0.5) * 2.0;
+        float r = length(p);
+        if (r > 1.0) discard;
+
+        float moonDisk = smoothstep(0.185, 0.155, r);
+        float crater1 = smoothstep(0.08, 0.02, length(p - vec2(-0.05, 0.04))) * 0.16;
+        float crater2 = smoothstep(0.07, 0.01, length(p - vec2(0.06, -0.03))) * 0.14;
+        float crater3 = smoothstep(0.05, 0.01, length(p - vec2(0.02, 0.07))) * 0.12;
+        float surfaceShade = 1.0 - (crater1 + crater2 + crater3);
+
+        float innerHalo = exp(-r * 5.2) * 0.82;
+        float outerHalo = exp(-r * 2.6) * 0.45 * smoothstep(1.0, 0.1, r);
+
+        vec3 diskCol = vec3(0.96, 0.98, 1.0) * surfaceShade;
+        vec3 haloCol = vec3(0.38, 0.76, 0.98);
+        vec3 col = haloCol * (outerHalo + innerHalo * 0.65) + diskCol * (moonDisk * 1.25 + innerHalo * 0.35);
+
+        float alpha = clamp(moonDisk * 0.96 + innerHalo * 0.72 + outerHalo * 0.48, 0.0, 1.0) * uMoonOpacity;
+        gl_FragColor = vec4(col, alpha);
+      }
+    `,
+  });
+
+  const moonQuad = new THREE.Mesh(new THREE.PlaneGeometry(88, 88), moonGlowMat);
+  moonQuad.position.set(-68.0, 95.0, -248.0);
+  moonQuad.rotation.y = 0.12;
+  moonQuad.renderOrder = 3;
+  group.add(moonQuad);
+
+  const cloudCanopy = buildVaultedCloudCanopy();
+  group.add(cloudCanopy.mesh);
+
+  // Twinkling 3D Starfield
+  const numStars = 520;
+  const starBaseQuad = new THREE.PlaneGeometry(1.0, 1.0);
+  const starPosCount = starBaseQuad.attributes.position.count;
+  const starPositions = new Float32Array(numStars * starPosCount * 3);
+  const starUvs = new Float32Array(numStars * starPosCount * 2);
+  const starSeeds = new Float32Array(numStars * starPosCount);
+  const starTints = new Float32Array(numStars * starPosCount * 3);
+  const starIndices: number[] = [];
+
+  let sSeed = 9001;
+  const sRand = () => {
+    sSeed = (sSeed * 1664525 + 1013904223) % 4294967296;
+    return sSeed / 4294967296;
+  };
+
+  for (let i = 0; i < numStars; i++) {
+    const sx = (sRand() - 0.5) * 320.0;
+    const sy = -12.0 + sRand() * 96.0;
+    const sz = -255.0 - sRand() * 12.0;
+    const starSize = 0.48 + Math.pow(sRand(), 2.0) * 0.72;
+    const seedVal = sRand() * 100.0;
+
+    const tintRoll = i % 6;
+    const tr = tintRoll === 0 ? 1.0 : tintRoll === 1 ? 0.78 : 0.96;
+    const tg = tintRoll === 0 ? 0.94 : tintRoll === 1 ? 0.92 : 0.98;
+    const tb = tintRoll === 0 ? 0.72 : 1.0;
+
+    for (let v = 0; v < starPosCount; v++) {
+      const lx = starBaseQuad.attributes.position.getX(v) * starSize;
+      const ly = starBaseQuad.attributes.position.getY(v) * starSize;
+      const idx3 = (i * starPosCount + v) * 3;
+      starPositions[idx3] = sx + lx;
+      starPositions[idx3 + 1] = sy + ly;
+      starPositions[idx3 + 2] = sz;
+
+      starTints[idx3] = tr;
+      starTints[idx3 + 1] = tg;
+      starTints[idx3 + 2] = tb;
+
+      const idx2 = (i * starPosCount + v) * 2;
+      starUvs[idx2] = starBaseQuad.attributes.uv.getX(v);
+      starUvs[idx2 + 1] = starBaseQuad.attributes.uv.getY(v);
+
+      starSeeds[i * starPosCount + v] = seedVal;
+    }
+
+    const bIdx = starBaseQuad.index!.array;
+    for (let k = 0; k < bIdx.length; k++) {
+      starIndices.push(i * starPosCount + bIdx[k]);
+    }
+  }
+  starBaseQuad.dispose();
+
+  const starGeo = new THREE.BufferGeometry();
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+  starGeo.setAttribute('uv', new THREE.BufferAttribute(starUvs, 2));
+  starGeo.setAttribute('aStarSeed', new THREE.BufferAttribute(starSeeds, 1));
+  starGeo.setAttribute('aStarTint', new THREE.BufferAttribute(starTints, 3));
+  starGeo.setIndex(starIndices);
+
+  const starfieldMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: sunUniforms.uTime,
+      uStarfieldOpacity: sunUniforms.uStarfieldOpacity,
+    },
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    fog: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `
+      attribute float aStarSeed;
+      attribute vec3 aStarTint;
+      varying vec2 vUv;
+      varying float vSeed;
+      varying vec3 vTint;
+      void main() {
+        vUv = uv;
+        vSeed = aStarSeed;
+        vTint = aStarTint;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uStarfieldOpacity;
+      varying vec2 vUv;
+      varying float vSeed;
+      varying vec3 vTint;
+      void main() {
+        if (uStarfieldOpacity <= 0.01) discard;
+        vec2 p = (vUv - 0.5) * 2.0;
+        float r = length(p);
+        if (r > 1.0) discard;
+
+        float speed1 = 2.6 + mod(vSeed * 1.37, 4.2);
+        float speed2 = 4.5 + mod(vSeed * 2.91, 4.8);
+        float twinkle = 0.28 + 0.72 * pow(0.5 + 0.5 * sin(uTime * speed1 + vSeed) * cos(uTime * speed2 * 0.5 - vSeed * 0.7), 1.5);
+
+        float core = exp(-r * r * 14.0);
+        float crossGlint = (exp(-abs(p.x) * 18.0) * exp(-abs(p.y) * 3.6) + exp(-abs(p.y) * 18.0) * exp(-abs(p.x) * 3.6)) * 0.85;
+        float alpha = clamp((core * 1.2 + crossGlint) * twinkle * uStarfieldOpacity, 0.0, 1.0);
+        if (alpha < 0.02) discard;
+
+        vec3 col = mix(vTint, vec3(1.0), core * 0.72);
+        gl_FragColor = vec4(col, alpha);
+      }
+    `,
+  });
+
+  const starfieldMesh = new THREE.Mesh(starGeo, starfieldMat);
+  group.add(starfieldMesh);
+
+  let currentCelestialPhase = 0.0;
+  let lastElapsed = 0.0;
+  let presetElapsed = 0.0;
+  let lastPreset: 'tropical_morning' | 'sunset_dramatic' | 'violet_dusk' = 'tropical_morning';
+
+  const cDayCore = new THREE.Color('#FFFEFA');
+  const cSunsetCore = new THREE.Color('#FFFBEB');
+  const cNightCore = new THREE.Color('#F8FAFC');
+
+  const cDayCorona = new THREE.Color('#FDE68A');
+  const cSunsetCorona = new THREE.Color('#FDBA74');
+  const cNightCorona = new THREE.Color('#38BDF8');
+
+  const cDayOuter = new THREE.Color('#FCD34D');
+  const cSunsetOuter = new THREE.Color('#FB923C');
+  const cNightOuter = new THREE.Color('#1D4ED8');
+
+  return {
+    group,
+    update: (
+      elapsed: number,
+      preset: 'tropical_morning' | 'sunset_dramatic' | 'violet_dusk',
+      autoCycle = false,
+    ) => {
+      const dt = Math.max(0.001, Math.min(0.1, elapsed - lastElapsed));
+      lastElapsed = elapsed;
+      sunUniforms.uTime.value = elapsed;
+
+      const targetPhase =
+        preset === 'tropical_morning' ? 0.0 : preset === 'sunset_dramatic' ? 0.5 : 1.0;
+      if (preset !== lastPreset) {
+        lastPreset = preset;
+        currentCelestialPhase = targetPhase;
+        presetElapsed = 0.0;
+      } else {
+        currentCelestialPhase += (targetPhase - currentCelestialPhase) * Math.min(1.0, dt * 6.0);
+        presetElapsed += dt * (autoCycle ? 1.65 : 1.0);
+      }
+
+      const celPose = computeCelestialSunMoonDiagonalPose(currentCelestialPhase, presetElapsed);
+      sunQuad.position.set(celPose.sunX, celPose.sunY, celPose.sunZ);
+      sunQuad.rotation.y = -celPose.sunX * 0.0022;
+      moonQuad.position.set(celPose.moonX, celPose.moonY, celPose.moonZ);
+      moonQuad.rotation.y = -celPose.moonX * 0.0022;
+
+      const effSunset = celPose.dynamicSunsetMix;
+      const effNight = celPose.dynamicNightMix;
+
+      worldCurveUniforms.uSunsetOrangeMix.value = effSunset;
+      worldCurveUniforms.uNightDarknessMix.value = effNight;
+
+      worldCurveUniforms.uSunWorldPos.value.set(celPose.sunX, celPose.sunY, celPose.sunZ);
+      worldCurveUniforms.uSunActiveOpacity.value = celPose.sunOpacity;
+
+      sunUniforms.uSunOpacity.value = celPose.sunOpacity;
+      sunUniforms.uMoonOpacity.value = celPose.moonOpacity;
+      sunUniforms.uStarfieldOpacity.value = celPose.starfieldOpacity;
+      sunUniforms.uNightMix.value = effNight;
+
+      sunUniforms.uCoreColor.value
+        .copy(cDayCore)
+        .lerp(cSunsetCore, effSunset)
+        .lerp(cNightCore, effNight);
+      sunUniforms.uCoronaColor.value
+        .copy(cDayCorona)
+        .lerp(cSunsetCorona, effSunset)
+        .lerp(cNightCorona, effNight);
+      sunUniforms.uOuterGlowColor.value
+        .copy(cDayOuter)
+        .lerp(cSunsetOuter, effSunset)
+        .lerp(cNightOuter, effNight);
+      sunUniforms.uRayIntensity.value =
+        (0.78 + effSunset * 0.18) * (1.0 - effNight) + 0.45 * effNight;
+
+      cloudCanopy.update(elapsed, effSunset, effNight);
+
+      return {
+        effSunset,
+        effNight,
+        cyclePos: celPose.cyclePos,
+      };
+    },
+  };
+}
+
+/**
+ * Builds a Subtle, Soft-Feathered Beach Sand Breeze Transition
+ */
+export function buildBlownBeachSandWindEffect(): {
+  group: THREE.Group;
+  update: (elapsed: number, moveZ: number) => void;
+} {
+  const group = new THREE.Group();
+  group.name = 'Blown_Beach_Sand_To_Street_Effect';
+
+  const sandWindUniforms = {
+    uTime: { value: 0 },
+    uScrollZ: { value: 0 },
+    uWorldCurveY: worldCurveUniforms.uWorldCurveY,
+    uWorldCurveX: worldCurveUniforms.uWorldCurveX,
+    uCurveStartZ: worldCurveUniforms.uCurveStartZ,
+    uLadeiraSlope: worldCurveUniforms.uLadeiraSlope,
+    uRoadWindPhase: worldCurveUniforms.uRoadWindPhase,
+    uSunsetOrangeMix: worldCurveUniforms.uSunsetOrangeMix,
+    uNightDarknessMix: worldCurveUniforms.uNightDarknessMix,
+  };
+
+  const streamerMat = new THREE.ShaderMaterial({
+    uniforms: sandWindUniforms,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    fog: false,
+    vertexShader: `
+      uniform float uWorldCurveY;
+      uniform float uWorldCurveX;
+      uniform float uCurveStartZ;
+      uniform float uLadeiraSlope;
+      uniform float uRoadWindPhase;
+      varying vec2 vUv;
+      varying vec3 vWorldPos;
+
+      void main() {
+        vUv = uv;
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWorldPos = wp.xyz;
+
+        float curveDist = max(0.0, -(wp.z - uCurveStartZ));
+        float curveDistSq = curveDist * curveDist;
+        float ladeiraBowl = 4.2 * smoothstep(14.0, 108.0, curveDist) * (1.0 - 0.14 * smoothstep(108.0, 175.0, curveDist));
+        float sCurveNear = sin(curveDist * 0.032 + uRoadWindPhase) * 1.95 * smoothstep(16.0, 78.0, curveDist) * uLadeiraSlope;
+        float sCurveFar = cos(curveDist * 0.016 - uRoadWindPhase * 0.65) * 1.45 * smoothstep(48.0, 165.0, curveDist) * uLadeiraSlope;
+        wp.y -= uWorldCurveY * curveDistSq * 0.16 + ladeiraBowl * uLadeiraSlope;
+        wp.x += uWorldCurveX * curveDistSq + sCurveNear + sCurveFar;
+
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uScrollZ;
+      uniform float uSunsetOrangeMix;
+      uniform float uNightDarknessMix;
+      varying vec2 vUv;
+      varying vec3 vWorldPos;
+
+      void main() {
+        float zCoord = vWorldPos.z + uScrollZ;
+        float gentleWave = sin(zCoord * 0.12 + uTime * 0.45) * 0.08;
+        float xGrad = smoothstep(0.05, 0.92, vUv.x + gentleWave) * smoothstep(1.0, 0.82, vUv.x);
+        float zEnvelope = smoothstep(-145.0, -75.0, vWorldPos.z) * smoothstep(12.0, -2.0, vWorldPos.z);
+
+        float alpha = xGrad * zEnvelope * 0.16 * (1.0 - uNightDarknessMix * 0.45);
+        if (alpha < 0.005) discard;
+
+        vec3 sandGold = mix(vec3(0.96, 0.80, 0.36), vec3(1.0, 0.68, 0.24), uSunsetOrangeMix * 0.65);
+        gl_FragColor = vec4(sandGold, alpha);
+      }
+    `,
+  });
+
+  const sheetGeo = new THREE.PlaneGeometry(5.2, 150.0, 8, 48);
+  sheetGeo.rotateX(-Math.PI / 2);
+  const sheetMesh = new THREE.Mesh(sheetGeo, streamerMat);
+  sheetMesh.position.set(8.2, 0.25, -64.0);
+  group.add(sheetMesh);
+
+  return {
+    group,
+    update: (elapsed: number, moveZ: number) => {
+      sandWindUniforms.uTime.value = elapsed;
+      sandWindUniforms.uScrollZ.value = (sandWindUniforms.uScrollZ.value + moveZ) % 1000.0;
+    },
+  };
+}
+
+/**
+ * Builds a High-Wing White Single-Engine Coastal Propeller Airplane towing an Animated Banner
+ */
+export function buildCoastalBannerAirplane(
+  planeIndex = 0,
+  maxAnisotropy = 4,
+): {
+  group: THREE.Group;
+  update: (elapsed: number) => void;
+} {
+  const rootGroup = new THREE.Group();
+  rootGroup.name = `Coastal_Banner_Airplane_${planeIndex}`;
+
+  const planeBody = new THREE.Group();
+
+  const whitePaintMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 0.32,
+    metalness: 0.08,
+    fog: false,
+  });
+  const burgundyStripeMat = new THREE.MeshStandardMaterial({
+    color: 0x581c87,
+    roughness: 0.38,
+    metalness: 0.12,
+    fog: false,
+  });
+  const goldTrimMat = new THREE.MeshBasicMaterial({
+    color: 0xfacc15,
+    fog: false,
+  });
+  const cabinGlassMat = new THREE.MeshStandardMaterial({
+    color: 0x1e293b,
+    roughness: 0.18,
+    metalness: 0.35,
+    fog: false,
+  });
+  const tireBlackMat = new THREE.MeshBasicMaterial({
+    color: 0x18181b,
+    fog: false,
+  });
+
+  const cabinBox = new THREE.Mesh(sharedGeos.unitBox, whitePaintMat);
+  cabinBox.scale.set(2.8, 1.18, 1.15);
+  cabinBox.position.set(0.2, 0, 0);
+  planeBody.add(cabinBox);
+
+  const noseCowling = new THREE.Mesh(sharedGeos.unitBox, whitePaintMat);
+  noseCowling.scale.set(1.35, 0.92, 0.98);
+  noseCowling.position.set(2.05, -0.08, 0);
+  planeBody.add(noseCowling);
+
+  const tailCone = new THREE.Mesh(sharedGeos.unitBox, whitePaintMat);
+  tailCone.scale.set(2.65, 0.72, 0.68);
+  tailCone.position.set(-2.35, 0.06, 0);
+  tailCone.rotation.z = -0.06;
+  planeBody.add(tailCone);
+
+  const stripeSide = new THREE.Mesh(sharedGeos.unitBox, burgundyStripeMat);
+  stripeSide.scale.set(5.9, 0.24, 1.2);
+  stripeSide.position.set(-0.25, -0.08, 0);
+  planeBody.add(stripeSide);
+
+  const goldStripe = new THREE.Mesh(sharedGeos.unitBox, goldTrimMat);
+  goldStripe.scale.set(5.85, 0.08, 1.22);
+  goldStripe.position.set(-0.25, 0.08, 0);
+  planeBody.add(goldStripe);
+
+  const windshield = new THREE.Mesh(sharedGeos.unitBox, cabinGlassMat);
+  windshield.scale.set(0.95, 0.62, 1.08);
+  windshield.position.set(1.22, 0.32, 0);
+  windshield.rotation.z = -0.38;
+  planeBody.add(windshield);
+
+  const sideWindows = new THREE.Mesh(sharedGeos.unitBox, cabinGlassMat);
+  sideWindows.scale.set(1.65, 0.44, 1.19);
+  sideWindows.position.set(0.15, 0.26, 0);
+  planeBody.add(sideWindows);
+
+  const mainWing = new THREE.Mesh(sharedGeos.unitBox, whitePaintMat);
+  mainWing.scale.set(1.55, 0.14, 8.6);
+  mainWing.position.set(0.35, 0.68, 0);
+  planeBody.add(mainWing);
+
+  for (const zTip of [-4.35, 4.35]) {
+    const wingTip = new THREE.Mesh(sharedGeos.unitBox, burgundyStripeMat);
+    wingTip.scale.set(1.58, 0.16, 0.34);
+    wingTip.position.set(0.35, 0.68, zTip);
+    planeBody.add(wingTip);
+  }
+
+  for (const zSide of [-1, 1]) {
+    const strut = new THREE.Mesh(sharedGeos.unitBox, whitePaintMat);
+    strut.scale.set(0.09, 2.35, 0.09);
+    strut.position.set(0.35, 0.08, zSide * 1.55);
+    strut.rotation.x = zSide * 0.92;
+    planeBody.add(strut);
+  }
+
+  const tailFin = new THREE.Mesh(sharedGeos.unitBox, whitePaintMat);
+  tailFin.scale.set(1.28, 1.65, 0.16);
+  tailFin.position.set(-3.45, 0.92, 0);
+  tailFin.rotation.z = 0.28;
+  planeBody.add(tailFin);
+
+  const tailFinStripe = new THREE.Mesh(sharedGeos.unitBox, burgundyStripeMat);
+  tailFinStripe.scale.set(1.3, 0.28, 0.19);
+  tailFinStripe.position.set(-3.42, 0.55, 0);
+  tailFinStripe.rotation.z = 0.28;
+  planeBody.add(tailFinStripe);
+
+  const horizStab = new THREE.Mesh(sharedGeos.unitBox, whitePaintMat);
+  horizStab.scale.set(0.96, 0.11, 2.85);
+  horizStab.position.set(-3.35, 0.28, 0);
+  planeBody.add(horizStab);
+
+  const planeStrutMat = new THREE.MeshBasicMaterial({
+    color: 0xcbd5e1,
+    fog: false,
+  });
+  const noseStrut = new THREE.Mesh(sharedGeos.unitBox, planeStrutMat);
+  noseStrut.scale.set(0.08, 0.78, 0.08);
+  noseStrut.position.set(1.85, -0.78, 0);
+  noseStrut.rotation.z = 0.18;
+  planeBody.add(noseStrut);
+
+  const noseWheel = new THREE.Mesh(sharedGeos.cylinder, tireBlackMat);
+  noseWheel.scale.set(0.24, 0.14, 0.24);
+  noseWheel.rotation.x = Math.PI / 2;
+  noseWheel.position.set(1.92, -1.16, 0);
+  planeBody.add(noseWheel);
+
+  for (const zGear of [-0.88, 0.88]) {
+    const gearStrut = new THREE.Mesh(sharedGeos.unitBox, planeStrutMat);
+    gearStrut.scale.set(0.09, 0.88, 0.09);
+    gearStrut.position.set(0.05, -0.82, zGear * 0.68);
+    gearStrut.rotation.x = -zGear * 0.42;
+    planeBody.add(gearStrut);
+
+    const mainWheel = new THREE.Mesh(sharedGeos.cylinder, tireBlackMat);
+    mainWheel.scale.set(0.28, 0.16, 0.28);
+    mainWheel.rotation.x = Math.PI / 2;
+    mainWheel.position.set(0.05, -1.2, zGear);
+    planeBody.add(mainWheel);
+  }
+
+  const propPivot = new THREE.Group();
+  propPivot.position.set(2.82, -0.08, 0);
+
+  const spinnerCone = new THREE.Mesh(sharedGeos.cone, burgundyStripeMat);
+  spinnerCone.scale.set(0.28, 0.45, 0.28);
+  spinnerCone.rotation.z = -Math.PI / 2;
+  spinnerCone.position.set(0.12, 0, 0);
+  propPivot.add(spinnerCone);
+
+  const propBlade = new THREE.Mesh(sharedGeos.unitBox, tireBlackMat);
+  propBlade.scale.set(0.06, 1.95, 0.18);
+  propPivot.add(propBlade);
+
+  const propBlurMat = new THREE.MeshBasicMaterial({
+    color: 0xe2e8f0,
+    transparent: true,
+    opacity: 0.28,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    fog: false,
+  });
+  const propBlurDisc = new THREE.Mesh(new THREE.CircleGeometry(0.98, 20), propBlurMat);
+  propBlurDisc.rotation.y = Math.PI / 2;
+  propBlurDisc.position.set(0.04, 0, 0);
+  propPivot.add(propBlurDisc);
+
+  planeBody.add(propPivot);
+
+  const skyPlaneOutlineMat = new THREE.LineBasicMaterial({
+    color: 0x0f172a,
+    fog: false,
+  });
+  const planeMeshes: THREE.Mesh[] = [];
+  planeBody.traverse((child) => {
+    if (child instanceof THREE.Mesh && child !== propBlurDisc) {
+      planeMeshes.push(child);
+    }
+  });
+  for (const m of planeMeshes) {
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry, 28), skyPlaneOutlineMat);
+    m.add(edges);
+  }
+
+  rootGroup.add(planeBody);
+
+  for (const yEnd of [-1.45, 1.45]) {
+    const cableCurve = new THREE.LineCurve3(
+      new THREE.Vector3(-3.65, 0.1, 0),
+      new THREE.Vector3(-6.8, yEnd, 0),
+    );
+    const cableGeo = new THREE.TubeGeometry(cableCurve, 4, 0.025, 4, false);
+    const cableMesh = new THREE.Mesh(cableGeo, tireBlackMat);
+    rootGroup.add(cableMesh);
+  }
+
+  const leadBar = new THREE.Mesh(sharedGeos.cylinder, burgundyStripeMat);
+  leadBar.scale.set(0.06, 3.35, 0.06);
+  leadBar.position.set(-6.8, 0, 0);
+  rootGroup.add(leadBar);
+
+  const bannerW = 16.8;
+  const bannerH = 3.35;
+  const bannerGeo = new THREE.PlaneGeometry(bannerW, bannerH, 32, 4);
+  const bannerBaseX = new Float32Array(bannerGeo.attributes.position.count);
+  const bannerBaseY = new Float32Array(bannerGeo.attributes.position.count);
+  for (let i = 0; i < bannerGeo.attributes.position.count; i++) {
+    bannerBaseX[i] = bannerGeo.attributes.position.getX(i);
+    bannerBaseY[i] = bannerGeo.attributes.position.getY(i);
+  }
+
+  const bannerTex = createAirplaneBannerTexture(maxAnisotropy);
+  const bannerMat = new THREE.MeshBasicMaterial({
+    map: bannerTex,
+    color: 0xffffff,
+    transparent: true,
+    alphaTest: 0.15,
+    side: THREE.DoubleSide,
+    fog: false,
+  });
+
+  const bannerMesh = new THREE.Mesh(bannerGeo, bannerMat);
+  bannerMesh.position.set(-6.8 - bannerW * 0.5, 0, 0);
+  rootGroup.add(bannerMesh);
+
+  const overallScale = planeIndex === 0 ? 1.28 : 1.05;
+  rootGroup.scale.setScalar(overallScale);
+
+  return {
+    group: rootGroup,
+    update: (elapsed: number) => {
+      const pose = computeBannerAirplanePose(elapsed, planeIndex);
+      rootGroup.visible = pose.visible;
+      if (!pose.visible) return;
+
+      rootGroup.position.set(pose.x, pose.y, pose.z);
+      rootGroup.rotation.set(pose.rotX, pose.rotY, pose.rotZ);
+      propPivot.rotation.x = pose.propellerAngle;
+
+      const posAttr = bannerGeo.attributes.position;
+      for (let i = 0; i < posAttr.count; i++) {
+        const lx = bannerBaseX[i];
+        const ly = bannerBaseY[i];
+        const trailFrac = Math.max(0, (bannerW * 0.5 - lx) / bannerW);
+        const waveEnv = Math.pow(trailFrac, 1.15);
+
+        const waveZ =
+          Math.sin(trailFrac * 10.5 - pose.bannerWavePhase) * 0.62 * waveEnv +
+          Math.cos(trailFrac * 18.0 - pose.bannerWavePhase * 1.45 + ly * 0.8) * 0.22 * waveEnv;
+        const flutterY =
+          Math.sin(trailFrac * 7.5 - pose.bannerWavePhase * 0.85) * 0.24 * waveEnv;
+
+        posAttr.setY(i, ly + flutterY);
+        posAttr.setZ(i, waveZ);
+      }
+      posAttr.needsUpdate = true;
+    },
+  };
+}
+
+export function buildCoastalAirplaneFleet(maxAnisotropy = 4): {
+  group: THREE.Group;
+  update: (elapsed: number) => void;
+} {
+  const group = new THREE.Group();
+  group.name = 'Coastal_Airplane_Banner_Fleet';
+  const plane0 = buildCoastalBannerAirplane(0, maxAnisotropy);
+  group.add(plane0.group);
+
+  return {
+    group,
+    update: (elapsed: number) => {
+      plane0.update(elapsed);
+    },
+  };
+}
+
+export function updateBeachKiteNode(kiteNode: THREE.Object3D, elapsed: number): void {
+  const variant = (kiteNode.userData.kiteVariant as number) ?? 0;
+  const baseX = (kiteNode.userData.baseX as number) ?? kiteNode.position.x;
+  const baseY = (kiteNode.userData.baseY as number) ?? kiteNode.position.y;
+  const baseZ = (kiteNode.userData.baseZ as number) ?? kiteNode.position.z;
+  const pose = computeBeachKitePose(variant, elapsed);
+
+  kiteNode.position.set(baseX + pose.swayX, baseY + pose.bobY, baseZ);
+  kiteNode.rotation.set(pose.pitchX, pose.yawY, pose.rollZ);
+}
+
+// ============================================================================
+// APOCALYPTIC INFERNO MAP BUILDERS ("Estrada do Inferno")
+// - Far-Off Cavern Ceiling of Upside-Down Mountains & Inverted Volcanoes Pouring Lava Downward ("deixe as montanhas la em cima bem mais afastada com sensacao de lugar grande, e as montanhas com topo tipo vulcao algumas soltando lava pra baixo")
+// - Flanking Erupting Volcanoes with Molten Lava Rivers & Horizon Mist
+// - Straight-Line Sky-Climbing Road Leading into a Radiant Horizon Exit Portal & Infinite Horizon Fog ("coloque efeito de neblina fog la no fundo, como se cenario fosse infinito")
+// - Destroyed, Roof-Collapsed Houses & Multi-Story Buildings Engulfed in Roaring Flames & Soft Smoke Plumes ("as casas destruídas pegando fogo... predios ao lados destruidos")
+// - Broken Utility Poles with All Fallen/Snapped Wires ("e os postes deixe alguns quebrados e os fios dos postes todos caido")
+// - Distant, Blurry Winged Creatures in the Sky ("deixe essas criaturas voando bem longe e borradas")
+// ============================================================================
+
+/**
+ * Builds the Apocalyptic Reddish Sky with Fluid Black-Reddish Clouds (in the exact same C2 quintic domain-warped FBM
+ * wind-stream style as the Beach clouds) PLUS Cinematic Diagonal Falling Meteors streaking across the sky:
+ * - "revome as montanhas la de cima, deixe um ceu avermelhada com uumas nuvens pretas avvermelhada mesmo estilo das nuvens da praia"
+ * - "e se possivel faz uns meteoros caindo em diagonal bem sienmatografico"
+ */
+export function buildInfernoUpsideDownCeilingMountains(): {
+  group: THREE.Group;
+  update: (elapsed: number) => void;
+} {
+  const group = new THREE.Group();
+  group.name = 'Inferno_Reddish_Sky_Clouds_And_Diagonal_Meteors';
+
+  const skyUniforms = {
+    uTime: { value: 0 },
+  };
+
+  // 1. Fluid Black-Reddish Painterly Clouds ("nuvens pretas avvermelhada mesmo estilo das nuvens da praia"):
+  // Uses the exact C2 quintic-interpolated domain-warped FBM wind-stream shader (`fbmFlow` + `streamRibbon1/2/3`)
+  // from the Beach clouds, styled with deep charcoal-black cloud cores, dark blood-crimson midtones, and fiery scarlet-red rims!
+  const infernoCloudFlowMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: skyUniforms.uTime,
+      uCloudShadowColor: { value: new THREE.Color('#090101') }, // Deep charcoal-black core
+      uCloudMidColor: { value: new THREE.Color('#380505') },    // Dark blood-crimson midtone
+      uCloudTopColor: { value: new THREE.Color('#C81E14') },    // Glowing crimson-red underlit rim
+      uCloudOpacity: { value: 0.82 },
+    },
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    fog: false,
+    blending: THREE.NormalBlending,
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform vec3 uCloudTopColor;
+      uniform vec3 uCloudMidColor;
+      uniform vec3 uCloudShadowColor;
+      uniform float uCloudOpacity;
+      varying vec2 vUv;
+
+      float hash21(vec2 p) {
+        p = fract(p * vec2(127.1, 311.7));
+        p += dot(p, p + 34.45);
+        return fract(p.x * p.y);
+      }
+
+      // C2 Quintic-interpolated value noise -> zero grid artifacts, zero rings or hard layer boundaries
+      float smoothNoise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+        return mix(
+          mix(hash21(i + vec2(0.0, 0.0)), hash21(i + vec2(1.0, 0.0)), u.x),
+          mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), u.x),
+          u.y
+        );
+      }
+
+      float fbmFlow(vec2 p) {
+        float v = 0.0;
+        float amp = 0.52;
+        mat2 rot = mat2(0.80, -0.60, 0.60, 0.80);
+        for (int i = 0; i < 4; i++) {
+          v += amp * smoothNoise(p);
+          p = rot * p * 2.03 + vec2(13.7, 9.2);
+          amp *= 0.48;
+        }
+        return v;
+      }
+
+      void main() {
+        // Soft vertical and horizontal feathering so cloud edges dissolve seamlessly into the crimson sky
+        float envY = smoothstep(0.02, 0.24, vUv.y) * smoothstep(0.99, 0.72, vUv.y);
+        float envX = smoothstep(0.0, 0.12, vUv.x) * smoothstep(1.0, 0.88, vUv.x);
+        float envelope = envY * envX;
+        if (envelope <= 0.005) discard;
+
+        // Anisotropic horizontal wind-stream coordinates ("mesmo estilo das nuvens da praia")
+        vec2 flowCoord = vec2(vUv.x * 4.8 - uTime * 0.036, vUv.y * 3.1);
+
+        // Continuous organic domain warping for silky brushstroke flow without any discrete bands
+        vec2 warp1 = vec2(
+          fbmFlow(flowCoord + vec2(0.0, uTime * 0.015)),
+          fbmFlow(flowCoord + vec2(4.3, -uTime * 0.012))
+        );
+        vec2 warp2 = vec2(
+          fbmFlow(flowCoord * 1.35 + warp1 * 1.55 + vec2(1.8, -uTime * 0.019)),
+          fbmFlow(flowCoord * 1.35 + warp1 * 1.55 + vec2(7.1, uTime * 0.014))
+        );
+
+        float cloudField = fbmFlow(flowCoord * 1.12 + warp2 * 1.35);
+
+        // Sweeping wind ribbons intertwined with the fluid FBM field
+        float streamRibbon1 = exp(-pow((vUv.y - (0.34 + sin(vUv.x * 5.0 - uTime * 0.08 + warp1.x * 1.6) * 0.11)) / 0.17, 2.0));
+        float streamRibbon2 = exp(-pow((vUv.y - (0.62 + cos(vUv.x * 6.2 - uTime * 0.06 - warp1.y * 1.4) * 0.10)) / 0.16, 2.0));
+        float streamRibbon3 = exp(-pow((vUv.y - (0.82 + sin(vUv.x * 4.4 + uTime * 0.05 + warp2.x * 1.2) * 0.08)) / 0.15, 2.0));
+        float ribbonFlow = clamp(streamRibbon1 * 0.88 + streamRibbon2 * 0.84 + streamRibbon3 * 0.72, 0.0, 1.0);
+
+        float combinedDensity = cloudField * (0.64 + 0.62 * ribbonFlow);
+
+        // Ultra-smooth continuous density ramp -> zero step lines or concentric contours!
+        float density = smoothstep(0.26, 0.68, combinedDensity) * envelope;
+        density = pow(density, 1.08);
+        if (density <= 0.008) discard;
+
+        // Black-reddish cloud shading: deep black-charcoal interior core with dark crimson midtones
+        // and fiery red-orange underlit rims where the inferno glow catches the cloud edges!
+        float rimGlow = smoothstep(0.18, 0.52, density) * (1.0 - smoothstep(0.55, 0.88, density)) * 1.45
+                      + (1.0 - vUv.y) * 0.35;
+        vec3 col = mix(uCloudTopColor, uCloudMidColor, smoothstep(0.18, 0.56, density));
+        col = mix(col, uCloudShadowColor, smoothstep(0.46, 0.84, density));
+        col = mix(col, vec3(0.92, 0.18, 0.06), clamp(rimGlow * 0.42, 0.0, 0.48));
+
+        float alpha = clamp(density * uCloudOpacity, 0.0, 0.84);
+        gl_FragColor = vec4(col, alpha);
+      }
+    `,
+  });
+
+  const infernoCloudPanoramaMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(480, 175),
+    infernoCloudFlowMat,
+  );
+  infernoCloudPanoramaMesh.position.set(0.0, 62.0, -188.0);
+  group.add(infernoCloudPanoramaMesh);
+
+  // Second high-altitude black-reddish cloud layer spanning the upper crimson sky
+  const upperCloudMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(500, 150),
+    infernoCloudFlowMat,
+  );
+  upperCloudMesh.position.set(-16.0, 88.0, -206.0);
+  group.add(upperCloudMesh);
+
+  // 2. Cinematic Diagonal Falling Meteors ("e se possivel faz uns meteoros caindo em diagonal bem sienmatografico"):
+  // Each meteor features a blazing white-gold fireball head, a 3D molten meteoroid rock core, and a long, tapered
+  // diagonal plasma-fire & dark ember-smoke wake oriented along its diagonal fall trajectory!
+  const meteorRockGeo = new THREE.DodecahedronGeometry(0.95, 0);
+  const meteorRockMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    fog: false,
+  });
+
+  const meteors: Array<{
+    root: THREE.Group;
+    rockMesh: THREE.Mesh;
+    uniforms: { uTime: { value: number }; uOpacity: { value: number }; uSeed: { value: number } };
+  }> = [];
+
+  for (let i = 0; i < 5; i++) {
+    const mUniforms = {
+      uTime: skyUniforms.uTime,
+      uOpacity: { value: 1.0 },
+      uSeed: { value: i * 2.37 + 1.1 },
+    };
+
+    const meteorShaderMat = new THREE.ShaderMaterial({
+      uniforms: mUniforms,
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+      side: THREE.DoubleSide,
+      fog: false,
+      blending: THREE.AdditiveBlending,
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        uniform float uOpacity;
+        uniform float uSeed;
+        varying vec2 vUv;
+
+        void main() {
+          // vUv.x = 0.0 at tail tip, vUv.x = 0.84 at blazing meteor head
+          // vUv.y = 0.5 along the diagonal centerline
+          float u = vUv.x;
+          float v = (vUv.y - 0.5) * 2.0;
+
+          // 1. Blazing Fireball Head at (u = 0.84, v = 0.0)
+          vec2 headP = vec2((u - 0.84) * 4.2, v * 0.96);
+          float headR = length(headP);
+          float fireballCore = exp(-headR * headR * 9.5);
+          float fireballHalo = exp(-headR * 2.6) * smoothstep(1.3, 0.08, headR);
+
+          // Cinematic star-flare spikes around the meteor fireball head
+          float flareAngle = atan(headP.y, headP.x);
+          float starSpikes = pow(abs(cos(flareAngle * 2.0 + 0.4)), 8.0) * exp(-headR * 3.1) * 0.92;
+
+          // 2. Long Tapered Diagonal Plasma-Fire & Glowing Ember Tail (u in 0.0 .. 0.84)
+          float tailLenMask = smoothstep(0.0, 0.78, u) * smoothstep(0.92, 0.76, u);
+          float wave = sin(u * 24.0 - uTime * 16.0 + uSeed) * 0.08 * (1.0 - u);
+          float tailHalfWidth = mix(0.64, 0.22, pow(u, 0.72));
+          float radialTail = exp(-pow((v + wave) / max(0.06, tailHalfWidth), 2.0) * 2.1);
+
+          // Streaking glowing ember sparks inside the meteor wake
+          float sparkWave = 0.76 + 0.24 * sin(u * 38.0 - uTime * 22.0 + cos(v * 8.0 + uSeed));
+          float tailIntensity = radialTail * tailLenMask * sparkWave;
+
+          float totalMask = clamp(fireballCore * 1.65 + fireballHalo * 1.15 + starSpikes + tailIntensity * 1.35, 0.0, 1.0);
+          if (totalMask <= 0.015) discard;
+
+          vec3 tailCrimsonOrange = vec3(0.98, 0.26, 0.05);
+          vec3 midPlasmaGold = vec3(1.0, 0.76, 0.18);
+          vec3 headPureWhite = vec3(1.0, 1.0, 0.96);
+
+          vec3 col = mix(tailCrimsonOrange, midPlasmaGold, smoothstep(0.20, 0.74, u * radialTail + fireballHalo * 0.55));
+          col = mix(col, headPureWhite, clamp(fireballCore * 1.45 + starSpikes * 0.95 + pow(radialTail, 2.5) * smoothstep(0.48, 0.84, u) * 0.85, 0.0, 1.0));
+
+          float edgeFeather = smoothstep(1.0, 0.65, abs(v)) * smoothstep(0.0, 0.08, u) * smoothstep(1.0, 0.92, u);
+          float alpha = clamp(totalMask * edgeFeather * uOpacity, 0.0, 0.99);
+          gl_FragColor = vec4(col, alpha);
+        }
+      `,
+    });
+
+    const mRoot = new THREE.Group();
+    const trailQuad = new THREE.Mesh(new THREE.PlaneGeometry(36.0, 7.6), meteorShaderMat);
+    mRoot.add(trailQuad);
+
+    const rockMesh = new THREE.Mesh(meteorRockGeo, meteorRockMat);
+    rockMesh.position.set(36.0 * (0.84 - 0.5), 0, 0.1);
+    rockMesh.scale.set(0.85, 0.65, 0.65);
+    mRoot.add(rockMesh);
+
+    group.add(mRoot);
+    meteors.push({ root: mRoot, rockMesh, uniforms: mUniforms });
+  }
+
+  return {
+    group,
+    update: (elapsed: number) => {
+      skyUniforms.uTime.value = elapsed;
+      for (let i = 0; i < meteors.length; i++) {
+        const m = meteors[i];
+        const pose = computeInfernoMeteorPose(i, elapsed);
+        m.root.position.set(pose.x, pose.y, pose.z);
+        m.root.rotation.set(0, 0, pose.angleZ);
+        m.root.scale.setScalar(pose.scale);
+        m.uniforms.uOpacity.value = pose.opacity;
+        m.rockMesh.rotation.x = elapsed * 3.2 + i;
+        m.rockMesh.rotation.y = elapsed * 2.4 + i;
+      }
+    },
+  };
+}
+
+/**
+ * Builds a Monumental 3D Horned Sitting Dog Statue ("com estatua, cachorro com chifres" / "estátua de cachorro sentado la em cima da montanha")
+ * perched on a stepped stone pedestal on top of each of the 2 imposing mountains.
+ * Features seated haunches, upward-curved tail, sloping back, straight vertical front legs, proud chest,
+ * spiked black obsidian collar, extended snout, pointed ears, blazing eyes, and sweeping curved demonic horns ("chifres")
+ * with crisp black graphic outlines ("detalhes pretos").
+ */
+function buildSittingDogStatueOnPedestal(
+  sideSign: -1 | 1,
+  statueScale: number,
+  statueMat: THREE.Material,
+  blackDetailMat: THREE.Material,
+  glowEyeMat: THREE.Material,
+  eyeHaloMat: THREE.Material,
+): THREE.Group {
+  const dogGroup = new THREE.Group();
+
+  const addPart = (
+    geo: THREE.BufferGeometry,
+    mat: THREE.Material,
+    sx: number,
+    sy: number,
+    sz: number,
+    px: number,
+    py: number,
+    pz: number,
+    rx = 0,
+    ry = 0,
+    rz = 0,
+  ) => {
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.scale.set(sx, sy, sz);
+    mesh.position.set(px, py, pz);
+    mesh.rotation.set(rx, ry, rz);
+    dogGroup.add(mesh);
+    return mesh;
+  };
+
+  // 1. Stepped Stone Monument Pedestal Plinth with Black Obsidian Trim Bands ("detalhes pretos")
+  addPart(sharedGeos.unitBox, blackDetailMat, 6.8, 0.55, 7.8, 0, 0.28, 0);
+  addPart(sharedGeos.unitBox, statueMat, 6.2, 1.0, 7.2, 0, 0.95, 0);
+  addPart(sharedGeos.unitBox, blackDetailMat, 5.5, 0.38, 6.5, 0, 1.55, 0);
+  addPart(sharedGeos.unitBox, statueMat, 5.0, 0.85, 6.0, 0, 2.05, 0);
+
+  // 2. Seated Hindquarters / Haunches & Folded Hind Legs (at back of pedestal, z < 0)
+  addPart(sharedGeos.unitBox, statueMat, 2.85, 3.0, 3.1, 0, 3.75, -1.45, 0.26, 0, 0);
+  for (const lx of [-1.26, 1.26]) {
+    // Folded hind thigh
+    addPart(sharedGeos.unitBox, statueMat, 1.02, 2.55, 2.4, lx, 3.55, -1.2, -0.34, 0, 0);
+    // Seated hind paw flat on pedestal
+    addPart(sharedGeos.unitBox, statueMat, 0.9, 0.72, 1.8, lx * 0.94, 2.68, 0.15);
+    // Black obsidian hind claws
+    addPart(sharedGeos.cone, blackDetailMat, 0.26, 0.55, 0.45, lx * 0.94, 2.55, 1.12, Math.PI * 0.45, 0, 0);
+  }
+
+  // 3. Upward-Curved Canine Tail at the Back of the Haunches with Black Spiked Tip
+  addPart(sharedGeos.unitBox, statueMat, 0.66, 2.65, 0.72, 0, 4.25, -2.88, -0.66, 0, 0);
+  addPart(sharedGeos.unitBox, statueMat, 0.56, 2.45, 0.62, 0, 5.95, -3.62, -0.22, 0, 0);
+  addPart(sharedGeos.cone, blackDetailMat, 0.68, 1.45, 0.68, 0, 7.35, -3.88, -0.15, 0, 0);
+
+  // 4. Sloping Canine Back, Black Dorsal Spine Ridge & Proud Upright Ribcage/Chest
+  addPart(sharedGeos.unitBox, statueMat, 2.55, 5.1, 2.65, 0, 6.25, -0.42, 0.44, 0, 0);
+  addPart(sharedGeos.unitBox, statueMat, 2.82, 3.45, 2.62, 0, 7.55, 0.58, 0.18, 0, 0);
+  // Dark black breastplate / chest armor detail
+  addPart(sharedGeos.unitBox, blackDetailMat, 1.65, 2.45, 0.42, 0, 7.45, 1.82, 0.18, 0, 0);
+
+  // 5. Straight Vertical Front Legs & Front Paws (at front of pedestal, z = +1.48, leaving clear daylight gap behind them!)
+  for (const fx of [-0.85, 0.85]) {
+    addPart(sharedGeos.unitBox, statueMat, 0.76, 5.1, 0.8, fx, 4.85, 1.48);
+    addPart(sharedGeos.unitBox, statueMat, 0.86, 0.72, 1.38, fx, 2.68, 1.88);
+    addPart(sharedGeos.cone, blackDetailMat, 0.28, 0.58, 0.48, fx, 2.55, 2.65, Math.PI * 0.45, 0, 0);
+  }
+
+  // 6. Upright Muscular Canine Neck & Spiked Black Obsidian Collar ("detalhes pretos")
+  addPart(sharedGeos.unitBox, statueMat, 2.05, 2.85, 2.15, 0, 9.65, 0.92, 0.15, 0, 0);
+  addPart(sharedGeos.unitBox, blackDetailMat, 2.38, 0.58, 2.48, 0, 9.1, 0.9, 0.15, 0, 0);
+  for (const sx of [-1.25, 0, 1.25]) {
+    addPart(
+      sharedGeos.cone,
+      blackDetailMat,
+      0.42,
+      1.05,
+      0.42,
+      sx,
+      9.25,
+      sx === 0 ? 2.28 : 1.55,
+      0.75,
+      0,
+      sx * -0.45,
+    );
+  }
+
+  // 7. Canine Head, Extended Forward Snout/Muzzle, Black Nose & Blazing Hellhound Eyes
+  addPart(sharedGeos.unitBox, statueMat, 2.28, 2.18, 2.42, 0, 11.38, 1.24);
+  addPart(sharedGeos.unitBox, statueMat, 1.44, 1.26, 2.45, 0, 11.05, 2.65);
+  addPart(sharedGeos.unitBox, statueMat, 1.22, 0.55, 2.05, 0, 10.45, 2.42);
+  addPart(sharedGeos.unitBox, blackDetailMat, 0.76, 0.62, 0.65, 0, 11.42, 3.78);
+
+  // Blazing crimson-red glowing eyes ("faca os olhos das estatua brilhando vermelho")
+  // Positioned at the outer-front brow corners so both eyes are prominent in 3/4 profile, with camera-facing red glow halos!
+  const eyeGlowGeo = new THREE.PlaneGeometry(4.6, 4.6);
+  for (const ex of [-0.96, 0.96]) {
+    const eye = addPart(sharedGeos.unitBox, glowEyeMat, 0.72, 0.52, 0.76, ex, 11.72, 2.38);
+    eye.userData.noCartoonOutline = true;
+
+    const halo = new THREE.Mesh(eyeGlowGeo, eyeHaloMat);
+    halo.position.set(ex * 1.16, 11.72, 2.82);
+    halo.rotation.y = sideSign < 0 ? -1.28 : 1.28;
+    halo.renderOrder = 28;
+    halo.userData.noCartoonOutline = true;
+    dogGroup.add(halo);
+  }
+
+  // 8. Tall Pointed Perked Canine Ears (slightly further back on the skull)
+  for (const ex of [-0.82, 0.82]) {
+    addPart(
+      sharedGeos.cone,
+      statueMat,
+      0.66,
+      2.65,
+      0.86,
+      ex,
+      13.25,
+      0.55,
+      -0.12,
+      0,
+      ex < 0 ? 0.12 : -0.12,
+    );
+  }
+
+  // 9. Prominent Sweeping Curved Demonic Horns ("cachorro com chifres")!
+  // Built as multi-segment curved horn chains sweeping forward, upward, and curving sharply at the tips
+  // in pitch-black obsidian so the horns ("chifres") are 100% unmistakable in profile against the red sky!
+  for (const hSign of [-1, 1]) {
+    // Horn base emerging from the brow ridge
+    addPart(
+      sharedGeos.cylinder,
+      blackDetailMat,
+      0.56,
+      1.95,
+      0.56,
+      hSign * 0.74,
+      12.95,
+      1.72,
+      0.55,
+      0,
+      hSign * -0.28,
+    );
+    // Mid horn sweeping forward and upward
+    addPart(
+      sharedGeos.cylinder,
+      blackDetailMat,
+      0.44,
+      2.15,
+      0.44,
+      hSign * 1.08,
+      14.35,
+      2.48,
+      0.24,
+      0,
+      hSign * -0.18,
+    );
+    // Upper horn curving backward/upward to a tall sharp point above the head!
+    addPart(
+      sharedGeos.cone,
+      blackDetailMat,
+      0.42,
+      2.75,
+      0.42,
+      hSign * 1.26,
+      16.25,
+      2.55,
+      -0.28,
+      0,
+      hSign * -0.08,
+    );
+  }
+
+  dogGroup.scale.setScalar(statueScale);
+  // Rotate into a clear 3/4 side profile facing inward toward the road so the sitting dog + horns silhouette is unmistakable!
+  dogGroup.rotation.y = sideSign < 0 ? 1.28 : -1.28;
+  return dogGroup;
+}
+
+/**
+ * Builds ONLY the 2 Imposing Rocky Mountains Closest to the Road with Black Crag Details & Horned Dog Statues on Top
+ * ("deixe so 2 montanhas as que esta mais proximo da rua as do fundo tire, e deixe bem imponentes as montanhas com detalhes pretos etc com estatua, cachorro com chifres").
+ */
+export function buildInfernoFlankingVolcanoes(): {
+  group: THREE.Group;
+  update: (elapsed: number) => void;
+} {
+  const group = new THREE.Group();
+  group.name = 'Inferno_Two_Imposing_Mountains_With_Horned_Dog_Statues';
+
+  // Dedicated un-curved black graphic ink outline material for static horizon mountains & horned dog statues
+  const staticMountainInkLineMat = new THREE.LineBasicMaterial({
+    color: 0x050101,
+    transparent: true,
+    opacity: 0.92,
+    fog: false,
+  });
+
+  const mainPeakGeo = createSculptedMountainCragGeo(0.28, 1.0, 9, 6, 3.1, true);
+  const jaggedSpireGeo = createSculptedMountainCragGeo(0.05, 1.0, 7, 5, 5.8, true);
+  const mainPeakEdgesGeo = new THREE.EdgesGeometry(mainPeakGeo, 6);
+  const jaggedSpireEdgesGeo = new THREE.EdgesGeometry(jaggedSpireGeo, 6);
+
+  const addStaticBlackOutlines = (root: THREE.Object3D) => {
+    const meshes: THREE.Mesh[] = [];
+    root.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && !obj.userData.noCartoonOutline) {
+        meshes.push(obj);
+      }
+    });
+    for (const m of meshes) {
+      const edgesGeo =
+        m.geometry === mainPeakGeo
+          ? mainPeakEdgesGeo
+          : m.geometry === jaggedSpireGeo
+            ? jaggedSpireEdgesGeo
+            : getCachedEdgesGeo(m.geometry);
+      const line = new THREE.LineSegments(edgesGeo, staticMountainInkLineMat);
+      line.userData.isOutlineMesh = true;
+      m.add(line);
+    }
+  };
+
+  // High-contrast imposing dark crimson & pitch-black chiseled crag mountain shader ("bem imponentes com detalhes pretos etc")
+  const mountainShaderMat = new THREE.ShaderMaterial({
+    fog: false,
+    vertexShader: `
+      varying vec3 vLocalPos;
+      varying vec3 vWorldPos;
+      varying vec3 vNormalW;
+      void main() {
+        vLocalPos = position;
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWorldPos = wp.xyz;
+        vNormalW = normalize(mat3(modelMatrix) * normal);
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vLocalPos;
+      varying vec3 vWorldPos;
+      varying vec3 vNormalW;
+
+      void main() {
+        vec3 dpx = dFdx(vWorldPos);
+        vec3 dpy = dFdy(vWorldPos);
+        vec3 faceN = normalize(cross(dpx, dpy));
+
+        // 0.0 at base (-0.5), 1.0 at flat mountain summit (+0.5)
+        float hNorm = clamp(vLocalPos.y + 0.5, 0.0, 1.0);
+
+        // Dramatic side-rim lighting from the central road exit portal so outer & recessed crag faces are pitch black!
+        vec3 lightDir = normalize(vec3(-sign(vWorldPos.x) * 0.94, 0.24, -0.22));
+        float facetLit = clamp(dot(faceN, lightDir), 0.0, 1.0);
+
+        // Jagged vertical rock fault shadow bands for rich black cliff detail ("detalhes pretos")
+        float cliffBand = sin(vLocalPos.x * 14.0 + sin(hNorm * 9.0) * 1.6);
+        float blackFaultMask = smoothstep(0.35, 0.72, cliffBand) * (1.0 - smoothstep(0.55, 0.85, facetLit));
+
+        // 3-Tone Graphic Chiseled Rock Shading: Pitch-Black Shadow Facets -> Deep Blood Crimson -> Fiery Scarlet Rim
+        vec3 pitchBlackRock = vec3(0.03, 0.008, 0.008);
+        vec3 darkCrimsonRock = vec3(0.36, 0.05, 0.04);
+        vec3 fieryRidgeHighlight = vec3(0.78, 0.18, 0.07);
+
+        float midMask = smoothstep(0.18, 0.26, facetLit) * (1.0 - blackFaultMask * 0.88);
+        float hiMask = smoothstep(0.54, 0.64, facetLit) * smoothstep(0.12, 0.88, hNorm);
+
+        vec3 col = mix(pitchBlackRock, darkCrimsonRock, midMask);
+        col = mix(col, fieryRidgeHighlight, hiMask);
+
+        // Subtle horizon mist only at the very bottom base so the mountains stay crisp, dark, and imposing!
+        float baseMist = (1.0 - smoothstep(0.0, 0.20, hNorm)) * 0.26;
+        vec3 fogCol = vec3(0.58, 0.09, 0.05);
+        col = mix(col, fogCol, baseMist);
+
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `,
+  });
+
+  // Chiseled dark basalt & crimson monument material for the Horned Sitting Dog Statues
+  const dogStatueShaderMat = new THREE.ShaderMaterial({
+    fog: false,
+    vertexShader: `
+      varying vec3 vWorldPos;
+      varying vec3 vNormalW;
+      void main() {
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWorldPos = wp.xyz;
+        vNormalW = normalize(mat3(modelMatrix) * normal);
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vWorldPos;
+      varying vec3 vNormalW;
+      void main() {
+        vec3 lightDir = normalize(vec3(-sign(vWorldPos.x) * 0.55, 0.52, 0.62));
+        float diff = clamp(dot(vNormalW, lightDir) * 0.5 + 0.5, 0.0, 1.0);
+        float rim = pow(clamp(1.0 - abs(vNormalW.z), 0.0, 1.0), 1.6);
+        vec3 pitchBlackShadow = vec3(0.03, 0.008, 0.008);
+        vec3 darkStoneMid = vec3(0.38, 0.07, 0.05);
+        vec3 fieryRim = vec3(0.92, 0.30, 0.10);
+        vec3 col = mix(pitchBlackShadow, darkStoneMid, smoothstep(0.28, 0.72, diff));
+        col = mix(col, fieryRim, rim * 0.45);
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `,
+  });
+
+  const blackObsidianDetailMat = new THREE.MeshBasicMaterial({
+    color: 0x070101,
+    fog: false,
+  });
+
+  const hellhoundEyeGlowMat = new THREE.MeshBasicMaterial({
+    color: 0xff1a1a,
+    fog: false,
+  });
+
+  // Intense additive crimson-red eye glow halo shader ("faca os olhos das estatua brilhando vermelho")
+  const hellhoundEyeHaloMat = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    fog: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      varying vec2 vUv;
+      void main() {
+        vec2 p = (vUv - 0.5) * 2.0;
+        float r = length(p);
+        if (r > 1.0) discard;
+        float core = exp(-r * r * 11.0) * 2.25;
+        float halo = exp(-r * 3.0) * 1.25 * smoothstep(1.0, 0.12, r);
+        vec3 redCore = vec3(1.0, 0.38, 0.28);
+        vec3 deepRedHalo = vec3(1.0, 0.03, 0.01);
+        vec3 col = deepRedHalo * halo + redCore * core;
+        float alpha = clamp(core + halo * 0.95, 0.0, 1.0);
+        gl_FragColor = vec4(col, alpha);
+      }
+    `,
+  });
+
+  // ONLY 2 Mountains — the 2 closest to the road ("deixe so 2 montanhas as que esta mais proximo da rua as do fundo tire")!
+  const twoMountainsClosestToRoad: Array<{
+    x: number;
+    y: number;
+    z: number;
+    sx: number;
+    sy: number;
+    sz: number;
+    rotY: number;
+    sideSign: -1 | 1;
+    dogScale: number;
+  }> = [
+    // Left Imposing Mountain Closest to the Road with Horned Sitting Dog Statue on top
+    { x: -42.0, y: 21.5, z: -112.0, sx: 36.0, sy: 43.0, sz: 28.0, rotY: 0.65, sideSign: -1, dogScale: 1.35 },
+    // Right Imposing Mountain Closest to the Road with Horned Sitting Dog Statue on top
+    { x: 42.0, y: 21.5, z: -114.0, sx: 36.0, sy: 43.0, sz: 28.0, rotY: 1.95, sideSign: 1, dogScale: 1.35 },
+  ];
+
+  for (const m of twoMountainsClosestToRoad) {
+    const massifGroup = new THREE.Group();
+    massifGroup.position.set(m.x, 0, m.z);
+
+    // 1. Central Towering Flat-Topped Chiseled Crag Peak
+    const mMesh = new THREE.Mesh(mainPeakGeo, mountainShaderMat);
+    mMesh.position.set(0, m.y, 0);
+    mMesh.scale.set(m.sx, m.sy, m.sz);
+    mMesh.rotation.y = m.rotY;
+    massifGroup.add(mMesh);
+
+    // 2. Jagged Flanking Rock Buttresses & Black-Shadowed Crag Spires ("bem imponentes com detalhes pretos etc")
+    const buttressConfigs = [
+      // Inner shoulder crag facing toward the road
+      { dx: -m.sideSign * 11.5, y: m.y + 1.5, dz: 4.5, sx: 16.0, sy: 34.0, sz: 15.0, rz: m.sideSign * 0.22, ry: 0.8 },
+      // Outer dramatic jagged cliff peak jutting high on the outer flank
+      { dx: m.sideSign * 14.0, y: m.y + 3.5, dz: -2.0, sx: 19.0, sy: 38.0, sz: 17.0, rz: -m.sideSign * 0.24, ry: 2.1 },
+      // Outer secondary crag spur
+      { dx: m.sideSign * 22.5, y: m.y - 2.0, dz: -4.0, sx: 17.0, sy: 30.0, sz: 15.0, rz: -m.sideSign * 0.28, ry: 1.4 },
+    ];
+    for (const bc of buttressConfigs) {
+      const spire = new THREE.Mesh(jaggedSpireGeo, mountainShaderMat);
+      spire.position.set(bc.dx, bc.y, bc.dz);
+      spire.scale.set(bc.sx, bc.sy, bc.sz);
+      spire.rotation.set(0, bc.ry, bc.rz);
+      massifGroup.add(spire);
+    }
+
+    // 3. Sharp Pitch-Black Obsidian Rock Spikes & Crag Ribs jutting from the mountain slopes ("detalhes pretos")
+    const blackSpikes = [
+      { dx: -m.sideSign * 9.5, y: m.y + 10.5, dz: 6.5, sx: 3.6, sy: 15.0, sz: 3.6, rz: m.sideSign * 0.34 },
+      { dx: m.sideSign * 11.0, y: m.y + 12.0, dz: 4.5, sx: 4.2, sy: 16.5, sz: 4.2, rz: -m.sideSign * 0.38 },
+      { dx: -m.sideSign * 5.2, y: m.y + 14.5, dz: 7.8, sx: 2.8, sy: 11.5, sz: 2.8, rz: m.sideSign * 0.26 },
+      { dx: m.sideSign * 6.0, y: m.y + 15.0, dz: 7.2, sx: 3.2, sy: 12.0, sz: 3.2, rz: -m.sideSign * 0.28 },
+    ];
+    for (const bs of blackSpikes) {
+      const spike = new THREE.Mesh(sharedGeos.cone, blackObsidianDetailMat);
+      spike.position.set(bs.dx, bs.y, bs.dz);
+      spike.scale.set(bs.sx, bs.sy, bs.sz);
+      spike.rotation.z = bs.rz;
+      spike.rotation.x = 0.18;
+      massifGroup.add(spike);
+    }
+
+    // 4. Monumental Horned Sitting Dog Statue ("estatua, cachorro com chifres") perched on top of the mountain summit!
+    const summitY = m.y + m.sy * 0.5 - 0.45;
+    const dogStatue = buildSittingDogStatueOnPedestal(
+      m.sideSign,
+      m.dogScale,
+      dogStatueShaderMat,
+      blackObsidianDetailMat,
+      hellhoundEyeGlowMat,
+      hellhoundEyeHaloMat,
+    );
+    dogStatue.position.set(0, summitY, 0);
+    massifGroup.add(dogStatue);
+
+    // Apply static (un-curved) crisp black graphic outlines to both the mountain crags and the horned dog statue!
+    addStaticBlackOutlines(massifGroup);
+
+    group.add(massifGroup);
+  }
+
+  return {
+    group,
+    update: () => {
+      // Static imposing mountains and horned sitting dog statues
+    },
+  };
+}
+
+/**
+ * Builds the Compact, Pure Radial White-Gold Horizon Light at the Summit Tip of the Narrowing Road
+ * ("remove esse quadrado de luz da rua, e deixe a luz pouco menor e a estrad ficando menor horizonte")
+ * PLUS the Seamless Gaussian Infinite Horizon Fog & Volumetric Atmospheric Mist!
+ */
+export function buildInfernoHorizonExitPortal(): {
+  group: THREE.Group;
+  update: (elapsed: number) => void;
+} {
+  const group = new THREE.Group();
+  group.name = 'Inferno_Horizon_Exit_Portal_And_Infinite_Fog';
+
+  const portalUniforms = {
+    uTime: { value: 0 },
+  };
+
+  // 1. Seamless Gaussian Infinite Horizon Fog / Mist ("efeito de neblina fog la no fundo, como se cenario fosse infinito")
+  const horizonFogMat = new THREE.ShaderMaterial({
+    uniforms: portalUniforms,
+    transparent: true,
+    depthWrite: false,
+    fog: false,
+    blending: THREE.NormalBlending,
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      varying vec2 vUv;
+
+      void main() {
+        vec2 p = (vUv - 0.5) * 2.0;
+        float drift = sin(p.x * 3.5 + uTime * 0.25) * 0.08 + cos(p.x * 6.0 - uTime * 0.18) * 0.05;
+        float py = p.y + drift;
+
+        // Smooth Gaussian envelope fading to 0.0 well before all 4 borders of the quad!
+        float gaussY = exp(-py * py * 3.8) * smoothstep(1.0, 0.18, abs(p.y));
+        float gaussX = exp(-p.x * p.x * 1.8) * smoothstep(1.0, 0.15, abs(p.x));
+        float mistMask = gaussY * gaussX;
+        if (mistMask <= 0.01) discard;
+
+        float centerWarmth = exp(-p.x * p.x * 6.5);
+        vec3 deepCrimsonFog = vec3(0.80, 0.14, 0.08);
+        vec3 fieryAmberFog = vec3(0.98, 0.44, 0.14);
+        vec3 portalWhiteMist = vec3(1.0, 0.96, 0.88);
+
+        vec3 col = mix(deepCrimsonFog, fieryAmberFog, clamp(0.5 - py * 0.5, 0.0, 1.0));
+        col = mix(col, portalWhiteMist, centerWarmth * 0.48);
+
+        float alpha = clamp(mistMask * (0.42 + centerWarmth * 0.18), 0.0, 0.64);
+        gl_FragColor = vec4(col, alpha);
+      }
+    `,
+  });
+
+  const fogLayer1 = new THREE.Mesh(new THREE.PlaneGeometry(360, 95), horizonFogMat);
+  fogLayer1.position.set(0, 18.0, -148.0);
+  group.add(fogLayer1);
+
+  const fogLayer2 = new THREE.Mesh(new THREE.PlaneGeometry(400, 110), horizonFogMat);
+  fogLayer2.position.set(0, 27.5, -174.0);
+  group.add(fogLayer2);
+
+  const fogLayer3 = new THREE.Mesh(new THREE.PlaneGeometry(450, 130), horizonFogMat);
+  fogLayer3.position.set(0, 36.0, -206.0);
+  group.add(fogLayer3);
+
+  // 2. Compact, Pure Circular Radial White-Gold Light at the Summit Tip of the Narrowing Road (z = -178.0, y = 33.2)
+  // ("remove esse quadrado de luz da rua, e deixe a luz pouco menor")
+  const portalMat = new THREE.ShaderMaterial({
+    uniforms: portalUniforms,
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    fog: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      varying vec2 vUv;
+
+      void main() {
+        vec2 p = (vUv - 0.5) * 2.0;
+        float r = length(p);
+        if (r > 1.0) discard;
+
+        // Pure radial circular falloff (zero rectangular/arch box shapes!)
+        float pulse = 0.95 + 0.05 * sin(uTime * 3.5);
+        float whiteHotCore = exp(-r * r * 15.0) * 1.85 * pulse;
+        float innerWhiteGlow = exp(-r * 4.4) * 1.25;
+        float outerHalo = exp(-r * 2.6) * 0.65 * smoothstep(1.0, 0.18, r);
+
+        // Soft radial crepuscular rays around the circular horizon light
+        float angle = atan(p.y, p.x);
+        float rayWave = pow(sin(angle * 8.0 + uTime * 0.55) * 0.5 + 0.5, 2.2) * 0.58
+                      + pow(cos(angle * 14.0 - uTime * 0.75) * 0.5 + 0.5, 2.4) * 0.44;
+        float rays = rayWave * exp(-r * 2.7) * smoothstep(0.03, 0.15, r) * 1.05;
+
+        vec3 pureWhite = vec3(1.0, 1.0, 1.0);
+        vec3 warmWhiteCorona = vec3(1.0, 0.98, 0.92);
+        vec3 outerGoldAmber = vec3(1.0, 0.78, 0.36);
+
+        vec3 col = outerGoldAmber * (outerHalo + rays * 0.72)
+                 + warmWhiteCorona * (innerWhiteGlow + rays * 0.96)
+                 + pureWhite * (whiteHotCore * 2.15);
+
+        float alpha = clamp(whiteHotCore + innerWhiteGlow * 0.92 + outerHalo * 0.62 + rays * 0.82, 0.0, 1.0) * smoothstep(1.0, 0.68, r);
+        gl_FragColor = vec4(col, alpha);
+      }
+    `,
+  });
+
+  // Compact 44x44 pure circular radial light quad at the summit tip of the road (rendered in front of fog layers, zero square road patch!)
+  const portalQuad = new THREE.Mesh(new THREE.PlaneGeometry(44, 44), portalMat);
+  portalQuad.position.set(0, 33.8, -168.0);
+  portalQuad.renderOrder = 25;
+  group.add(portalQuad);
+
+  return {
+    group,
+    update: (elapsed: number) => {
+      portalUniforms.uTime.value = elapsed;
+    },
+  };
+}
+
+const sharedInfernoFireUniforms = {
+  uTime: { value: 0 },
+};
+
+const infernoRoaringFireMat = new THREE.ShaderMaterial({
+  uniforms: sharedInfernoFireUniforms,
+  transparent: true,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+  fog: false,
+  blending: THREE.AdditiveBlending,
+  vertexShader: `
+    uniform float uWorldCurveY;
+    uniform float uWorldCurveX;
+    uniform float uCurveStartZ;
+    uniform float uLadeiraSlope;
+    uniform float uRoadWindPhase;
+    uniform float uInfernoMapMix;
+    varying vec2 vUv;
+    varying vec3 vWorldPos;
+
+    void main() {
+      vUv = uv;
+      vec4 wp = modelMatrix * vec4(position, 1.0);
+      float curveDist = max(0.0, -(wp.z - uCurveStartZ));
+      float curveDistSq = curveDist * curveDist;
+      float ladeiraBowl = 9.6 * smoothstep(4.0, 64.0, curveDist) * (1.0 - 0.18 * smoothstep(64.0, 155.0, curveDist));
+      float beachDropY = -(uWorldCurveY * curveDistSq * 0.16 + ladeiraBowl * uLadeiraSlope);
+
+      float infernoDip = -1.35 * smoothstep(2.0, 26.0, curveDist) * (1.0 - smoothstep(28.0, 72.0, curveDist));
+      float infernoClimbDist = min(166.0, max(0.0, curveDist - 24.0));
+      float infernoSkyClimb = pow(infernoClimbDist / 165.0, 1.72) * 34.5;
+      float infernoY = infernoDip + infernoSkyClimb;
+      float pinchFactor = mix(-0.76 * smoothstep(18.0, 166.0, curveDist), -0.98, smoothstep(162.0, 172.0, curveDist));
+      float infernoPinchX = wp.x * pinchFactor;
+
+      wp.y *= mix(1.0, max(0.04, 1.0 + pinchFactor), uInfernoMapMix);
+      wp.y += mix(beachDropY, infernoY, uInfernoMapMix);
+      wp.x += infernoPinchX * uInfernoMapMix;
+      vWorldPos = wp.xyz;
+      gl_Position = projectionMatrix * viewMatrix * wp;
+    }
+  `,
+  fragmentShader: `
+    uniform float uTime;
+    varying vec2 vUv;
+    varying vec3 vWorldPos;
+
+    void main() {
+      float xCentered = (vUv.x - 0.5) * 2.0;
+      float yNorm = vUv.y;
+
+      // Dynamic multi-tongue roaring flame distortion
+      float seed = vWorldPos.z * 0.35 + vWorldPos.x * 0.25;
+      float wave1 = sin(yNorm * 9.5 - uTime * 8.2 + seed) * 0.22 * yNorm;
+      float wave2 = cos(yNorm * 16.0 - uTime * 11.5 - seed * 1.7) * 0.14 * yNorm;
+      float tongueJagged = sin(vUv.x * 18.0 + uTime * 5.5 + seed) * 0.12 * yNorm;
+
+      float distFromCenter = abs(xCentered + wave1 + wave2) + tongueJagged;
+      float widthAtHeight = mix(0.92, 0.18, pow(yNorm, 1.15));
+      float flameMask = smoothstep(widthAtHeight, widthAtHeight * 0.25, distFromCenter) * smoothstep(0.0, 0.12, yNorm) * smoothstep(1.0, 0.72, yNorm);
+      if (flameMask <= 0.02) discard;
+
+      // Vibrant Cartoon Fire Palette: White-Yellow Core -> Bright Gold -> Fiery Orange -> Crimson Tip
+      float coreIntensity = smoothstep(widthAtHeight * 0.75, 0.0, distFromCenter) * (1.0 - yNorm * 0.62);
+      vec3 crimsonTip = vec3(0.92, 0.14, 0.05);
+      vec3 brightOrange = vec3(1.0, 0.48, 0.04);
+      vec3 goldenYellow = vec3(1.0, 0.88, 0.22);
+      vec3 incandescentWhite = vec3(1.0, 0.99, 0.85);
+
+      vec3 col = mix(crimsonTip, brightOrange, smoothstep(0.05, 0.42, flameMask));
+      col = mix(col, goldenYellow, smoothstep(0.25, 0.68, coreIntensity));
+      col = mix(col, incandescentWhite, smoothstep(0.62, 0.92, coreIntensity));
+
+      float alpha = clamp(flameMask * 1.15, 0.0, 0.96);
+      gl_FragColor = vec4(col, alpha);
+    }
+  `,
+});
+Object.assign(infernoRoaringFireMat.uniforms, {
+  uWorldCurveY: worldCurveUniforms.uWorldCurveY,
+  uWorldCurveX: worldCurveUniforms.uWorldCurveX,
+  uCurveStartZ: worldCurveUniforms.uCurveStartZ,
+  uLadeiraSlope: worldCurveUniforms.uLadeiraSlope,
+  uRoadWindPhase: worldCurveUniforms.uRoadWindPhase,
+  uInfernoMapMix: worldCurveUniforms.uInfernoMapMix,
+});
+
+export function updateInfernoFireTime(elapsed: number): void {
+  sharedInfernoFireUniforms.uTime.value = elapsed;
+}
+
+const charredWoodMat = new THREE.MeshStandardMaterial({
+  color: 0x240c0a,
+  roughness: 0.9,
+});
+applyWorldCurvatureToMaterial(charredWoodMat);
+
+const fallenWireBlackMat = new THREE.MeshBasicMaterial({
+  color: 0x120505,
+});
+applyWorldCurvatureToMaterial(fallenWireBlackMat);
+
+const brokenFenceWoodMat = new THREE.MeshStandardMaterial({
+  color: 0x6e2c1b,
+  roughness: 0.84,
+});
+applyWorldCurvatureToMaterial(brokenFenceWoodMat);
+
+const rubbleRockDarkMat = new THREE.MeshStandardMaterial({
+  color: 0x451816,
+  roughness: 0.88,
+  flatShading: true,
+});
+applyWorldCurvatureToMaterial(rubbleRockDarkMat);
+
+const rubbleRockLitMat = new THREE.MeshStandardMaterial({
+  color: 0x6b2621,
+  roughness: 0.84,
+  flatShading: true,
+});
+applyWorldCurvatureToMaterial(rubbleRockLitMat);
+
+// Volumetric C2 Quintic FBM Billowing Smoke Plume Shader for Burning Houses ("melhore nessas fumacas das casas pegando fogo")
+// Eliminates hard-edged 3D spheres/bubbles and renders soft, curling, fire-lit charcoal smoke plumes!
+const infernoBillowingSmokeMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: sharedInfernoFireUniforms.uTime,
+    uWorldCurveY: worldCurveUniforms.uWorldCurveY,
+    uWorldCurveX: worldCurveUniforms.uWorldCurveX,
+    uCurveStartZ: worldCurveUniforms.uCurveStartZ,
+    uLadeiraSlope: worldCurveUniforms.uLadeiraSlope,
+    uRoadWindPhase: worldCurveUniforms.uRoadWindPhase,
+    uInfernoMapMix: worldCurveUniforms.uInfernoMapMix,
+  },
+  transparent: true,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+  fog: false,
+  blending: THREE.NormalBlending,
+  vertexShader: `
+    uniform float uWorldCurveY;
+    uniform float uWorldCurveX;
+    uniform float uCurveStartZ;
+    uniform float uLadeiraSlope;
+    uniform float uRoadWindPhase;
+    uniform float uInfernoMapMix;
+    varying vec2 vUv;
+    varying vec3 vWorldPos;
+
+    void main() {
+      vUv = uv;
+      vec4 wp = modelMatrix * vec4(position, 1.0);
+      float curveDist = max(0.0, -(wp.z - uCurveStartZ));
+      float curveDistSq = curveDist * curveDist;
+      float ladeiraBowl = 9.6 * smoothstep(4.0, 64.0, curveDist) * (1.0 - 0.18 * smoothstep(64.0, 155.0, curveDist));
+      float beachDropY = -(uWorldCurveY * curveDistSq * 0.16 + ladeiraBowl * uLadeiraSlope);
+
+      float infernoDip = -1.35 * smoothstep(2.0, 26.0, curveDist) * (1.0 - smoothstep(28.0, 72.0, curveDist));
+      float infernoClimbDist = min(166.0, max(0.0, curveDist - 24.0));
+      float infernoSkyClimb = pow(infernoClimbDist / 165.0, 1.72) * 34.5;
+      float infernoY = infernoDip + infernoSkyClimb;
+      float pinchFactor = mix(-0.76 * smoothstep(18.0, 166.0, curveDist), -0.98, smoothstep(162.0, 172.0, curveDist));
+      float infernoPinchX = wp.x * pinchFactor;
+
+      wp.y *= mix(1.0, max(0.04, 1.0 + pinchFactor), uInfernoMapMix);
+      wp.y += mix(beachDropY, infernoY, uInfernoMapMix);
+      wp.x += infernoPinchX * uInfernoMapMix;
+      vWorldPos = wp.xyz;
+      gl_Position = projectionMatrix * viewMatrix * wp;
+    }
+  `,
+  fragmentShader: `
+    uniform float uTime;
+    varying vec2 vUv;
+    varying vec3 vWorldPos;
+
+    float hash21(vec2 p) {
+      p = fract(p * vec2(234.34, 435.345));
+      p += dot(p, p + 34.23);
+      return fract(p.x * p.y);
+    }
+
+    float quinticNoise(vec2 p) {
+      vec2 i = floor(p);
+      vec2 f = fract(p);
+      vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+      float a = hash21(i);
+      float b = hash21(i + vec2(1.0, 0.0));
+      float c = hash21(i + vec2(0.0, 1.0));
+      float d = hash21(i + vec2(1.0, 1.0));
+      return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+    }
+
+    float fbmSmoke(vec2 p) {
+      float v = 0.0;
+      float amp = 0.52;
+      mat2 rot = mat2(0.80, -0.60, 0.60, 0.80);
+      for (int i = 0; i < 4; i++) {
+        v += amp * quinticNoise(p);
+        p = rot * p * 2.04 + vec2(11.7, 7.3);
+        amp *= 0.50;
+      }
+      return v;
+    }
+
+    void main() {
+      float xCentered = (vUv.x - 0.5) * 2.0;
+      float yNorm = vUv.y;
+
+      float seed = floor(abs(vWorldPos.z) * 0.25 + abs(vWorldPos.x) * 0.15);
+      float sway = sin(yNorm * 4.2 - uTime * 1.35 + seed) * 0.24 * pow(yNorm, 0.85);
+      float px = xCentered + sway;
+
+      // Plume widens organically as it rises and billow-curls via FBM noise
+      float plumeHalfWidth = mix(0.36, 0.82, smoothstep(0.0, 0.85, yNorm));
+      vec2 noiseUv = vec2(px * 1.9 + seed * 1.7, yNorm * 3.2 - uTime * 0.95);
+      float n = fbmSmoke(noiseUv);
+      float nDetail = fbmSmoke(noiseUv * 2.1 + vec2(0.0, -uTime * 0.55));
+
+      float radialDist = abs(px) / max(0.1, plumeHalfWidth);
+      float billowEdge = radialDist - (n - 0.45) * 0.68;
+      float radialMask = smoothstep(1.0, 0.18, billowEdge) * smoothstep(1.0, 0.08, abs(xCentered));
+      float verticalMask = smoothstep(0.0, 0.16, yNorm) * smoothstep(1.0, 0.32, yNorm);
+
+      float density = clamp(radialMask * verticalMask * (0.65 + 0.55 * n), 0.0, 1.0);
+      if (density <= 0.015) discard;
+
+      // Fire-lit warm amber-orange glow at the base of the smoke column -> deep charcoal-black soot above
+      float fireUnderlight = exp(-yNorm * 3.4) * smoothstep(0.95, 0.15, radialDist);
+      vec3 deepCharcoalSoot = vec3(0.06, 0.015, 0.015);
+      vec3 darkCrimsonSmoke = vec3(0.22, 0.04, 0.03);
+      vec3 fireLitAmberBase = vec3(0.96, 0.36, 0.07);
+
+      vec3 smokeCol = mix(deepCharcoalSoot, darkCrimsonSmoke, smoothstep(0.28, 0.78, nDetail));
+      smokeCol = mix(smokeCol, fireLitAmberBase, clamp(fireUnderlight * 0.88, 0.0, 0.92));
+
+      float alpha = clamp(density * 0.68, 0.0, 0.64);
+      gl_FragColor = vec4(smokeCol, alpha);
+    }
+  `,
+});
+
+const burntCarBodyMat = new THREE.MeshStandardMaterial({
+  color: 0x8c331e,
+  roughness: 0.78,
+  metalness: 0.22,
+});
+applyWorldCurvatureToMaterial(burntCarBodyMat);
+
+const infernoWindowFireCoreMat = new THREE.MeshBasicMaterial({
+  color: 0xfde047,
+  fog: false,
+});
+applyWorldCurvatureToMaterial(infernoWindowFireCoreMat);
+
+const infernoPoleLampAmberMat = new THREE.MeshBasicMaterial({
+  color: 0xfbbf24,
+  fog: false,
+});
+applyWorldCurvatureToMaterial(infernoPoleLampAmberMat);
+
+// Soft, feather-edged radial streetlight glow shader (zero hard sphere circles!)
+const infernoSoftLampGlowMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uWorldCurveY: worldCurveUniforms.uWorldCurveY,
+    uWorldCurveX: worldCurveUniforms.uWorldCurveX,
+    uCurveStartZ: worldCurveUniforms.uCurveStartZ,
+    uLadeiraSlope: worldCurveUniforms.uLadeiraSlope,
+    uRoadWindPhase: worldCurveUniforms.uRoadWindPhase,
+    uInfernoMapMix: worldCurveUniforms.uInfernoMapMix,
+  },
+  transparent: true,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+  fog: false,
+  blending: THREE.AdditiveBlending,
+  vertexShader: `
+    uniform float uWorldCurveY;
+    uniform float uWorldCurveX;
+    uniform float uCurveStartZ;
+    uniform float uLadeiraSlope;
+    uniform float uRoadWindPhase;
+    uniform float uInfernoMapMix;
+    varying vec2 vUv;
+
+    void main() {
+      vUv = uv;
+      vec4 wp = modelMatrix * vec4(position, 1.0);
+      float curveDist = max(0.0, -(wp.z - uCurveStartZ));
+      float curveDistSq = curveDist * curveDist;
+      float ladeiraBowl = 9.6 * smoothstep(4.0, 64.0, curveDist) * (1.0 - 0.18 * smoothstep(64.0, 155.0, curveDist));
+      float beachDropY = -(uWorldCurveY * curveDistSq * 0.16 + ladeiraBowl * uLadeiraSlope);
+
+      float infernoDip = -1.35 * smoothstep(2.0, 26.0, curveDist) * (1.0 - smoothstep(28.0, 72.0, curveDist));
+      float infernoClimbDist = min(166.0, max(0.0, curveDist - 24.0));
+      float infernoSkyClimb = pow(infernoClimbDist / 165.0, 1.72) * 34.5;
+      float infernoY = infernoDip + infernoSkyClimb;
+      float pinchFactor = mix(-0.76 * smoothstep(18.0, 166.0, curveDist), -0.98, smoothstep(162.0, 172.0, curveDist));
+      float infernoPinchX = wp.x * pinchFactor;
+
+      wp.y *= mix(1.0, max(0.04, 1.0 + pinchFactor), uInfernoMapMix);
+      wp.y += mix(beachDropY, infernoY, uInfernoMapMix);
+      wp.x += infernoPinchX * uInfernoMapMix;
+      gl_Position = projectionMatrix * viewMatrix * wp;
+    }
+  `,
+  fragmentShader: `
+    varying vec2 vUv;
+    void main() {
+      vec2 p = (vUv - 0.5) * 2.0;
+      float r = length(p);
+      if (r > 1.0) discard;
+      float glow = exp(-r * r * 4.8) * smoothstep(1.0, 0.18, r);
+      vec3 col = mix(vec3(0.98, 0.42, 0.06), vec3(1.0, 0.92, 0.45), exp(-r * r * 6.5));
+      gl_FragColor = vec4(col, glow * 0.72);
+    }
+  `,
+});
+
+const lowPolyBoulderGeo = new THREE.DodecahedronGeometry(0.65, 0);
+
+/**
+ * Builds a Charred Leafless Dead Tree with Twisted Black Branches ("árvore seca queimada" from the reference image)
+ */
+function buildCharredDeadTree(scale = 1.0, seed = 0): THREE.Group {
+  const g = new THREE.Group();
+
+  const trunk = new THREE.Mesh(sharedGeos.cylinder, charredWoodMat);
+  trunk.scale.set(0.24 * scale, 3.6 * scale, 0.24 * scale);
+  trunk.position.set(0, 1.8 * scale, 0);
+  trunk.rotation.z = (seed % 2 === 0 ? 1 : -1) * 0.08;
+  g.add(trunk);
+
+  const branches = [
+    { x: -0.55, y: 3.4, z: 0.1, sx: 0.14, sy: 2.1, rotZ: 0.58, rotX: 0.12 },
+    { x: 0.52, y: 3.2, z: -0.1, sx: 0.14, sy: 2.0, rotZ: -0.52, rotX: -0.14 },
+    { x: -1.15, y: 4.3, z: 0.2, sx: 0.08, sy: 1.35, rotZ: 0.88, rotX: 0.2 },
+    { x: -0.35, y: 4.4, z: 0.05, sx: 0.08, sy: 1.25, rotZ: 0.22, rotX: -0.18 },
+    { x: 1.08, y: 4.1, z: -0.15, sx: 0.08, sy: 1.4, rotZ: -0.82, rotX: -0.22 },
+    { x: 0.28, y: 4.3, z: 0.12, sx: 0.08, sy: 1.3, rotZ: -0.18, rotX: 0.24 },
+  ];
+  for (const b of branches) {
+    const br = new THREE.Mesh(sharedGeos.cylinder, charredWoodMat);
+    br.scale.set(b.sx * scale, b.sy * scale, b.sx * scale);
+    br.position.set(b.x * scale, b.y * scale, b.z * scale);
+    br.rotation.set(b.rotX, 0, b.rotZ);
+    g.add(br);
+  }
+  return g;
+}
+
+/**
+ * Builds a Partially Broken Wooden Outdoor Billboard in the Roadside Corner reading "SUA LOGO AQUI"
+ * ("se possivel coloque uns autdor no canto e escrito sua logo aqui. placa de madeira assim das casas e autdor meio que quebrado").
+ */
+function buildInfernoBrokenWoodenBillboard(
+  side: 'left' | 'right',
+  maxAnisotropy = 4,
+): THREE.Group {
+  const bGroup = new THREE.Group();
+  const sign = side === 'left' ? -1 : 1;
+
+  const billboardTex = getInfernoWoodenBillboardTexture(maxAnisotropy);
+  const billboardSignMat = new THREE.MeshStandardMaterial({
+    map: billboardTex,
+    roughness: 0.78,
+    metalness: 0.04,
+    emissive: new THREE.Color(0x7a2614),
+    emissiveMap: billboardTex,
+    emissiveIntensity: 0.48,
+  });
+  applyWorldCurvatureToMaterial(billboardSignMat);
+
+  // 1. Two Weathered Wooden Support Posts + Broken Diagonal Strut
+  const leftPost = new THREE.Mesh(sharedGeos.unitBox, charredWoodMat);
+  leftPost.scale.set(0.22, 3.65, 0.22);
+  leftPost.position.set(-1.22, 1.82, -0.14);
+  leftPost.rotation.z = 0.04;
+  bGroup.add(leftPost);
+
+  const rightPost = new THREE.Mesh(sharedGeos.unitBox, charredWoodMat);
+  rightPost.scale.set(0.22, 3.42, 0.22);
+  rightPost.position.set(1.22, 1.71, -0.14);
+  rightPost.rotation.z = -0.05;
+  bGroup.add(rightPost);
+
+  // Snapped diagonal wooden support brace under the board
+  const diagBrace = new THREE.Mesh(sharedGeos.unitBox, brokenFenceWoodMat);
+  diagBrace.scale.set(2.15, 0.14, 0.14);
+  diagBrace.position.set(-0.32, 1.55, -0.15);
+  diagBrace.rotation.z = 0.44;
+  bGroup.add(diagBrace);
+
+  // 2. Tilted / Partially Broken Wooden Billboard Panel ("autdor meio que quebrado escrito SUA LOGO AQUI")
+  const boardPivot = new THREE.Group();
+  boardPivot.position.set(0, 2.68, 0);
+  // Tilted slightly so it looks half-broken and weathered
+  boardPivot.rotation.z = sign * 0.085;
+  boardPivot.rotation.x = 0.03;
+
+  // Wooden backing board (offset behind signFace so zero Z-fighting occurs)
+  const backingBoard = new THREE.Mesh(sharedGeos.unitBox, brokenFenceWoodMat);
+  backingBoard.scale.set(3.22, 1.76, 0.12);
+  backingBoard.position.set(0, 0, -0.08);
+  boardPivot.add(backingBoard);
+
+  // Painted wooden plank face with "SUA LOGO AQUI"
+  const signFace = new THREE.Mesh(sharedGeos.unitBox, billboardSignMat);
+  signFace.scale.set(3.10, 1.66, 0.06);
+  signFace.position.set(0, 0, 0.03);
+  signFace.userData.noCartoonOutline = true;
+  boardPivot.add(signFace);
+
+  // Broken wooden top frame molding — left half intact, right half snapped and hanging down at an angle!
+  const topFrameLeft = new THREE.Mesh(sharedGeos.unitBox, charredWoodMat);
+  topFrameLeft.scale.set(1.68, 0.15, 0.20);
+  topFrameLeft.position.set(-0.78, 0.88, 0.02);
+  boardPivot.add(topFrameLeft);
+
+  const topFrameSnapped = new THREE.Mesh(sharedGeos.unitBox, charredWoodMat);
+  topFrameSnapped.scale.set(1.52, 0.15, 0.20);
+  topFrameSnapped.position.set(0.84, 0.72, 0.08);
+  topFrameSnapped.rotation.z = -0.34;
+  boardPivot.add(topFrameSnapped);
+
+  // Splintered hanging wooden plank shard at the bottom corner ("meio que quebrado")
+  const hangingPlank = new THREE.Mesh(sharedGeos.unitBox, brokenFenceWoodMat);
+  hangingPlank.scale.set(1.28, 0.26, 0.10);
+  hangingPlank.position.set(0.88, -0.94, 0.05);
+  hangingPlank.rotation.z = -0.26;
+  boardPivot.add(hangingPlank);
+
+  bGroup.add(boardPivot);
+
+  // Fallen broken wooden plank resting on the ground beneath the outdoor billboard
+  const fallenPlank = new THREE.Mesh(sharedGeos.unitBox, brokenFenceWoodMat);
+  fallenPlank.scale.set(1.75, 0.12, 0.32);
+  fallenPlank.position.set(0.25, 0.10, 0.38);
+  fallenPlank.rotation.y = 0.28;
+  fallenPlank.rotation.z = 0.06;
+  bGroup.add(fallenPlank);
+
+  return bGroup;
+}
+
+/**
+ * Helper to create a 3D fallen wire tube or snapped cable segment between a sequence of 3D points.
+ */
+function buildFallenWireCurveMesh(points: THREE.Vector3[], radius = 0.032): THREE.Mesh {
+  const curve = new THREE.CatmullRomCurve3(points);
+  const geo = new THREE.TubeGeometry(curve, 12, radius, 5, false);
+  const mesh = new THREE.Mesh(geo, fallenWireBlackMat);
+  mesh.userData.noCartoonOutline = true;
+  return mesh;
+}
+
+/**
+ * Builds an Apocalyptic Wooden Cross-Arm Utility Pole where SOME poles are snapped/broken in half
+ * and ALL utility wires are snapped and fallen to the ground ("e os postes deixe alguns quebrados e os fios dos postes todos caido")!
+ */
+function buildInfernoBrokenPoleAndFallenWires(
+  side: 'left' | 'right',
+  variantIndex: number,
+): THREE.Group {
+  const poleGroup = new THREE.Group();
+  const sign = side === 'left' ? -1 : 1;
+  const roadDir = -sign; // +1 towards road for left pole, -1 towards road for right pole
+  const isSnappedInHalf = variantIndex % 2 === 1;
+
+  if (isSnappedInHalf) {
+    // BROKEN / SNAPPED POLE ("alguns postes quebrados"):
+    // 1. Lower splintered wooden stump
+    const lowerStump = new THREE.Mesh(sharedGeos.cylinder, charredWoodMat);
+    lowerStump.scale.set(0.24, 3.2, 0.24);
+    lowerStump.position.set(0, 1.6, 0);
+    lowerStump.rotation.z = roadDir * 0.08;
+    poleGroup.add(lowerStump);
+
+    for (let s = 0; s < 3; s++) {
+      const splinter = new THREE.Mesh(sharedGeos.cone, charredWoodMat);
+      splinter.scale.set(0.08, 0.55, 0.08);
+      splinter.position.set((s - 1) * 0.07, 3.25, (s % 2) * 0.06);
+      splinter.rotation.z = (s - 1) * 0.18;
+      poleGroup.add(splinter);
+    }
+
+    // 2. Snapped Upper Pole Section hanging over at a steep broken angle
+    const brokenUpperPivot = new THREE.Group();
+    brokenUpperPivot.position.set(roadDir * 0.14, 3.05, 0);
+    brokenUpperPivot.rotation.z = roadDir * 0.58;
+    brokenUpperPivot.rotation.x = 0.18;
+
+    const upperShaft = new THREE.Mesh(sharedGeos.cylinder, charredWoodMat);
+    upperShaft.scale.set(0.21, 3.1, 0.21);
+    upperShaft.position.set(0, 1.55, 0);
+    brokenUpperPivot.add(upperShaft);
+
+    const crossbar = new THREE.Mesh(sharedGeos.unitBox, charredWoodMat);
+    crossbar.scale.set(1.85, 0.16, 0.16);
+    crossbar.position.set(0, 2.55, 0);
+    crossbar.rotation.z = -roadDir * 0.34;
+    brokenUpperPivot.add(crossbar);
+
+    const lampArm = new THREE.Mesh(sharedGeos.unitBox, charredWoodMat);
+    lampArm.scale.set(1.45, 0.10, 0.10);
+    lampArm.position.set(roadDir * 0.72, 1.95, 0);
+    lampArm.rotation.z = roadDir * 0.18;
+    brokenUpperPivot.add(lampArm);
+
+    const lampHead = new THREE.Mesh(sharedGeos.unitBox, infernoPoleLampAmberMat);
+    lampHead.scale.set(0.46, 0.16, 0.28);
+    lampHead.position.set(roadDir * 1.38, 2.05, 0);
+    brokenUpperPivot.add(lampHead);
+
+    const lampGlowQuad = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), infernoSoftLampGlowMat);
+    lampGlowQuad.position.set(roadDir * 1.38, 1.92, 0.18);
+    lampGlowQuad.userData.noCartoonOutline = true;
+    brokenUpperPivot.add(lampGlowQuad);
+
+    poleGroup.add(brokenUpperPivot);
+
+    // 3. ALL WIRES FALLEN TO THE GROUND ("os fios dos postes todos caido"):
+    // Smooth catenary curves that drape down onto the sidewalk (y >= 0.08) without dipping below ground!
+    const wire1 = buildFallenWireCurveMesh([
+      new THREE.Vector3(roadDir * 1.25, 4.75, -0.15),
+      new THREE.Vector3(roadDir * 1.05, 2.35, -1.55),
+      new THREE.Vector3(roadDir * 0.65, 0.48, -3.20),
+      new THREE.Vector3(roadDir * 0.35, 0.12, -5.40),
+      new THREE.Vector3(-roadDir * 0.35, 0.10, -8.20),
+    ]);
+    poleGroup.add(wire1);
+
+    const wire2 = buildFallenWireCurveMesh([
+      new THREE.Vector3(roadDir * 1.65, 4.15, 0.15),
+      new THREE.Vector3(roadDir * 1.25, 1.85, 1.75),
+      new THREE.Vector3(roadDir * 0.65, 0.42, 3.45),
+      new THREE.Vector3(-roadDir * 0.25, 0.10, 5.80),
+    ]);
+    poleGroup.add(wire2);
+
+    const danglingWhip = buildFallenWireCurveMesh([
+      new THREE.Vector3(roadDir * 0.65, 4.85, 0.10),
+      new THREE.Vector3(roadDir * 0.72, 2.65, 0.38),
+      new THREE.Vector3(roadDir * 0.48, 0.85, 0.68),
+      new THREE.Vector3(roadDir * 0.22, 0.12, 1.15),
+    ]);
+    poleGroup.add(danglingWhip);
+  } else {
+    // LEANING WOODEN CROSS-POLE WITH BROKEN CROSSBAR & ALL WIRES FALLEN TO THE GROUND:
+    const tiltAngle = roadDir * (0.14 + (variantIndex % 3) * 0.035);
+    const polePivot = new THREE.Group();
+    polePivot.rotation.z = tiltAngle;
+
+    const mainShaft = new THREE.Mesh(sharedGeos.cylinder, charredWoodMat);
+    mainShaft.scale.set(0.23, 6.4, 0.23);
+    mainShaft.position.set(0, 3.2, 0);
+    polePivot.add(mainShaft);
+
+    const topCrossbar = new THREE.Mesh(sharedGeos.unitBox, charredWoodMat);
+    topCrossbar.scale.set(2.05, 0.18, 0.18);
+    topCrossbar.position.set(0, 5.65, 0);
+    topCrossbar.rotation.z = -roadDir * 0.22;
+    polePivot.add(topCrossbar);
+
+    for (const ix of [-0.82, 0.82]) {
+      const pin = new THREE.Mesh(sharedGeos.cylinder, charredWoodMat);
+      pin.scale.set(0.06, 0.26, 0.06);
+      pin.position.set(ix, 5.82, 0);
+      polePivot.add(pin);
+    }
+
+    const lampArm = new THREE.Mesh(sharedGeos.unitBox, charredWoodMat);
+    lampArm.scale.set(1.85, 0.11, 0.11);
+    lampArm.position.set(roadDir * 0.92, 4.45, 0);
+    lampArm.rotation.z = roadDir * 0.12;
+    polePivot.add(lampArm);
+
+    const lampHousing = new THREE.Mesh(sharedGeos.unitBox, charredWoodMat);
+    lampHousing.scale.set(0.54, 0.18, 0.32);
+    lampHousing.position.set(roadDir * 1.82, 4.58, 0);
+    polePivot.add(lampHousing);
+
+    const lampBulb = new THREE.Mesh(sharedGeos.unitBox, infernoPoleLampAmberMat);
+    lampBulb.scale.set(0.46, 0.10, 0.26);
+    lampBulb.position.set(roadDir * 1.82, 4.48, 0);
+    polePivot.add(lampBulb);
+
+    const lampGlowQuad = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 3.0), infernoSoftLampGlowMat);
+    lampGlowQuad.position.set(roadDir * 1.82, 4.35, 0.18);
+    lampGlowQuad.userData.noCartoonOutline = true;
+    polePivot.add(lampGlowQuad);
+
+    poleGroup.add(polePivot);
+
+    // ALL WIRES SNAPPED & FALLEN TO THE GROUND ("e os fios dos postes todos caido"):
+    const fallenWireA = buildFallenWireCurveMesh([
+      new THREE.Vector3(roadDir * 0.20, 5.55, -0.1),
+      new THREE.Vector3(roadDir * 0.42, 2.75, -1.7),
+      new THREE.Vector3(roadDir * 0.52, 0.55, -3.5),
+      new THREE.Vector3(-roadDir * 0.28, 0.12, -6.2),
+      new THREE.Vector3(roadDir * 0.22, 0.10, -8.8),
+    ]);
+    poleGroup.add(fallenWireA);
+
+    const fallenWireB = buildFallenWireCurveMesh([
+      new THREE.Vector3(roadDir * 1.35, 5.25, 0.1),
+      new THREE.Vector3(roadDir * 1.10, 2.45, 1.8),
+      new THREE.Vector3(roadDir * 0.58, 0.48, 3.4),
+      new THREE.Vector3(roadDir * 0.18, 0.10, 5.8),
+    ]);
+    poleGroup.add(fallenWireB);
+
+    const groundCableLoop = buildFallenWireCurveMesh([
+      new THREE.Vector3(-roadDir * 0.65, 0.10, -2.4),
+      new THREE.Vector3(roadDir * 0.38, 0.11, -0.8),
+      new THREE.Vector3(-roadDir * 0.25, 0.10, 1.4),
+      new THREE.Vector3(roadDir * 0.48, 0.10, 3.1),
+    ]);
+    poleGroup.add(groundCableLoop);
+  }
+
+  return poleGroup;
+}
+
+/**
+ * Builds a Towering Destroyed Multi-Story Apartment/Office Building ("coloque alguns predios ao lados destruidos")
+ * flanking the apocalyptic Inferno road:
+ * - 4 to 6 stories tall (14.5m..20.5m) with scorched concrete facade & floor-slab ledges
+ * - Multi-floor grid of blown-out hollow windows & roaring fire-lit windows
+ * - Catastrophically collapsed upper stories with tilted broken concrete roof slabs, stair-stepped jagged wall teeth,
+ *   exposed twisted steel rebar rods, broken side balconies, and roaring rooftop flames!
+ */
+function buildInfernoDestroyedTallBuilding(
+  variantIndex: number,
+  side: 'left' | 'right',
+  ruinedWallMat: THREE.Material,
+): THREE.Group {
+  const bGroup = new THREE.Group();
+  const sign = side === 'left' ? -1 : 1;
+
+  const floors = 3 + (variantIndex % 2); // 3 or 4 stories tall so mountain dog statues remain 100% unobstructed
+  const floorH = 2.75;
+  const totalH = floors * floorH;
+  const bWidth = 7.2 + (variantIndex % 2) * 0.8;
+  const bDepth = 8.4 + (variantIndex % 3) * 0.6;
+
+  // Main multi-story concrete tower shell
+  const mainTower = new THREE.Mesh(sharedGeos.unitBox, ruinedWallMat);
+  mainTower.scale.set(bWidth, totalH, bDepth);
+  mainTower.position.set(0, totalH * 0.5, 0);
+  bGroup.add(mainTower);
+
+  // Horizontal concrete floor-slab ledges between stories
+  for (let f = 1; f < floors; f++) {
+    const slabLedge = new THREE.Mesh(sharedGeos.unitBox, charredWoodMat);
+    slabLedge.scale.set(bWidth + 0.24, 0.20, bDepth + 0.22);
+    slabLedge.position.set(0, f * floorH, 0);
+    bGroup.add(slabLedge);
+  }
+
+  // Multi-story grid of blown-out dark windows & fire-lit windows facing the road and street approach!
+  const roadFaceX = -sign * (bWidth * 0.5 + 0.04);
+  const winZCols = [-2.5, 0.0, 2.5];
+
+  for (let f = 0; f < floors; f++) {
+    const wy = f * floorH + 1.65;
+    for (let c = 0; c < winZCols.length; c++) {
+      // Top floor corner is collapsed on one side, skip window there for broken silhouette
+      if (f === floors - 1 && c === 2) continue;
+
+      const wz = winZCols[c];
+      const isOnFire = (f + c + variantIndex) % 2 === 0;
+
+      const winFrame = new THREE.Mesh(sharedGeos.unitBox, charredWoodMat);
+      winFrame.scale.set(0.18, 1.48, 1.44);
+      winFrame.position.set(roadFaceX, wy, wz);
+      bGroup.add(winFrame);
+
+      if (isOnFire) {
+        const fireCore = new THREE.Mesh(sharedGeos.unitBox, infernoWindowFireCoreMat);
+        fireCore.scale.set(0.12, 1.24, 1.22);
+        fireCore.position.set(roadFaceX + sign * 0.04, wy, wz);
+        bGroup.add(fireCore);
+
+        if ((f + c) % 3 === 0) {
+          const winFlame = new THREE.Mesh(new THREE.PlaneGeometry(1.75, 2.35), infernoRoaringFireMat);
+          winFlame.rotation.y = sign * (Math.PI * 0.5);
+          winFlame.position.set(roadFaceX - sign * 0.18, wy + 0.45, wz);
+          winFlame.userData.noCartoonOutline = true;
+          bGroup.add(winFlame);
+        }
+      }
+
+      // Broken tilted concrete balconies on alternating upper stories
+      if (f >= 1 && (f + c + variantIndex) % 3 === 1) {
+        const balcony = new THREE.Mesh(sharedGeos.unitBox, ruinedWallMat);
+        balcony.scale.set(0.95, 0.24, 1.68);
+        balcony.position.set(roadFaceX - sign * 0.42, wy - 0.72, wz);
+        balcony.rotation.z = sign * (0.16 + (f % 2) * 0.12);
+        balcony.rotation.x = ((c % 2) - 0.5) * 0.14;
+        bGroup.add(balcony);
+      }
+    }
+
+    // Front Z-facing windows (visible as player approaches the tall building down the straight road!)
+    for (const wx of [-1.8, 1.8]) {
+      const zWinFrame = new THREE.Mesh(sharedGeos.unitBox, charredWoodMat);
+      zWinFrame.scale.set(1.38, 1.44, 0.18);
+      zWinFrame.position.set(wx, wy, bDepth * 0.5 + 0.04);
+      bGroup.add(zWinFrame);
+
+      if ((f + Math.round(wx) + variantIndex) % 2 === 0) {
+        const zFireCore = new THREE.Mesh(sharedGeos.unitBox, infernoWindowFireCoreMat);
+        zFireCore.scale.set(1.16, 1.20, 0.12);
+        zFireCore.position.set(wx, wy, bDepth * 0.5 + 0.01);
+        bGroup.add(zFireCore);
+      }
+    }
+  }
+
+  // Catastrophically Collapsed Upper Roof & Jagged Stair-Stepped Broken Wall Blocks ("predios ao lados destruidos")
+  for (let b = 0; b < 6; b++) {
+    const bz = (b - 2.5) * (bDepth * 0.17);
+    const bh = 1.15 + ((b * 2 + variantIndex) % 4) * 0.72;
+    const bx = ((b % 2 === 0 ? -1 : 1) * bWidth * 0.28);
+    const brokenPillar = new THREE.Mesh(sharedGeos.unitBox, ruinedWallMat);
+    brokenPillar.scale.set(1.65, bh, 1.45);
+    brokenPillar.position.set(bx, totalH + bh * 0.5 - 0.15, bz);
+    brokenPillar.rotation.z = sign * (((b % 3) - 1) * 0.14);
+    bGroup.add(brokenPillar);
+  }
+
+  // Collapsed Tilted Concrete Roof Slab hanging precariously off the top of the destroyed building
+  const collapsedRoofSlab = new THREE.Mesh(sharedGeos.unitBox, ruinedWallMat);
+  collapsedRoofSlab.scale.set(bWidth * 0.78, 0.42, bDepth * 0.62);
+  collapsedRoofSlab.position.set(-sign * 0.85, totalH + 0.85, 0.6);
+  collapsedRoofSlab.rotation.z = sign * 0.34;
+  collapsedRoofSlab.rotation.x = 0.18;
+  bGroup.add(collapsedRoofSlab);
+
+  // Exposed Twisted Steel Rebar Rods sticking out of the shattered upper concrete walls
+  for (let r = 0; r < 6; r++) {
+    const rebar = new THREE.Mesh(sharedGeos.cylinder, charredWoodMat);
+    rebar.scale.set(0.06, 2.2 + (r % 2) * 0.8, 0.06);
+    rebar.position.set(
+      -sign * (bWidth * 0.32) + ((r % 3) - 1) * 1.4,
+      totalH + 1.1,
+      (r - 2.5) * 1.35,
+    );
+    rebar.rotation.z = sign * (0.22 + (r % 3) * 0.18);
+    rebar.rotation.x = ((r % 2) - 0.5) * 0.32;
+    rebar.userData.noCartoonOutline = true;
+    bGroup.add(rebar);
+  }
+
+  // Roaring Conflagration Flames & Rising Smoke on the Collapsed Building Rooftop!
+  for (let f = 0; f < 2; f++) {
+    const fz = (f - 0.5) * 3.4;
+    const roofFlameA = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 5.8), infernoRoaringFireMat);
+    roofFlameA.position.set(-sign * 0.8, totalH + 2.1, fz);
+    roofFlameA.rotation.y = 0.28 * sign;
+    roofFlameA.userData.noCartoonOutline = true;
+    bGroup.add(roofFlameA);
+
+    const roofFlameB = new THREE.Mesh(new THREE.PlaneGeometry(4.8, 5.4), infernoRoaringFireMat);
+    roofFlameB.position.set(-sign * 0.6, totalH + 2.0, fz);
+    roofFlameB.rotation.y = Math.PI * 0.44 * sign;
+    roofFlameB.userData.noCartoonOutline = true;
+    bGroup.add(roofFlameB);
+  }
+
+  return bGroup;
+}
+
+/**
+ * Builds a Complete 15.6m Apocalyptic Inferno Roadside Slot for either the 'left' or 'right' side of the road:
+ * - Destroyed, roof-collapsed concrete/brick house engulfed in roaring animated flames & soft rising smoke plumes ("as casas destruidas pegando fogo")
+ * - Towering Destroyed Multi-Story Buildings ("coloque alguns predios ao lados destruidos") flanking both sides of the road
+ * - Broken wooden picket/slat fence along the sidewalk
+ * - Scattered angular low-poly volcanic rocks & rubble along the curb edge
+ * - Charred leafless dead trees & burnt-out car wrecks
+ * - Broken/leaning wooden utility pole with ALL wires snapped and fallen on the ground ("e os postes deixe alguns quebrados e os fios dos postes todos caido")
+ */
+export function buildInfernoBurningRuinedHouseSlot(
+  variantIndex: number,
+  side: 'left' | 'right',
+  maxAnisotropy = 4,
+): THREE.Group {
+  const group = new THREE.Group();
+  group.name = `Inferno_Burning_Ruined_Slot_${side}_${variantIndex}`;
+  group.userData.keepAllMeshesVisible = true;
+
+  const sign = side === 'left' ? -1 : 1;
+  const wallTex = getInfernoRuinedWallTexture(variantIndex, maxAnisotropy);
+  const ruinedWallMat = new THREE.MeshStandardMaterial({
+    map: wallTex,
+    roughness: 0.86,
+    metalness: 0.04,
+  });
+  applyWorldCurvatureToMaterial(ruinedWallMat);
+
+  // 1. Primary Ruined House Shell (set at x = -11.8 for left, +11.8 for right)
+  const houseX = sign * 11.8;
+  const houseW = 6.6;
+  const houseD = 8.4 + (variantIndex % 3) * 0.8;
+  const stories = variantIndex % 2 === 0 ? 2 : 1;
+  const baseH = stories === 2 ? 6.2 : 4.2;
+
+  const houseGroup = new THREE.Group();
+  houseGroup.position.set(houseX, 0.22, 0);
+
+  const shell = new THREE.Mesh(sharedGeos.unitBox, ruinedWallMat);
+  shell.scale.set(houseW, baseH, houseD);
+  shell.position.set(0, baseH * 0.5, 0);
+  houseGroup.add(shell);
+
+  // Jagged broken upper wall blocks & collapsed concrete parapet teeth along the top edge ("casas destruídas")
+  const frontFaceX = -sign * (houseW * 0.5 + 0.04);
+  for (let b = 0; b < 5; b++) {
+    const bz = (b - 2) * (houseD * 0.2);
+    const bh = 0.55 + ((b + variantIndex) % 3) * 0.42;
+    const brokenTooth = new THREE.Mesh(sharedGeos.unitBox, ruinedWallMat);
+    brokenTooth.scale.set(0.42, bh, 1.15);
+    brokenTooth.position.set(-sign * (houseW * 0.45), baseH + bh * 0.5 - 0.1, bz);
+    brokenTooth.rotation.x = ((b % 2) - 0.5) * 0.16;
+    houseGroup.add(brokenTooth);
+  }
+
+  // Collapsed charred roof rafters sticking out of the top of the burning house
+  for (let r = 0; r < 3; r++) {
+    const rafter = new THREE.Mesh(sharedGeos.unitBox, charredWoodMat);
+    rafter.scale.set(3.8, 0.22, 0.24);
+    rafter.position.set(0, baseH + 0.25, (r - 1) * 2.4);
+    rafter.rotation.z = sign * (0.28 + r * 0.12);
+    houseGroup.add(rafter);
+  }
+
+  // Glowing fire-filled hollow window & door openings facing the street!
+  const windowZOffsets = [-2.2, 0.0, 2.2];
+  for (let w = 0; w < windowZOffsets.length; w++) {
+    const wz = windowZOffsets[w];
+    const isDoor = w === 1;
+    const openH = isDoor ? 2.15 : 1.35;
+    const openY = isDoor ? 1.15 : 1.75;
+
+    const frame = new THREE.Mesh(sharedGeos.unitBox, charredWoodMat);
+    frame.scale.set(0.18, openH + 0.24, 1.38);
+    frame.position.set(frontFaceX, openY, wz);
+    houseGroup.add(frame);
+
+    const fireInterior = new THREE.Mesh(sharedGeos.unitBox, infernoWindowFireCoreMat);
+    fireInterior.scale.set(0.12, openH, 1.18);
+    fireInterior.position.set(frontFaceX + sign * 0.05, openY, wz);
+    houseGroup.add(fireInterior);
+
+    const windowFlame = new THREE.Mesh(new THREE.PlaneGeometry(1.65, 2.2), infernoRoaringFireMat);
+    windowFlame.rotation.y = sign * (Math.PI * 0.5);
+    windowFlame.position.set(frontFaceX - sign * 0.18, openY + 0.35, wz);
+    windowFlame.userData.noCartoonOutline = true;
+    houseGroup.add(windowFlame);
+
+    if (stories === 2) {
+      const upperFrame = new THREE.Mesh(sharedGeos.unitBox, charredWoodMat);
+      upperFrame.scale.set(0.18, 1.4, 1.36);
+      upperFrame.position.set(frontFaceX, 4.45, wz);
+      houseGroup.add(upperFrame);
+
+      const upperFire = new THREE.Mesh(sharedGeos.unitBox, infernoWindowFireCoreMat);
+      upperFire.scale.set(0.12, 1.2, 1.16);
+      upperFire.position.set(frontFaceX + sign * 0.05, 4.45, wz);
+      houseGroup.add(upperFire);
+    }
+  }
+
+  // Roaring Rooftop Conflagration Flames shooting out of the collapsed roof!
+  for (let f = 0; f < 3; f++) {
+    const fz = (f - 1) * 2.4;
+    const flameA = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 4.8), infernoRoaringFireMat);
+    flameA.position.set(-sign * 0.5, baseH + 1.65, fz);
+    flameA.rotation.y = 0.25 * sign;
+    flameA.userData.noCartoonOutline = true;
+    houseGroup.add(flameA);
+
+    const flameB = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 4.5), infernoRoaringFireMat);
+    flameB.position.set(-sign * 0.3, baseH + 1.55, fz);
+    flameB.rotation.y = Math.PI * 0.42 * sign;
+    flameB.userData.noCartoonOutline = true;
+    houseGroup.add(flameB);
+  }
+
+  // Organic Volumetric FBM Billowing Smoke Plume rising from the burning house roof ("melhore nessas fumacas das casas pegando fogo")
+  // Uses camera-facing vertical planes with soft C2 quintic FBM noise (zero hard sphere circles and zero edge-on plane lines!)
+  if (variantIndex % 2 === 0) {
+    const smokePlumeGeo = new THREE.PlaneGeometry(6.8, 9.6);
+    const smokeX = sign * 2.2;
+    const smokeY = baseH + 4.2;
+    const smokeZ = ((variantIndex % 3) - 1) * 0.9;
+
+    const smokePlaneA = new THREE.Mesh(smokePlumeGeo, infernoBillowingSmokeMat);
+    smokePlaneA.position.set(smokeX, smokeY, smokeZ);
+    smokePlaneA.rotation.y = -sign * 0.18;
+    smokePlaneA.userData.noCartoonOutline = true;
+    houseGroup.add(smokePlaneA);
+
+    const smokePlaneB = new THREE.Mesh(smokePlumeGeo, infernoBillowingSmokeMat);
+    smokePlaneB.position.set(smokeX + sign * 1.1, smokeY + 0.8, smokeZ - 1.4);
+    smokePlaneB.rotation.y = -sign * 0.12;
+    smokePlaneB.userData.noCartoonOutline = true;
+    houseGroup.add(smokePlaneB);
+  }
+
+  // 1b. Towering Destroyed Multi-Story Buildings on Staggered Slots ("coloque alguns predios ao lados destruidos"):
+  // Placed on alternating slots on left and right so there are prominent 4-to-6 story collapsed urban buildings
+  // alongside the road while keeping wide sky vistas open between buildings for volcanoes, meteors, and distant creatures!
+  const hasTallBuilding =
+    (side === 'left' && variantIndex % 3 === 2) ||
+    (side === 'right' && variantIndex % 3 === 1);
+
+  if (hasTallBuilding) {
+    const tallBuildingTex = getInfernoRuinedWallTexture(variantIndex + 7, maxAnisotropy);
+    const tallBuildingMat = new THREE.MeshStandardMaterial({
+      map: tallBuildingTex,
+      roughness: 0.85,
+      metalness: 0.05,
+    });
+    applyWorldCurvatureToMaterial(tallBuildingMat);
+
+    const destroyedBuilding = buildInfernoDestroyedTallBuilding(variantIndex, side, tallBuildingMat);
+    destroyedBuilding.position.set(
+      sign * (7.2 + (variantIndex % 2) * 1.2),
+      0,
+      (variantIndex % 2 === 0 ? -1.6 : 1.4),
+    );
+    destroyedBuilding.rotation.z = -sign * (0.025 + (variantIndex % 3) * 0.015);
+    houseGroup.add(destroyedBuilding);
+  } else {
+    // Lower Secondary Background Ruin on non-high-rise slots so the skyline is varied and open!
+    const bgRuin = new THREE.Mesh(sharedGeos.unitBox, ruinedWallMat);
+    const bgH = 5.0 + (variantIndex % 2) * 1.4;
+    bgRuin.scale.set(5.8, bgH, 7.0);
+    bgRuin.position.set(sign * 8.0, bgH * 0.5, -2.0);
+    houseGroup.add(bgRuin);
+
+    const bgFlame = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 5.0), infernoRoaringFireMat);
+    bgFlame.position.set(sign * 5.2, bgH + 1.4, -2.0);
+    bgFlame.userData.noCartoonOutline = true;
+    houseGroup.add(bgFlame);
+  }
+
+  group.add(houseGroup);
+
+  // Determine rock pattern & corner billboard placement per slot
+  // ("e tambem na rua faz quebrar padrao igual algumas partes sem predras, uma pedra maior mais ao lado de uma casa")
+  const hasCornerBillboard =
+    (side === 'left' && (variantIndex === 0 || variantIndex === 2 || variantIndex === 5)) ||
+    (side === 'right' && (variantIndex === 0 || variantIndex === 3));
+
+  const rockPattern = hasCornerBillboard
+    ? 0
+    : side === 'left'
+      ? variantIndex === 1 || variantIndex === 3
+        ? 1
+        : 0
+      : variantIndex === 1 || variantIndex === 4
+        ? 1
+        : variantIndex === 2
+          ? 0
+          : 2;
+
+  // 2. Broken Wooden Picket / Slat Fence along the Sidewalk Edge (x = +-7.85)
+  // Leaves a crushed gap where a giant boulder or corner wooden billboard sits!
+  const fenceX = sign * 7.85;
+  const fenceRail = new THREE.Mesh(sharedGeos.unitBox, brokenFenceWoodMat);
+  fenceRail.scale.set(0.12, 0.14, 12.6);
+  fenceRail.position.set(fenceX, 0.88, 0);
+  fenceRail.rotation.x = 0.03;
+  group.add(fenceRail);
+
+  for (let p = -6; p <= 6; p++) {
+    if ((p + variantIndex) % 5 === 0) continue;
+    if (hasCornerBillboard && p >= 0 && p <= 5) continue;
+    if (rockPattern === 1 && p >= -1 && p <= 4) continue;
+    const picket = new THREE.Mesh(sharedGeos.unitBox, brokenFenceWoodMat);
+    const ph = 1.18 + ((p * 3 + variantIndex) % 3) * 0.22;
+    picket.scale.set(0.1, ph, 0.42);
+    picket.position.set(fenceX - sign * 0.05, 0.22 + ph * 0.5, p * 0.98);
+    picket.rotation.x = ((p % 3) - 1) * 0.11;
+    picket.rotation.z = sign * (((p + 1) % 2) * 0.08);
+    group.add(picket);
+  }
+
+  // 3. Non-Repetitive Volcanic Rocks & Giant House-Side Boulders
+  let rockOffsets: Array<{ x: number; z: number; sx: number; sy: number; sz: number; rotY: number }> = [];
+
+  if (rockPattern === 0) {
+    // Pattern 0: Completely clear stretch with NO rocks ("algumas partes sem pedras")!
+    rockOffsets = [];
+  } else if (rockPattern === 1) {
+    // Pattern 1: One HUGE craggy boulder right beside the house on the sidewalk ("uma pedra maior mais ao lado de uma casa")!
+    rockOffsets = [
+      { x: sign * 6.72, z: 1.6, sx: 2.72, sy: 2.02, sz: 2.38, rotY: 0.75 },
+      { x: sign * 5.55, z: -3.4, sx: 0.92, sy: 0.50, sz: 0.82, rotY: 1.85 },
+    ];
+  } else {
+    // Pattern 2: Single isolated medium rock near the curb, rest of the 15.6m slot completely rock-free!
+    rockOffsets = [
+      { x: sign * 5.58, z: -2.2, sx: 1.32, sy: 0.72, sz: 1.10, rotY: 2.1 },
+    ];
+  }
+
+  for (let r = 0; r < rockOffsets.length; r++) {
+    const ro = rockOffsets[r];
+    const rock = new THREE.Mesh(
+      lowPolyBoulderGeo,
+      r % 2 === 0 ? rubbleRockDarkMat : rubbleRockLitMat,
+    );
+    rock.scale.set(ro.sx, ro.sy, ro.sz);
+    rock.position.set(ro.x, 0.22 + ro.sy * 0.28, ro.z);
+    rock.rotation.set(r * 0.3, ro.rotY, 0.15);
+    rock.userData.noCartoonOutline = true;
+    group.add(rock);
+  }
+
+  // 4. Partially Broken Wooden Outdoor Billboard ("coloque uns autdor no canto e escrito sua logo aqui. placa de madeira assim das casas e autdor meio que quebrado")
+  // or Charred Leafless Dead Tree on alternating slots (with the parked car completely removed: "remove esse carro parado tambem na calsada")!
+  if (hasCornerBillboard) {
+    const brokenBillboard = buildInfernoBrokenWoodenBillboard(side, maxAnisotropy);
+    // Placed in the open roadside corner in front of the utility pole & outside the house wall so "SUA LOGO AQUI" is 100% unclipped!
+    brokenBillboard.position.set(sign * 6.45, 0.22, 2.4);
+    brokenBillboard.rotation.y = -sign * 0.26;
+    group.add(brokenBillboard);
+  } else if (variantIndex % 2 === 0) {
+    const deadTree = buildCharredDeadTree(1.08, variantIndex);
+    deadTree.position.set(sign * 8.95, 0.22, 4.2);
+    group.add(deadTree);
+  }
+
+  // 5. Broken / Leaning Wooden Utility Pole with ALL Wires Fallen to the Ground ("e os postes deixe alguns quebrados e os fios dos postes todos caido")!
+  const brokenPole = buildInfernoBrokenPoleAndFallenWires(side, variantIndex);
+  brokenPole.position.set(sign * 6.32, 0.22, -3.5);
+  group.add(brokenPole);
+
+  addCartoonOutlinesToGroup(group);
+  return group;
+}
+
+// Soft Out-of-Focus Gaussian-Blurred Winged Creature Shaders ("deixe essas criaturas voando bem longe e borradas"):
+// Renders distant sky creatures with a wide optical depth-of-field blur kernel, atmospheric crimson haze blending,
+// zero sharp polygon edges, and zero glowing yellow eyes!
+const infernoBlurredCreatureBodyMat = new THREE.ShaderMaterial({
+  transparent: true,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+  fog: false,
+  blending: THREE.NormalBlending,
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    varying vec2 vUv;
+    void main() {
+      vec2 p = (vUv - 0.5) * 2.0;
+      // Elongated soft torso/tail Gaussian blur kernel
+      float d = length(vec2(p.x * 1.35, p.y * 0.90));
+      if (d > 1.0) discard;
+      float blurMask = exp(-d * d * 3.4) * smoothstep(1.0, 0.12, d);
+      vec3 coreCol = vec3(0.12, 0.015, 0.015);
+      vec3 hazeEdgeCol = vec3(0.62, 0.10, 0.06);
+      vec3 col = mix(hazeEdgeCol, coreCol, blurMask);
+      gl_FragColor = vec4(col, blurMask * 0.56);
+    }
+  `,
+});
+
+const infernoBlurredCreatureWingMat = new THREE.ShaderMaterial({
+  transparent: true,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+  fog: false,
+  blending: THREE.NormalBlending,
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    varying vec2 vUv;
+    void main() {
+      // Soft out-of-focus arched bat/wyvern wing silhouette with wide Gaussian blur feathering
+      float span = vUv.x; // 0 at shoulder, 1 at wingtip
+      float chord = (vUv.y - 0.5) * 2.0;
+      float archOffset = sin(span * 3.14159) * 0.24;
+      float halfWidth = mix(0.66, 0.10, pow(span, 0.82));
+      float distFromWing = abs(chord - archOffset) / max(0.08, halfWidth);
+      float spanFade = smoothstep(0.0, 0.14, span) * smoothstep(1.0, 0.18, span);
+      float wingBlur = exp(-distFromWing * distFromWing * 2.1) * smoothstep(1.40, 0.18, distFromWing) * spanFade;
+      if (wingBlur <= 0.01) discard;
+
+      vec3 coreCol = vec3(0.14, 0.02, 0.02);
+      vec3 hazeEdgeCol = vec3(0.65, 0.11, 0.06);
+      vec3 col = mix(hazeEdgeCol, coreCol, wingBlur);
+      gl_FragColor = vec4(col, wingBlur * 0.52);
+    }
+  `,
+});
+
+/**
+ * Builds a Distant, Out-of-Focus Blurred Winged Sky Creature Silhouette ("deixe essas criaturas voando bem longe e borradas").
+ */
+function buildSingleInfernoFlyingCreature(): {
+  root: THREE.Group;
+  leftWingPivot: THREE.Group;
+  rightWingPivot: THREE.Group;
+} {
+  const root = new THREE.Group();
+
+  // Soft Gaussian-blurred body quad (no sharp edges, no yellow eyes!)
+  const bodyQuad = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 3.4), infernoBlurredCreatureBodyMat);
+  bodyQuad.rotation.x = -Math.PI * 0.18;
+  root.add(bodyQuad);
+
+  const createBlurredWing = (dir: -1 | 1): THREE.Group => {
+    const pivot = new THREE.Group();
+    pivot.position.set(dir * 0.25, 0.05, 0.0);
+
+    const wingGeo = new THREE.PlaneGeometry(4.2, 2.4);
+    if (dir === -1) {
+      // Flip UVs horizontally so span = 0 is at the shoulder for the left wing too
+      const uvAttr = wingGeo.attributes.uv;
+      for (let i = 0; i < uvAttr.count; i++) {
+        uvAttr.setX(i, 1.0 - uvAttr.getX(i));
+      }
+      uvAttr.needsUpdate = true;
+    }
+
+    const wingQuad = new THREE.Mesh(wingGeo, infernoBlurredCreatureWingMat);
+    wingQuad.position.set(dir * 1.9, 0.0, 0.0);
+    wingQuad.rotation.x = -Math.PI * 0.15;
+    pivot.add(wingQuad);
+
+    return pivot;
+  };
+
+  const leftWingPivot = createBlurredWing(-1);
+  const rightWingPivot = createBlurredWing(1);
+  root.add(leftWingPivot);
+  root.add(rightWingPivot);
+
+  return { root, leftWingPivot, rightWingPivot };
+}
+
+/**
+ * Builds the Flock of 6 Distant, Blurry Winged Creatures in the Far Inferno Horizon Sky
+ * ("deixe essas criaturas voando bem longe e borradas").
+ */
+export function buildInfernoFlyingCreatures(): {
+  group: THREE.Group;
+  update: (elapsed: number) => void;
+} {
+  const group = new THREE.Group();
+  group.name = 'Inferno_Flying_Sky_Creatures';
+
+  const creatures: Array<{
+    root: THREE.Group;
+    leftWingPivot: THREE.Group;
+    rightWingPivot: THREE.Group;
+    scale: number;
+  }> = [];
+
+  const scales = [1.05, 1.18, 0.98, 1.12, 0.92, 1.02];
+  for (let i = 0; i < 6; i++) {
+    const c = buildSingleInfernoFlyingCreature();
+    c.root.scale.setScalar(scales[i]);
+    group.add(c.root);
+    creatures.push({ ...c, scale: scales[i] });
+  }
+
+  return {
+    group,
+    update: (elapsed: number) => {
+      for (let i = 0; i < creatures.length; i++) {
+        const c = creatures[i];
+        const pose = computeInfernoFlyingCreaturePose(i, elapsed);
+        c.root.position.set(pose.x, pose.y, pose.z);
+        c.root.rotation.set(pose.rotX, pose.rotY, pose.rotZ);
+        c.leftWingPivot.rotation.z = pose.wingFlapAngle;
+        c.rightWingPivot.rotation.z = -pose.wingFlapAngle;
+      }
+    },
+  };
+}
+
+/**
+ * Constrói o NPC Fantasma do Mapa INFERNO (aguardando na zona de entrega de pizza)
+ * e a Alma Libertada que sai do corpo, atravessa o centro da câmera e sobe ao céu!
+ */
+export interface InfernoGhostCustomerRig {
+  root: THREE.Group;
+  group: THREE.Group;
+  leftArm: THREE.Group;
+  rightArm: THREE.Group;
+  wavingArmPivot: THREE.Group;
+  catchingArmPivot: THREE.Group;
+  auraRing: THREE.Mesh;
+  update: (elapsed: number, happyBounce: number) => void;
+}
+
+export function buildInfernoGhostCustomerGroup(
+  _side?: 'left' | 'right',
+  _index?: number
+): InfernoGhostCustomerRig {
+  const group = new THREE.Group();
+  group.name = 'Inferno_Ghost_NPC';
+
+  // Fantasmas NPC em azul claro brilhante / ciano neon para enxergar com máxima nitidez de longe!
+  const spectralOuterMat = new THREE.MeshToonMaterial({
+    color: 0xbae6fd,
+    emissive: 0x38bdf8,
+    emissiveIntensity: 0.95,
+    transparent: true,
+    opacity: 0.90,
+    fog: false,
+  });
+  const spectralCoreMat = new THREE.MeshToonMaterial({
+    color: 0xffffff,
+    emissive: 0x7dd3fc,
+    emissiveIntensity: 0.88,
+    transparent: true,
+    opacity: 0.98,
+    fog: false,
+  });
+  const whiteOutlineMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    side: THREE.BackSide,
+    transparent: true,
+    opacity: 0.95,
+    fog: false,
+  });
+  const darkOutlineMat = new THREE.MeshBasicMaterial({
+    color: 0x0284c7,
+    side: THREE.BackSide,
+    fog: false,
+  });
+  const eyeMat = new THREE.MeshBasicMaterial({
+    color: 0x090d16,
+    fog: false,
+  });
+  const pupilGlowMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    fog: false,
+  });
+  const blushMat = new THREE.MeshBasicMaterial({
+    color: 0x38bdf8,
+    transparent: true,
+    opacity: 0.65,
+    fog: false,
+  });
+  const mouthInnerMat = new THREE.MeshBasicMaterial({
+    color: 0x0c4a6e,
+    fog: false,
+  });
+
+  // 1) Corpo Esculpido de Fantasma Cartoon (Silhueta orgânica estilo lençol flutuante + cauda curvada para cima!)
+  const lathePoints: THREE.Vector2[] = [
+    new THREE.Vector2(0.001, 1.76),
+    new THREE.Vector2(0.18, 1.73),
+    new THREE.Vector2(0.32, 1.62),
+    new THREE.Vector2(0.38, 1.44),
+    new THREE.Vector2(0.36, 1.22),
+    new THREE.Vector2(0.41, 0.96),
+    new THREE.Vector2(0.48, 0.68),
+    new THREE.Vector2(0.55, 0.42),
+    new THREE.Vector2(0.46, 0.24),
+    new THREE.Vector2(0.24, 0.12),
+    new THREE.Vector2(0.001, 0.04),
+  ];
+  const ghostSheetGeo = new THREE.LatheGeometry(lathePoints, 20);
+  const ghostBody = new THREE.Mesh(ghostSheetGeo, spectralCoreMat);
+  group.add(ghostBody);
+
+  // Contorno Cartoon Branco Brilhante + Contorno Azul Profundo para destacar a silhueta!
+  const ghostWhiteHull = new THREE.Mesh(ghostSheetGeo, whiteOutlineMat);
+  ghostWhiteHull.scale.set(1.065, 1.035, 1.065);
+  group.add(ghostWhiteHull);
+
+  const ghostDarkHull = new THREE.Mesh(ghostSheetGeo, darkOutlineMat);
+  ghostDarkHull.scale.set(1.105, 1.055, 1.105);
+  group.add(ghostDarkHull);
+
+  // 2) Babados Ondulados Cartoon na Barra do Lençol + Cauda Espectral Flutuante
+  const ruffleCount = 7;
+  for (let i = 0; i < ruffleCount; i++) {
+    const ang = (i / ruffleCount) * Math.PI * 2;
+    const ruffle = new THREE.Mesh(
+      new THREE.ConeGeometry(0.16, 0.38, 10),
+      i % 2 === 0 ? spectralCoreMat : spectralOuterMat
+    );
+    ruffle.rotation.x = Math.PI;
+    ruffle.position.set(Math.cos(ang) * 0.44, 0.26, Math.sin(ang) * 0.44);
+    ruffle.rotation.z = Math.cos(ang) * 0.22;
+    const ruffleHull = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.41, 10), whiteOutlineMat);
+    ruffle.add(ruffleHull);
+    group.add(ruffle);
+  }
+
+  // Cauda espiralada cartoon subindo atrás
+  const wispTail = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.62, 12), spectralOuterMat);
+  wispTail.rotation.x = Math.PI * 0.78;
+  wispTail.position.set(0, 0.18, -0.22);
+  group.add(wispTail);
+
+  // 3) Rosto Cartoon Super Expressivo (Olhões Brilhantes + Sobrancelhas Flutuantes + Bochechas + Boca Feliz!)
+  for (const s of [-1, 1] as const) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.082, 12, 12), eyeMat);
+    eye.scale.set(1.0, 1.38, 0.58);
+    eye.position.set(s * 0.135, 1.42, 0.34);
+    group.add(eye);
+
+    // Brilho duplo cartoon nos olhos
+    const shineBig = new THREE.Mesh(new THREE.SphereGeometry(0.032, 8, 8), pupilGlowMat);
+    shineBig.position.set(s * 0.118, 1.46, 0.38);
+    group.add(shineBig);
+
+    const shineSmall = new THREE.Mesh(new THREE.SphereGeometry(0.016, 8, 8), pupilGlowMat);
+    shineSmall.position.set(s * 0.15, 1.39, 0.38);
+    group.add(shineSmall);
+
+    // Sobrancelha expressiva flutuante
+    const brow = new THREE.Mesh(new THREE.CapsuleGeometry(0.022, 0.09, 4, 8), eyeMat);
+    brow.position.set(s * 0.14, 1.58, 0.33);
+    brow.rotation.z = Math.PI * 0.5 - s * 0.22;
+    group.add(brow);
+
+    // Bochecha luminosa azul-celeste
+    const blush = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 8), blushMat);
+    blush.scale.set(1.3, 0.75, 0.4);
+    blush.position.set(s * 0.23, 1.33, 0.31);
+    group.add(blush);
+  }
+
+  // Boca alegre cartoon aberta esperando a pizza
+  const mouth = new THREE.Mesh(new THREE.SphereGeometry(0.095, 12, 10), mouthInnerMat);
+  mouth.scale.set(1.25, 0.95, 0.48);
+  mouth.position.set(0, 1.25, 0.35);
+  group.add(mouth);
+
+  // 4) Braços Gordinhos Cartoon com Contorno Branco Acenando!
+  const makeGhostArm = (dir: -1 | 1) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(dir * 0.35, 1.14, 0.08);
+    const armGeo = new THREE.CapsuleGeometry(0.095, 0.32, 8, 12);
+    const armMesh = new THREE.Mesh(armGeo, spectralCoreMat);
+    armMesh.position.set(dir * 0.18, 0.14, 0);
+    armMesh.rotation.z = -dir * 0.65;
+    const armHull = new THREE.Mesh(armGeo, whiteOutlineMat);
+    armHull.scale.setScalar(1.15);
+    armMesh.add(armHull);
+    pivot.add(armMesh);
+    group.add(pivot);
+    return pivot;
+  };
+
+  const leftArm = makeGhostArm(-1);
+  const rightArm = makeGhostArm(1);
+
+  // 5) Auréola & Anéis Espectrais Luminosos Flutuando
+  const auraRing = new THREE.Mesh(
+    new THREE.RingGeometry(0.42, 0.78, 24),
+    new THREE.MeshBasicMaterial({
+      color: 0x7dd3fc,
+      transparent: true,
+      opacity: 0.62,
+      side: THREE.DoubleSide,
+      fog: false,
+    })
+  );
+  auraRing.rotation.x = -Math.PI / 2;
+  auraRing.position.y = 0.06;
+  group.add(auraRing);
+
+  return {
+    root: group,
+    group,
+    leftArm,
+    rightArm,
+    wavingArmPivot: rightArm,
+    catchingArmPivot: leftArm,
+    auraRing,
+    update: (elapsed: number, happyBounce: number) => {
+      // Flutuação viva e subida alegre quando recebe a pizza!
+      group.position.y = Math.sin(elapsed * 4.2) * 0.18 + happyBounce * 0.85;
+      group.rotation.z = Math.sin(elapsed * 2.8) * 0.08;
+      leftArm.rotation.z = Math.sin(elapsed * 6.0) * 0.32;
+      rightArm.rotation.z = -Math.sin(elapsed * 6.0) * 0.32;
+      auraRing.scale.setScalar(1 + Math.sin(elapsed * 4.8) * 0.15);
+    },
+  };
+}
+
+/**
+ * Constrói a Alma / Fantasma Cartoon Libertado que sai do corpo do Fantasma ao receber a pizza,
+ * voando lá pra cima em direção ao céu com asas de anjo cartoon, rosto feliz e trilha estelar!
+ */
+export interface LiberatedSoulAscensionRig {
+  root: THREE.Group;
+  group: THREE.Group;
+  coreMat: THREE.MeshBasicMaterial;
+  auraMat: THREE.MeshBasicMaterial;
+  haloMat: THREE.MeshBasicMaterial;
+  wingsLeft: THREE.Object3D;
+  wingsRight: THREE.Object3D;
+  sparkles: THREE.Mesh[];
+  update: (progress01: number, elapsed: number) => void;
+}
+
+export function buildLiberatedSoulAscensionRig(): LiberatedSoulAscensionRig {
+  const group = new THREE.Group();
+  group.name = 'Inferno_Liberated_Soul_Rig';
+  group.visible = false;
+
+  const coreMat = new THREE.MeshBasicMaterial({
+    color: 0xf0f9ff,
+    transparent: true,
+    opacity: 0.96,
+    fog: false,
+    depthTest: false,
+  });
+  const auraMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.92,
+    side: THREE.BackSide,
+    fog: false,
+    depthTest: false,
+  });
+  const cyanRimMat = new THREE.MeshBasicMaterial({
+    color: 0x38bdf8,
+    transparent: true,
+    opacity: 0.65,
+    side: THREE.BackSide,
+    fog: false,
+    depthTest: false,
+  });
+  const haloMat = new THREE.MeshBasicMaterial({
+    color: 0xfef08a,
+    transparent: true,
+    opacity: 0.98,
+    fog: false,
+    depthTest: false,
+  });
+  const faceMat = new THREE.MeshBasicMaterial({
+    color: 0x0f172a,
+    transparent: true,
+    opacity: 0.95,
+    fog: false,
+    depthTest: false,
+  });
+
+  // 1) Corpo Esculpido de Fantasminha Cartoon Feliz Voando pra Cima (com Contorno Branco e Halo Azul!)
+  const soulLathePts: THREE.Vector2[] = [
+    new THREE.Vector2(0.001, 1.05),
+    new THREE.Vector2(0.20, 1.01),
+    new THREE.Vector2(0.35, 0.88),
+    new THREE.Vector2(0.38, 0.66),
+    new THREE.Vector2(0.34, 0.42),
+    new THREE.Vector2(0.40, 0.16),
+    new THREE.Vector2(0.30, -0.14),
+    new THREE.Vector2(0.16, -0.44),
+    new THREE.Vector2(0.05, -0.72),
+    new THREE.Vector2(0.001, -0.88),
+  ];
+  const soulBodyGeo = new THREE.LatheGeometry(soulLathePts, 20);
+  const soulBody = new THREE.Mesh(soulBodyGeo, coreMat);
+  soulBody.renderOrder = 25;
+
+  const soulWhiteOutline = new THREE.Mesh(soulBodyGeo, auraMat);
+  soulWhiteOutline.scale.set(1.09, 1.05, 1.09);
+  soulWhiteOutline.renderOrder = 24;
+
+  const soulCyanOutline = new THREE.Mesh(soulBodyGeo, cyanRimMat);
+  soulCyanOutline.scale.set(1.16, 1.09, 1.16);
+  soulCyanOutline.renderOrder = 23;
+  group.add(soulCyanOutline, soulWhiteOutline, soulBody);
+
+  // 2) Rosto Cartoon Feliz de Alma Purificada (Olhos em arco sorridentes + Sorriso + Brilho!)
+  for (const s of [-1, 1] as const) {
+    const happyEye = new THREE.Mesh(
+      new THREE.TorusGeometry(0.068, 0.022, 8, 16, Math.PI),
+      faceMat
+    );
+    happyEye.position.set(s * 0.13, 0.68, 0.35);
+    happyEye.renderOrder = 27;
+    group.add(happyEye);
+  }
+  const happySmile = new THREE.Mesh(
+    new THREE.TorusGeometry(0.085, 0.022, 8, 16, Math.PI),
+    faceMat
+  );
+  happySmile.rotation.z = Math.PI;
+  happySmile.position.set(0, 0.56, 0.35);
+  happySmile.renderOrder = 27;
+  group.add(happySmile);
+
+  // 3) Bracinhos Cartoon Erguidos Celebrando a Subida ao Céu!
+  for (const s of [-1, 1] as const) {
+    const armGeo = new THREE.CapsuleGeometry(0.085, 0.28, 8, 10);
+    const arm = new THREE.Mesh(armGeo, coreMat);
+    arm.position.set(s * 0.42, 0.62, 0.08);
+    arm.rotation.z = -s * 0.55;
+    arm.renderOrder = 25;
+    const armOutline = new THREE.Mesh(armGeo, auraMat);
+    armOutline.scale.setScalar(1.18);
+    armOutline.renderOrder = 24;
+    arm.add(armOutline);
+    group.add(arm);
+  }
+
+  // 4) Auréola Dourada/Branca Celestial Luminosa
+  const halo = new THREE.Mesh(new THREE.TorusGeometry(0.30, 0.048, 12, 28), haloMat);
+  halo.rotation.x = Math.PI / 2;
+  halo.position.set(0, 1.24, 0);
+  halo.renderOrder = 27;
+  group.add(halo);
+
+  // 5) Asas de Anjo Cartoon Esculpidas com Penas Camadas + Contorno Branco
+  const buildCartoonWing = (dir: -1 | 1) => {
+    const wingRoot = new THREE.Group();
+    wingRoot.position.set(dir * 0.34, 0.58, -0.06);
+    const featherSpecs = [
+      { len: 0.68, rad: 0.13, y: 0.14, ang: 0.22 },
+      { len: 0.56, rad: 0.11, y: -0.02, ang: -0.04 },
+      { len: 0.42, rad: 0.095, y: -0.16, ang: -0.28 },
+    ];
+    for (const f of featherSpecs) {
+      const fGeo = new THREE.CapsuleGeometry(f.rad, f.len, 8, 12);
+      fGeo.rotateZ(Math.PI / 2);
+      const fMesh = new THREE.Mesh(fGeo, coreMat);
+      fMesh.scale.set(1.0, 0.65, 0.28);
+      fMesh.position.set(dir * (f.len * 0.52), f.y, 0);
+      fMesh.rotation.z = dir * f.ang;
+      fMesh.renderOrder = 25;
+      const fHull = new THREE.Mesh(fGeo, auraMat);
+      fHull.scale.setScalar(1.16);
+      fHull.renderOrder = 24;
+      fMesh.add(fHull);
+      wingRoot.add(fMesh);
+    }
+    group.add(wingRoot);
+    return wingRoot;
+  };
+
+  const wingsLeft = buildCartoonWing(-1);
+  const wingsRight = buildCartoonWing(1);
+
+  // 6) Estrelas e Anéis de Luz Subindo ao Redor do Fantasma Cartoon
+  const sparkles: THREE.Mesh[] = [];
+  const sparkGeo = new THREE.OctahedronGeometry(0.12, 0);
+  for (let i = 0; i < 10; i++) {
+    const sp = new THREE.Mesh(sparkGeo, i % 2 === 0 ? haloMat : auraMat);
+    sp.renderOrder = 27;
+    group.add(sp);
+    sparkles.push(sp);
+  }
+
+  return {
+    root: group,
+    group,
+    coreMat,
+    auraMat,
+    haloMat,
+    wingsLeft,
+    wingsRight,
+    sparkles,
+    update: (progress01: number, elapsed: number) => {
+      const popIn = Math.min(1, progress01 / 0.12);
+      const fade = 1 - Math.pow(Math.max(0, (progress01 - 0.62) / 0.38), 1.45);
+      const alpha = popIn * fade;
+      coreMat.opacity = 0.96 * alpha;
+      auraMat.opacity = 0.92 * alpha;
+      cyanRimMat.opacity = 0.68 * alpha;
+      haloMat.opacity = 0.98 * alpha;
+      faceMat.opacity = 0.95 * alpha;
+
+      // Bater de asas alegre e fluido enquanto voa lá pra cima!
+      const flap = Math.sin(elapsed * 18.0) * 0.42;
+      wingsLeft.rotation.z = 0.25 + flap;
+      wingsLeft.rotation.y = Math.cos(elapsed * 18.0) * 0.22;
+      wingsRight.rotation.z = -0.25 - flap;
+      wingsRight.rotation.y = -Math.cos(elapsed * 18.0) * 0.22;
+
+      for (let i = 0; i < sparkles.length; i++) {
+        const a = (i / sparkles.length) * Math.PI * 2 + elapsed * 5.2;
+        const radius = 0.58 + Math.sin(elapsed * 4.0 + i) * 0.14;
+        sparkles[i].position.set(
+          Math.cos(a) * radius,
+          -0.45 + ((i * 0.22 + elapsed * 1.8) % 1.8),
+          Math.sin(a) * radius
+        );
+        sparkles[i].rotation.set(elapsed * 6, elapsed * 8, i);
+        sparkles[i].scale.setScalar(alpha * (0.75 + (i % 3) * 0.22));
+      }
+    },
+  };
+}
+
+/**
+ * Adapta qualquer veículo para o estilo infernal do Mapa INFERNO:
+ * - Chamas cartoon na parte externa (capô, teto e laterais)
+ * - Rodas pegando fogo
+ * - Detalhes de ossos / caveira demoníaca no para-choque dianteiro
+ * - Fumaça e brasas subindo
+ */
+export function buildInfernalVehicleOverlayGroup(
+  _halfW?: number,
+  _halfL?: number,
+  _height?: number
+): {
+  group: THREE.Group;
+  flames: THREE.Mesh[];
+  wheelRings: THREE.Mesh[];
+  smokePuffs: THREE.Mesh[];
+} {
+  const group = new THREE.Group();
+  group.name = 'Infernal_Vehicle_Overlay';
+
+  const boneMat = new THREE.MeshToonMaterial({ color: 0xfef3c7 });
+  const hornMat = new THREE.MeshToonMaterial({ color: 0x1c1917 });
+  const outerFlameMat = new THREE.MeshBasicMaterial({
+    color: 0xff2a00,
+    transparent: true,
+    opacity: 0.92,
+    fog: false,
+  });
+  const innerFlameMat = new THREE.MeshBasicMaterial({
+    color: 0xfde047,
+    transparent: true,
+    opacity: 0.95,
+    fog: false,
+  });
+  const smokeMat = new THREE.MeshBasicMaterial({
+    color: 0x18181b,
+    transparent: true,
+    opacity: 0.58,
+    fog: false,
+  });
+  applyWorldCurvatureToMaterial(boneMat);
+  applyWorldCurvatureToMaterial(hornMat);
+  applyWorldCurvatureToMaterial(outerFlameMat);
+  applyWorldCurvatureToMaterial(innerFlameMat);
+  applyWorldCurvatureToMaterial(smokeMat);
+
+  // 1. Caveira e Chifres de Osso no Para-Choque Dianteiro (+Z e -Z para qualquer direção)
+  for (const zDir of [-1, 1] as const) {
+    const skull = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.38, 0.26), boneMat);
+    skull.position.set(0, 0.68, zDir * 2.18);
+    group.add(skull);
+
+    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.065, 8, 8), innerFlameMat);
+    eyeL.position.set(-0.12, 0.72, zDir * 2.31);
+    group.add(eyeL);
+    const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.065, 8, 8), innerFlameMat);
+    eyeR.position.set(0.12, 0.72, zDir * 2.31);
+    group.add(eyeR);
+
+    for (const side of [-1, 1] as const) {
+      const horn = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.56, 8), boneMat);
+      horn.position.set(side * 0.42, 0.85, zDir * 2.15);
+      horn.rotation.z = -side * 0.65;
+      horn.rotation.x = zDir * 0.35;
+      group.add(horn);
+
+      // Costelas de osso nas laterais da carroceria
+      for (let r = -1; r <= 1; r++) {
+        const rib = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.42, 0.12), boneMat);
+        rib.position.set(side * 1.02, 0.78, r * 0.65);
+        rib.rotation.z = side * 0.18;
+        group.add(rib);
+      }
+    }
+  }
+
+  // 2. Rodas Pegando Fogo (4 aros flamejantes nas posições das rodas)
+  const wheelRings: THREE.Mesh[] = [];
+  const wheelCoords: Array<[number, number, number]> = [
+    [-0.98, 0.38, 1.32],
+    [0.98, 0.38, 1.32],
+    [-0.98, 0.38, -1.32],
+    [0.98, 0.38, -1.32],
+  ];
+  const ringGeo = new THREE.TorusGeometry(0.38, 0.09, 8, 16);
+  for (const [wx, wy, wz] of wheelCoords) {
+    const wRing = new THREE.Mesh(ringGeo, outerFlameMat);
+    wRing.rotation.y = Math.PI / 2;
+    wRing.position.set(wx, wy, wz);
+    group.add(wRing);
+    wheelRings.push(wRing);
+
+    const wCore = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.06, 6, 12), innerFlameMat);
+    wCore.rotation.y = Math.PI / 2;
+    wCore.position.set(wx + (wx > 0 ? 0.03 : -0.03), wy, wz);
+    group.add(wCore);
+  }
+
+  // 3. Chamas Cartoon Vibrantes no Capô, Teto e Laterais
+  const flames: THREE.Mesh[] = [];
+  const flamePositions: Array<[number, number, number, number]> = [
+    [0, 1.15, 1.45, 1.1],
+    [-0.55, 1.08, 1.25, 0.85],
+    [0.55, 1.08, 1.25, 0.85],
+    [0, 1.65, 0.0, 1.25],
+    [-0.65, 1.42, -0.35, 0.9],
+    [0.65, 1.42, -0.35, 0.9],
+    [0, 1.18, -1.45, 1.05],
+  ];
+  const outerConeGeo = new THREE.ConeGeometry(0.28, 0.88, 8);
+  const innerConeGeo = new THREE.ConeGeometry(0.16, 0.62, 8);
+  for (const [fx, fy, fz, fScale] of flamePositions) {
+    const fOuter = new THREE.Mesh(outerConeGeo, outerFlameMat);
+    fOuter.position.set(fx, fy, fz);
+    fOuter.scale.setScalar(fScale);
+    group.add(fOuter);
+    flames.push(fOuter);
+
+    const fInner = new THREE.Mesh(innerConeGeo, innerFlameMat);
+    fInner.position.set(fx, fy - 0.06, fz + 0.02);
+    fInner.scale.setScalar(fScale);
+    group.add(fInner);
+    flames.push(fInner);
+  }
+
+  // 4. Nuvens de Fumaça Escura Subindo
+  const smokePuffs: THREE.Mesh[] = [];
+  const smokeGeo = new THREE.DodecahedronGeometry(0.24, 1);
+  for (let i = 0; i < 4; i++) {
+    const sp = new THREE.Mesh(smokeGeo, smokeMat);
+    sp.position.set((i % 2 === 0 ? -1 : 1) * 0.35, 1.85 + i * 0.25, -0.2 - i * 0.35);
+    group.add(sp);
+    smokePuffs.push(sp);
+  }
+
+  return { group, flames, wheelRings, smokePuffs };
+}
 
 

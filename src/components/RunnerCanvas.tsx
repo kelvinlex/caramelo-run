@@ -38,6 +38,8 @@ import {
   computeRoadTextureOffsetDelta,
   evaluateFavelaOcclusion,
   getHouseVariationByIndex,
+  getInitialLivesForDifficulty,
+  getPizzaMissionGoal,
   laneToX,
   shiftLane,
   stepPlayerPhysics,
@@ -45,6 +47,10 @@ import {
   triggerRoll,
 } from '../game/rules';
 import {
+  createCopacabanaWaveSidewalkTexture,
+  createInfernoCavernSkyTexture,
+  createInfernoCrackedSidewalkTexture,
+  createInfernoRoadTexture,
   createPainterlySkyTexture,
   createSidewalkTexture,
   createStreetRoadBumpTexture,
@@ -58,11 +64,16 @@ import {
   type CashDenomination,
   type DangerGroundStripRig,
   type FloatingHeadBanknoteRig,
+  type InfernoGhostCustomerRig,
+  type LiberatedSoulAscensionRig,
   type PizzaDeliveryZoneRig,
   applyFavelaDistanceOpacity,
   applyGroupLodState,
   applyHouseDistanceOpacity,
   applyWorldCurvatureToMaterial,
+  buildBeachSandAndOceanBackdrop,
+  buildBeachfrontPropCluster,
+  buildBlownBeachSandWindEffect,
   buildBrazilianHouse,
   buildBrazilianOrelhao,
   buildCarameloAttackIndicator,
@@ -71,12 +82,25 @@ import {
   buildCartoonManholeHazard,
   buildCartoonMeatMesh,
   buildCartoonWhiteBoneMesh,
+  buildCinematicOceanHorizonSun,
+  buildCoastalAirplaneFleet,
+  buildCoastalCondominiumBuilding,
+  buildCoastalHorizonCitySkyline,
   buildCoinMesh,
   buildCorcovadoAndCristoRedentor,
   buildDangerLaneGroundStrip,
   buildFloatingHeadBanknote,
   buildHillsideFavelaCluster,
   buildHorizonCitySkyline,
+  buildInfernalVehicleOverlayGroup,
+  buildInfernoBurningRuinedHouseSlot,
+  buildInfernoFlankingVolcanoes,
+  buildInfernoFlyingCreatures,
+  buildInfernoGhostCustomerGroup,
+  buildInfernoHorizonExitPortal,
+  buildInfernoUpsideDownCeilingMountains,
+  buildLeftCoastalRetainingWallSegment,
+  buildLiberatedSoulAscensionRig,
   buildNightSkyStarsAndAurora,
   buildPizzaDeliveryZoneRig,
   buildRealisticHorizonSun,
@@ -86,14 +110,19 @@ import {
   buildStylizedRunner,
   buildTropicalBird,
   buildUtilityPoleWithWires,
+  buildVaultedCloudCanopy,
   createCartoonSmokePuffGeometry,
   createDynamicSkyDomeMaterial,
+  sampleRoadSurfaceTransform,
   setNightStreetLightIntensity,
+  updateBeachKiteNode,
+  updateInfernoFireTime,
   worldCurveUniforms,
 } from '../game/builders';
 
 export type GamePhase = 'title' | 'playing' | 'paused' | 'gameover';
 export type BitePrecisionQuality = 'miss' | 'weak' | 'good' | 'perfect';
+export type MapId = 'favela' | 'praia' | 'inferno';
 
 export interface HudSnapshot {
   score: number;
@@ -120,28 +149,51 @@ export interface HudSnapshot {
   carameloAttackWarning?: boolean;
   bitePrecisionActive?: boolean;
   bitePrecisionMarker?: number;
-  biteLastResult?: { quality: BitePrecisionQuality; nonce: number } | null;
+  biteLastResult?: {
+    quality: BitePrecisionQuality;
+    nonce: number;
+    variant?: 'snap_bite' | 'spin_whip' | 'alpha_pounce';
+  } | null;
   brawlFinaleActive?: boolean;
   dodgeSuccessNonce?: number;
   playerScreenPos?: { x: number; y: number };
+  pickupComboCount?: number;
+  pickupComboNonce?: number;
+  pickupComboTimeRatio?: number;
+  pickupComboCooldownRatio?: number;
+  comboBreakEvent?: {
+    brokenCombo: number;
+    nonce: number;
+    mode: 'moto' | 'caramelo';
+  } | null;
   pizzasLeft?: number;
   pizzasDelivered?: number;
   pizzaMissionGoal?: number;
   inDeliveryZone?: boolean;
   deliveryZoneSide?: 'left' | 'right' | null;
   lastPizzaDeliveredNonce?: number;
+  pizzaChallengeActive?: boolean;
+  pizzaChallengeMarker?: number;
+  pizzaChallengeResult?: {
+    success: boolean;
+    nonce: number;
+  } | null;
   tutorialPhase?: 'none' | 'approaching' | 'slowmo' | 'complete';
   tutorialBannerText?: string | null;
   wheelieBalanceRatio?: number;
   missionVictorySequenceActive?: boolean;
+  introCutsceneActive?: boolean;
+  soulLiberatedNonce?: number;
+  damageScreenFlashNonce?: number;
 }
 
 export type GraphicsQualityPreset = 'low' | 'medium' | 'high' | 'ultra';
 export type RenderDistancePreset = 'low' | 'medium' | 'high';
-export type GameDifficulty = 'easy' | 'medium' | 'hard';
+export type GameDifficulty = 'easy' | 'medium' | 'hard' | 'extreme';
 
 interface RunnerCanvasProps {
   phase: GamePhase;
+  mapId?: MapId;
   skyPreset: SkyPreset;
   inspectedHouseId: number | null;
   runNonce: number;
@@ -157,7 +209,10 @@ interface RunnerCanvasProps {
   onCashCollected?: (amount: number, denomination: CashDenomination) => void;
   onBoneCollected?: (rewardAmount: number, kind: 'bone' | 'meat' | 'bite') => void;
   onWaterJetSplash?: (intensity: number) => void;
+  onVehiclePassBlur?: (side: 'left' | 'right', intensity: number) => void;
   onGameOver: (finalHud: HudSnapshot, crashReason?: string) => void;
+  onSceneReady?: () => void;
+  onIntroCutsceneChange?: (active: boolean) => void;
   controlTriggerRef: React.MutableRefObject<{
     left: () => void;
     right: () => void;
@@ -174,8 +229,8 @@ interface RunnerCanvasProps {
 
 const HOUSE_SLOT_STEP_Z = 15.6; // Generous spacing so each house + 2-story brick construction lot breathes
 const NUM_HOUSE_PAIRS = 10; // Covers z = +14.5m (behind camera) to -141.5m (156.0m loop cycle)
-const POLE_STEP_Z = 15.6; // Synchronized with HOUSE_SLOT_STEP_Z & BILLBOARD_STEP_Z so poles never block billboards!
-const NUM_POLE_PAIRS = 10; // Exact 156.0m loop cycle matching NUM_HOUSE_PAIRS * HOUSE_SLOT_STEP_Z
+const POLE_STEP_Z = 31.2; // Item 9: Reduz a quantidade de postes pela metade (1 par a cada 2 casas = 31.2m) evitando repetição excessiva!
+const NUM_POLE_PAIRS = 5; // Exact 156.0m loop cycle matching NUM_HOUSE_PAIRS * HOUSE_SLOT_STEP_Z (5 * 31.2m = 156.0m)
 const ORELHAO_STEP_Z = 78.0; // Sparse spacing so Orelhões appear only occasionally ("remova alguns orelhoes, deixe apenas algumas vezes aparecendo")
 const NUM_ORELHAO_PAIRS = 2; // Exact 156.0m loop cycle (2 * 78.0m)
 const BILLBOARD_STEP_Z = 31.2; // Exact 2 * HOUSE_SLOT_STEP_Z so billboards always stay locked in the open inter-house gaps!
@@ -187,6 +242,7 @@ const NUM_STREET_MOTION_ROWS = 12; // Reflector stud rows covering camera frustu
 
 export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
   phase,
+  mapId = 'favela',
   skyPreset,
   inspectedHouseId,
   runNonce,
@@ -202,7 +258,10 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
   onCashCollected,
   onBoneCollected,
   onWaterJetSplash,
+  onVehiclePassBlur,
   onGameOver,
+  onSceneReady,
+  onIntroCutsceneChange,
   controlTriggerRef,
 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -213,7 +272,10 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
   const onCashCollectedRef = useRef(onCashCollected);
   const onBoneCollectedRef = useRef(onBoneCollected);
   const onWaterJetSplashRef = useRef(onWaterJetSplash);
+  const onVehiclePassBlurRef = useRef(onVehiclePassBlur);
   const onGameOverRef = useRef(onGameOver);
+  const onSceneReadyRef = useRef(onSceneReady);
+  const onIntroCutsceneChangeRef = useRef(onIntroCutsceneChange);
   const bestScoreRef = useRef<number>(0);
   const equippedMotoRef = useRef<string | undefined>(equippedMotoId);
   const equippedMotoboyRef = useRef<MotoboyCharacterId>(equippedMotoboyId);
@@ -231,7 +293,10 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
   onCashCollectedRef.current = onCashCollected;
   onBoneCollectedRef.current = onBoneCollected;
   onWaterJetSplashRef.current = onWaterJetSplash;
+  onVehiclePassBlurRef.current = onVehiclePassBlur;
   onGameOverRef.current = onGameOver;
+  onSceneReadyRef.current = onSceneReady;
+  onIntroCutsceneChangeRef.current = onIntroCutsceneChange;
   equippedMotoRef.current = equippedMotoId;
   equippedMotoboyRef.current = equippedMotoboyId;
   equippedCarameloRef.current = equippedCarameloId;
@@ -279,10 +344,10 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
   }, [equippedMotoboyId]);
 
   useEffect(() => {
-    if (updateCarameloRef.current && equippedCarameloId) {
-      updateCarameloRef.current(equippedCarameloId);
+    if (updateCarameloRef.current) {
+      updateCarameloRef.current(equippedCarameloId || 'caramelo_default');
     }
-  }, [equippedCarameloId]);
+  }, [equippedCarameloId, difficulty, playMode]);
 
   useEffect(() => {
     if (updateGraphicsRef.current) {
@@ -340,12 +405,12 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     camera.position.set(0, 2.75, 5.55);
     camera.lookAt(0, 2.1, -36);
 
-    // 3. Iluminação Solar Direcional Equilibrada c/ Sombras Projetadas Limpas & Sem Flicker (Item 9)
-    const hemiLight = new THREE.HemisphereLight(0xfff4de, 0x4d7c0f, 1.18);
+    // 3. Iluminação Solar Direcional Equilibrada c/ Sombras Projetadas Limpas & Sem Flicker (Item 9 & Item 10)
+    const hemiLight = new THREE.HemisphereLight(0xfff8eb, 0x4d7c0f, 1.05);
     hemiLight.position.set(0, 50, 0);
     scene.add(hemiLight);
 
-    const sunLight = new THREE.DirectionalLight(0xfff8e7, 1.74);
+    const sunLight = new THREE.DirectionalLight(0xfffaf0, 1.42);
     sunLight.position.set(-22, 62, -52);
     sunLight.target.position.set(0, 0, -18);
     sunLight.castShadow = !isSoftwareGl;
@@ -362,24 +427,55 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     scene.add(sunLight);
     scene.add(sunLight.target);
 
-    const rimLight = new THREE.DirectionalLight(0xfef08a, 0.78);
+    const rimLight = new THREE.DirectionalLight(0xfffbeb, 0.52);
     rimLight.position.set(14, 18, 22);
     scene.add(rimLight);
 
+    const isPraia = mapId === 'praia';
+    const isInferno = mapId === 'inferno' || difficultyRef.current === 'extreme';
+    worldCurveUniforms.uLadeiraSlope.value = isPraia ? 1.0 : 0.0;
+    worldCurveUniforms.uInfernoMapMix.value = isInferno ? 1.0 : 0.0;
+
     // 4. Domo de Céu Dinâmico 360° + Sol Cinematográfico + Estrelas Cintilantes, Lua & Aurora Boreal!
     const skyGeo = new THREE.SphereGeometry(250, 32, 20);
-    const daySkyTex = createPainterlySkyTexture('tropical_morning');
-    const sunsetSkyTex = createPainterlySkyTexture('sunset_dramatic');
+    const daySkyTex = isInferno
+      ? createInfernoCavernSkyTexture()
+      : createPainterlySkyTexture('tropical_morning');
+    const sunsetSkyTex = isInferno
+      ? daySkyTex
+      : createPainterlySkyTexture('sunset_dramatic');
     const dynamicSky = createDynamicSkyDomeMaterial(daySkyTex, sunsetSkyTex);
     const skyDome = new THREE.Mesh(skyGeo, dynamicSky.material);
     skyDome.position.set(0, -10, -45);
     scene.add(skyDome);
 
-    const realisticSun = buildRealisticHorizonSun();
+    const realisticSun = buildRealisticHorizonSun(isPraia);
+    realisticSun.group.visible = !isInferno;
     scene.add(realisticSun.group);
 
+    let airplaneFleet: ReturnType<typeof buildCoastalAirplaneFleet> | null = null;
+    const favelaVaultedClouds = buildVaultedCloudCanopy();
+    favelaVaultedClouds.mesh.visible = !isInferno;
+    scene.add(favelaVaultedClouds.mesh);
+
+    if (isPraia) {
+      airplaneFleet = buildCoastalAirplaneFleet(maxAniso);
+      scene.add(airplaneFleet.group);
+    }
+
     const nightStarsAndAurora = buildNightSkyStarsAndAurora();
+    nightStarsAndAurora.group.visible = !isInferno;
     scene.add(nightStarsAndAurora.group);
+
+    // Elementos Exclusivos do Mapa INFERNO (Nuvens Carmesim + Meteoros + Vulcões + Portal de Saída + Criaturas Voadoras)
+    const infernoCeilingMountains = isInferno ? buildInfernoUpsideDownCeilingMountains() : null;
+    const infernoFlankingVolcanoes = isInferno ? buildInfernoFlankingVolcanoes() : null;
+    const infernoHorizonExitPortal = isInferno ? buildInfernoHorizonExitPortal() : null;
+    const infernoFlyingCreatures = isInferno ? buildInfernoFlyingCreatures() : null;
+    if (infernoCeilingMountains) scene.add(infernoCeilingMountains.group);
+    if (infernoFlankingVolcanoes) scene.add(infernoFlankingVolcanoes.group);
+    if (infernoHorizonExitPortal) scene.add(infernoHorizonExitPortal.group);
+    if (infernoFlyingCreatures) scene.add(infernoFlyingCreatures.group);
 
     // Estado dinâmico do escalonamento gráfico (Low -> Ultra mantendo beleza + alta performance!)
     let activeCullScale = 1.0;
@@ -387,14 +483,17 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     let activeMaxTraffic = 8;
     let showAtmosphericParticles = true;
     let showContactShadows = true;
+    let baseTargetPixelRatio = 1.5;
+    let cutsceneBoostActive = false;
 
     // Fase contínua do Ciclo Dia -> Pôr do Sol -> Noite Estrelada c/ Aurora Boreal (0.0 .. 1.0)
     const presetToCyclePhase = (preset: SkyPreset): number => {
-      if (preset === 'tropical_morning') return 0.06; // Dia Tropical Aberto
+      if (isPraia && preset === 'sunset_dramatic') return 0.04; // Na Praia, começa durante o dia ensolarado!
+      if (preset === 'tropical_morning') return 0.04; // Dia Tropical Aberto
       if (preset === 'sunset_dramatic') return 0.21; // Pôr do Sol Dourado rumo à Noite
       return 0.5; // Noite Estrelada com Aurora Boreal
     };
-    let dayNightCycleProgress = presetToCyclePhase(skyPresetRef.current);
+    let dayNightCycleProgress = isPraia ? 0.04 : presetToCyclePhase(skyPresetRef.current);
 
     // Cores pré-alocadas do ciclo Dia/Noite (Zero GC Alloc por frame!)
     const _fogDay = new THREE.Color('#BAE6FD');
@@ -408,9 +507,9 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     const _hemiSkyNight = new THREE.Color('#2DD4BF');
     const _hemiGndDay = new THREE.Color('#4D7C0F');
     const _hemiGndNight = new THREE.Color('#1E1B4B');
-    const _rimDay = new THREE.Color('#FEF08A');
+    const _rimDay = new THREE.Color('#FFFBEB');
     const _rimNight = new THREE.Color('#34D399');
-    const _skyTintDay = new THREE.Color('#FFF1E6');
+    const _skyTintDay = new THREE.Color('#FFF7ED');
     const _skyTintNight = new THREE.Color('#132A4A');
 
     const applyDayNightAtmosphere = (
@@ -419,16 +518,51 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       playerSpeed: number,
       isRunning: boolean,
     ) => {
+      if (isInferno) {
+        dynamicSky.setCycleWeights(0.0, 0.0, elapsed);
+        setNightStreetLightIntensity(0.95);
+        worldCurveUniforms.uSunsetOrangeMix.value = 0.72;
+        worldCurveUniforms.uNightDarknessMix.value = 0.0;
+        worldCurveUniforms.uWindowEmissiveIntensity.value = 1.45;
+        fogColor.set('#D92818');
+        scene.background = fogColor;
+        if (scene.fog instanceof THREE.Fog) {
+          scene.fog.color.copy(fogColor);
+        }
+        worldCurveUniforms.uHorizonFogColor.value.copy(fogColor);
+        worldCurveUniforms.uHorizonFogSkyTint.value.set('#FF5E1A');
+        sunLight.color.set('#FF6B2B');
+        sunLight.intensity = 1.38 + Math.sin(elapsed * 5.2) * 0.12;
+        sunLight.position.set(0, 52, -74);
+        hemiLight.color.set('#FF4518');
+        hemiLight.groundColor.set('#280603');
+        hemiLight.intensity = 1.12;
+        rimLight.color.set('#FFB703');
+        rimLight.intensity = 0.92;
+        infernoCeilingMountains?.update(elapsed);
+        infernoFlankingVolcanoes?.update(elapsed);
+        infernoHorizonExitPortal?.update(elapsed);
+        infernoFlyingCreatures?.update(elapsed);
+        updateInfernoFireTime(elapsed);
+        return;
+      }
+
       const solarCos = Math.cos(dayNightCycleProgress * Math.PI * 2);
-      const sunVisibility = THREE.MathUtils.smoothstep(solarCos, -0.22, 0.42);
-      const nightMix = THREE.MathUtils.smoothstep(-solarCos, -0.08, 0.38);
-      const twilightBell = Math.exp(-Math.pow((Math.abs(solarCos) - 0.06) / 0.34, 2.0));
-      const sunsetMix = THREE.MathUtils.clamp(twilightBell * (1.0 - nightMix * 0.65), 0, 1);
+      // Item 1: Separação estrita entre Sol e Lua — o Sol desaparece 100% antes da noite e a Lua só surge no período noturno!
+      const sunVisibility = THREE.MathUtils.smoothstep(solarCos, 0.03, 0.44);
+      const nightMix = THREE.MathUtils.smoothstep(-solarCos, 0.03, 0.44);
+      const twilightBell = Math.exp(-Math.pow((Math.abs(solarCos) - 0.08) / 0.34, 2.0));
+      const sunsetMix = THREE.MathUtils.clamp(twilightBell * (1.0 - nightMix * 0.72), 0, 1);
 
       dynamicSky.setCycleWeights(sunsetMix, nightMix, elapsed);
       realisticSun.update(elapsed, activeSunQuality, sunVisibility, sunsetMix);
+      favelaVaultedClouds.update(elapsed, sunsetMix, nightMix);
       nightStarsAndAurora.update(elapsed, nightMix, activeSunQuality);
       setNightStreetLightIntensity(nightMix);
+
+      worldCurveUniforms.uSunsetOrangeMix.value = sunsetMix;
+      worldCurveUniforms.uNightDarknessMix.value = nightMix;
+      worldCurveUniforms.uWindowEmissiveIntensity.value = THREE.MathUtils.lerp(0.12, 1.35, nightMix);
 
       fogColor.copy(_fogDay).lerp(_fogSunset, sunsetMix).lerp(_fogNight, nightMix);
       scene.background = fogColor;
@@ -439,7 +573,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       worldCurveUniforms.uHorizonFogSkyTint.value.copy(_skyTintDay).lerp(_skyTintNight, nightMix);
 
       sunLight.color.copy(_sunColDay).lerp(_sunColSunset, sunsetMix).lerp(_sunColNight, nightMix);
-      sunLight.intensity = THREE.MathUtils.lerp(1.74, 1.04, nightMix);
+      sunLight.intensity = THREE.MathUtils.lerp(1.42, 0.88, nightMix);
       sunLight.position.set(
         THREE.MathUtils.lerp(-22, 24, nightMix),
         THREE.MathUtils.lerp(62, 48, 1.0 - sunVisibility) + nightMix * 12,
@@ -448,10 +582,10 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
 
       hemiLight.color.copy(_hemiSkyDay).lerp(_hemiSkySunset, sunsetMix).lerp(_hemiSkyNight, nightMix * 0.72);
       hemiLight.groundColor.copy(_hemiGndDay).lerp(_hemiGndNight, nightMix * 0.82);
-      hemiLight.intensity = THREE.MathUtils.lerp(1.18, 0.96, nightMix);
+      hemiLight.intensity = THREE.MathUtils.lerp(1.05, 0.84, nightMix);
 
       rimLight.color.copy(_rimDay).lerp(_rimNight, nightMix);
-      rimLight.intensity = THREE.MathUtils.lerp(0.78, 1.12, nightMix);
+      rimLight.intensity = THREE.MathUtils.lerp(0.52, 0.96, nightMix);
     };
 
     updateSkyRef.current = (nextPreset: SkyPreset) => {
@@ -464,17 +598,23 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     const mountainPlacement = computeMountainVistaPlacement();
     const corcovadoVista = buildCorcovadoAndCristoRedentor();
     corcovadoVista.scale.setScalar(mountainPlacement.scale);
-    corcovadoVista.position.set(mountainPlacement.x, mountainPlacement.y, mountainPlacement.z);
+    corcovadoVista.position.set(mountainPlacement.x, isPraia ? 3.6 : mountainPlacement.y, mountainPlacement.z);
     corcovadoVista.rotation.y = 0.16;
     corcovadoVista.updateMatrix();
     corcovadoVista.matrixAutoUpdate = false;
+    corcovadoVista.visible = !isInferno;
     scene.add(corcovadoVista);
 
-    const horizonSkyline = buildHorizonCitySkyline(maxAniso);
+    const horizonSkyline = isPraia
+      ? buildCoastalHorizonCitySkyline(maxAniso)
+      : buildHorizonCitySkyline(maxAniso);
+    horizonSkyline.group.visible = !isInferno;
     scene.add(horizonSkyline.group);
 
     // 6. Wider Forward-Only Cracked Brazilian Asphalt Road (11.6m wide)
-    const roadTex = createStreetRoadTexture(maxAniso);
+    const roadTex = isInferno
+      ? createInfernoRoadTexture(maxAniso)
+      : createStreetRoadTexture(maxAniso);
     const roadBumpTex = createStreetRoadBumpTexture(maxAniso);
 
     const roadMat = new THREE.MeshStandardMaterial({
@@ -496,21 +636,26 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       const targetPixelRatio = isSoftwareGl
         ? 1
         : gp === 'low'
-        ? Math.min(dpr, 1.0)
+        ? Math.min(dpr, 1.05)
         : gp === 'medium'
-        ? Math.min(dpr, 1.3)
+        ? Math.min(dpr, 1.35)
         : gp === 'high'
-        ? Math.min(dpr, 1.65)
+        ? Math.min(dpr, 1.7)
         : Math.min(dpr, 2.0);
 
-      renderer.setPixelRatio(targetPixelRatio);
+      baseTargetPixelRatio = targetPixelRatio;
+      renderer.setPixelRatio(
+        cutsceneBoostActive && !isSoftwareGl
+          ? Math.min(dpr, Math.max(targetPixelRatio + 0.35, 1.85))
+          : targetPixelRatio
+      );
       const curW = container.clientWidth || window.innerWidth;
       const curH = container.clientHeight || window.innerHeight;
       renderer.setSize(curW, curH);
 
-      // Mesmo no LOW mantemos exposição viva, cores quentes e contornos nítidos!
+      // Exposição equilibrada sem estourar o amarelo do sol (Item 10)
       renderer.toneMappingExposure =
-        gp === 'low' ? 1.13 : gp === 'medium' ? 1.15 : gp === 'high' ? 1.17 : 1.2;
+        gp === 'low' ? 1.04 : gp === 'medium' ? 1.06 : gp === 'high' ? 1.08 : 1.10;
 
       roadMat.bumpScale = gp === 'low' ? 0.0 : gp === 'medium' ? 0.035 : gp === 'high' ? 0.055 : 0.075;
       roadMat.needsUpdate = true;
@@ -546,39 +691,113 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     updateGraphicsRef.current = applyGraphicsConfig;
     applyGraphicsConfig();
 
-    const roadMesh = new THREE.Mesh(new THREE.PlaneGeometry(11.6, 150, 4, 40), roadMat);
+    roadTex.repeat.set(1, 15);
+    roadBumpTex.repeat.set(1, 15);
+    const roadMesh = new THREE.Mesh(new THREE.PlaneGeometry(11.6, 225, 4, 60), roadMat);
     roadMesh.rotation.x = -Math.PI / 2;
-    roadMesh.position.set(0, 0, -69.5);
+    roadMesh.position.set(0, 0, -37.5);
     roadMesh.receiveShadow = true;
     scene.add(roadMesh);
 
-    // Forward-Only Sidewalks (Left & Right) + Whitewashed Curbs ("Meio-Fio Caiado") with Clean Non-Overlapping Coordinates (Zero Z-Fighting!)
-    const sidewalkTex = createSidewalkTexture(maxAniso);
-    const sidewalkMat = new THREE.MeshStandardMaterial({
-      map: sidewalkTex,
-      color: 0xffffff,
-      roughness: 0.85,
-      metalness: 0.04,
-    });
-    applyWorldCurvatureToMaterial(sidewalkMat);
+    // Sidewalks + Curbs & Coastal Beach / Favela Ground extended behind +Z so intro cutscenes show full street & neighborhood!
+    const sidewalkTex = isInferno
+      ? createInfernoCrackedSidewalkTexture(maxAniso)
+      : createSidewalkTexture(maxAniso);
+    sidewalkTex.repeat.set(2.5, 27);
+    const copacabanaTex = isPraia ? createCopacabanaWaveSidewalkTexture(maxAniso) : null;
+    if (copacabanaTex) {
+      copacabanaTex.repeat.set(1, 12.5);
+    }
+    let beachAndOcean: ReturnType<typeof buildBeachSandAndOceanBackdrop> | null = null;
+    let blownSandEffect: ReturnType<typeof buildBlownBeachSandWindEffect> | null = null;
 
-    const curbMat = new THREE.MeshStandardMaterial({
-      color: 0xf1f5f9,
-      roughness: 0.75,
-    });
-    applyWorldCurvatureToMaterial(curbMat);
+    if (isPraia) {
+      const leftSidewalkMat = new THREE.MeshStandardMaterial({
+        map: sidewalkTex,
+        color: 0xffffff,
+        roughness: 0.84,
+        metalness: 0.04,
+      });
+      applyWorldCurvatureToMaterial(leftSidewalkMat);
+      const leftSw = new THREE.Mesh(new THREE.BoxGeometry(22, 0.22, 225, 1, 1, 60), leftSidewalkMat);
+      leftSw.position.set(-17.15, 0.11, -37.5);
+      leftSw.receiveShadow = true;
+      scene.add(leftSw);
 
-    for (const sideSign of [-1, 1]) {
-      // Sidewalk inner edge sits at x = ±6.15, while curb outer edge sits at x = ±6.13 (0.02m gap + distinct Y height = zero Z-fighting!)
-      const sw = new THREE.Mesh(new THREE.BoxGeometry(22, 0.22, 150, 1, 1, 40), sidewalkMat);
-      sw.position.set(sideSign * 17.15, 0.11, -69.5);
-      sw.receiveShadow = true;
-      scene.add(sw);
+      const leftCurbMat = new THREE.MeshStandardMaterial({ color: 0xfbbf24, roughness: 0.72 });
+      applyWorldCurvatureToMaterial(leftCurbMat);
+      const leftCurb = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.24, 225, 1, 1, 60), leftCurbMat);
+      leftCurb.position.set(-5.96, 0.12, -37.5);
+      leftCurb.receiveShadow = true;
+      scene.add(leftCurb);
 
-      const curb = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.24, 150, 1, 1, 40), curbMat);
-      curb.position.set(sideSign * 5.96, 0.12, -69.5);
-      curb.receiveShadow = true;
-      scene.add(curb);
+      const copacabanaMat = new THREE.MeshStandardMaterial({
+        map: copacabanaTex!,
+        color: 0xffffff,
+        roughness: 0.8,
+        metalness: 0.04,
+      });
+      applyWorldCurvatureToMaterial(copacabanaMat);
+      const rightSw = new THREE.Mesh(new THREE.BoxGeometry(3.85, 0.22, 225, 1, 1, 60), copacabanaMat);
+      rightSw.position.set(8.05, 0.11, -37.5);
+      rightSw.receiveShadow = true;
+      scene.add(rightSw);
+
+      const rightCurbMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.75 });
+      applyWorldCurvatureToMaterial(rightCurbMat);
+      const rightCurb = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.24, 225, 1, 1, 60), rightCurbMat);
+      rightCurb.position.set(5.96, 0.12, -37.5);
+      rightCurb.receiveShadow = true;
+      scene.add(rightCurb);
+
+      const leftTerrainMat = new THREE.MeshStandardMaterial({ color: 0x2d6a4f, roughness: 0.92 });
+      applyWorldCurvatureToMaterial(leftTerrainMat);
+      const leftTerrain = new THREE.Mesh(new THREE.PlaneGeometry(110, 240, 4, 52), leftTerrainMat);
+      leftTerrain.rotation.x = -Math.PI / 2;
+      leftTerrain.position.set(-62.0, -0.05, -40.0);
+      scene.add(leftTerrain);
+
+      beachAndOcean = buildBeachSandAndOceanBackdrop(maxAniso);
+      scene.add(beachAndOcean.group);
+
+      blownSandEffect = buildBlownBeachSandWindEffect();
+      scene.add(blownSandEffect.group);
+    } else {
+      const sidewalkMat = new THREE.MeshStandardMaterial({
+        map: sidewalkTex,
+        color: 0xffffff,
+        roughness: 0.85,
+        metalness: 0.04,
+      });
+      applyWorldCurvatureToMaterial(sidewalkMat);
+
+      const curbMat = new THREE.MeshStandardMaterial({
+        color: isInferno ? 0x3b120c : 0xf1f5f9,
+        roughness: 0.75,
+      });
+      applyWorldCurvatureToMaterial(curbMat);
+
+      for (const sideSign of [-1, 1]) {
+        const sw = new THREE.Mesh(new THREE.BoxGeometry(22, 0.22, 225, 1, 1, 60), sidewalkMat);
+        sw.position.set(sideSign * 17.15, 0.11, -37.5);
+        sw.receiveShadow = true;
+        scene.add(sw);
+
+        const curb = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.24, 225, 1, 1, 60), curbMat);
+        curb.position.set(sideSign * 5.96, 0.12, -37.5);
+        curb.receiveShadow = true;
+        scene.add(curb);
+      }
+
+      const terrainMat = new THREE.MeshStandardMaterial({
+        color: isInferno ? 0x1b0704 : 0x365314,
+        roughness: 0.95,
+      });
+      applyWorldCurvatureToMaterial(terrainMat);
+      const terrainMesh = new THREE.Mesh(new THREE.PlaneGeometry(260, 240, 6, 52), terrainMat);
+      terrainMesh.rotation.x = -Math.PI / 2;
+      terrainMesh.position.set(0, -0.04, -40.0);
+      scene.add(terrainMesh);
     }
 
     // Physical 3D Street Motion Rows (Reflective Cat's-Eye Studs — Forward-Only!)
@@ -595,24 +814,33 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       streetMotionRows.push({ z, mesh: rowMesh });
     }
 
-    // Forward-Only Outer Green Ground extending only in front of the camera
-    const terrainMat = new THREE.MeshStandardMaterial({
-      color: 0x365314,
-      roughness: 0.95,
-    });
-    applyWorldCurvatureToMaterial(terrainMat);
-    const terrainMesh = new THREE.Mesh(new THREE.PlaneGeometry(260, 160, 6, 36), terrainMat);
-    terrainMesh.rotation.x = -Math.PI / 2;
-    terrainMesh.position.set(0, -0.04, -74.5);
-    scene.add(terrainMesh);
-
-    // 7. Pre-build all 30 Brazilian House Variations (aligned straight facing the wider street, with 2-story houses under construction!)
-    const leftHousePool: THREE.Group[] = HOUSE_VARIATIONS.map((spec) =>
-      buildBrazilianHouse(spec, 'left', maxAniso),
-    );
-    const rightHousePool: THREE.Group[] = HOUSE_VARIATIONS.map((spec) =>
-      buildBrazilianHouse(spec, 'right', maxAniso),
-    );
+    // 7. Pre-build all 30 Brazilian House Variations + Coastal Beachfront Clusters + Inferno Ruined Houses
+    const leftHousePool: THREE.Group[] = isInferno
+      ? Array.from({ length: 12 }, (_, idx) => buildInfernoBurningRuinedHouseSlot(idx * 2, 'left', maxAniso))
+      : HOUSE_VARIATIONS.map((spec) => buildBrazilianHouse(spec, 'left', maxAniso));
+    const rightHousePool: THREE.Group[] = isPraia
+      ? []
+      : isInferno
+      ? Array.from({ length: 12 }, (_, idx) => buildInfernoBurningRuinedHouseSlot(idx * 2 + 1, 'right', maxAniso))
+      : HOUSE_VARIATIONS.map((spec) => buildBrazilianHouse(spec, 'right', maxAniso));
+    const wallSegmentPool: THREE.Group[] = isPraia
+      ? [
+          buildLeftCoastalRetainingWallSegment(0, maxAniso),
+          buildLeftCoastalRetainingWallSegment(1, maxAniso),
+          buildLeftCoastalRetainingWallSegment(2, maxAniso),
+          buildLeftCoastalRetainingWallSegment(3, maxAniso),
+        ]
+      : [];
+    const beachClusterPool: THREE.Group[] = isPraia
+      ? [
+          buildBeachfrontPropCluster(0, maxAniso),
+          buildBeachfrontPropCluster(1, maxAniso),
+          buildBeachfrontPropCluster(2, maxAniso),
+          buildBeachfrontPropCluster(3, maxAniso),
+          buildBeachfrontPropCluster(4, maxAniso),
+          buildBeachfrontPropCluster(5, maxAniso),
+        ]
+      : [];
 
     interface ActiveHouseSlot {
       z: number;
@@ -620,71 +848,148 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       rightVarIndex: number;
       leftMesh: THREE.Group;
       rightMesh: THREE.Group;
+      palmCrowns?: THREE.Object3D[];
+      billboards?: THREE.Object3D[];
+      kites?: THREE.Object3D[];
     }
 
     const activeHouseSlots: ActiveHouseSlot[] = [];
     let nextHouseSeq = 0;
 
-    // Houses placed at x = ±12.0 so their front facades sit clearly behind the poles (±6.45), Orelhões (±6.65), and Billboards (±8.55)!
+    const collectBeachSlotNodes = (...groups: THREE.Group[]) => {
+      const palmCrowns: THREE.Object3D[] = [];
+      const billboards: THREE.Object3D[] = [];
+      const kites: THREE.Object3D[] = [];
+      for (const g of groups) {
+        g.traverse((child) => {
+          if (child.userData?.isPalmCrown) {
+            palmCrowns.push(child);
+          } else if (child.userData?.isDynamicBillboard) {
+            billboards.push(child);
+          } else if (child.userData?.isDynamicBeachKite) {
+            kites.push(child);
+          }
+        });
+      }
+      return { palmCrowns, billboards, kites };
+    };
+
     const mountSlotMeshes = (slot: ActiveHouseSlot) => {
-      slot.leftMesh.position.set(-12.0, 0.22, slot.z);
-      slot.rightMesh.position.set(12.0, 0.22, slot.z);
+      if (isPraia || isInferno) {
+        slot.leftMesh.position.set(0, 0, slot.z);
+        slot.rightMesh.position.set(0, 0, slot.z);
+      } else {
+        slot.leftMesh.position.set(-12.0, 0.22, slot.z);
+        slot.rightMesh.position.set(12.0, 0.22, slot.z);
+      }
       scene.add(slot.leftMesh);
       scene.add(slot.rightMesh);
     };
 
+    const poolLen = leftHousePool.length;
     for (let i = 0; i < NUM_HOUSE_PAIRS; i++) {
       const z = 12.0 - i * HOUSE_SLOT_STEP_Z;
-      const leftIdx = nextHouseSeq % 30;
-      const rightIdx = (nextHouseSeq + 1) % 30;
+      const leftIdx = nextHouseSeq % poolLen;
+      const rightIdx = (nextHouseSeq + 1) % poolLen;
       nextHouseSeq += 2;
+
+      let leftMesh: THREE.Group;
+      let rightMesh: THREE.Group;
+      let slotAnim: { palmCrowns: THREE.Object3D[]; billboards: THREE.Object3D[]; kites: THREE.Object3D[] } | undefined;
+
+      if (isPraia) {
+        leftMesh = new THREE.Group();
+        leftMesh.userData.keepAllMeshesVisible = true;
+        const lH = leftHousePool[leftIdx].clone();
+        lH.position.set(-14.6, 2.38, 0);
+        const lW = wallSegmentPool[i % wallSegmentPool.length].clone();
+        lW.position.set(-8.65, 0.22, 0);
+        leftMesh.add(lH, lW);
+
+        rightMesh = new THREE.Group();
+        rightMesh.userData.keepAllMeshesVisible = true;
+        const rB = beachClusterPool[i % beachClusterPool.length].clone();
+        rightMesh.add(rB);
+
+        slotAnim = collectBeachSlotNodes(lW, rB);
+      } else {
+        leftMesh = leftHousePool[leftIdx].clone();
+        rightMesh = rightHousePool[rightIdx].clone();
+      }
 
       const slot: ActiveHouseSlot = {
         z,
         leftVarIndex: leftIdx,
         rightVarIndex: rightIdx,
-        leftMesh: leftHousePool[leftIdx].clone(),
-        rightMesh: rightHousePool[rightIdx].clone(),
+        leftMesh,
+        rightMesh,
+        palmCrowns: slotAnim?.palmCrowns,
+        billboards: slotAnim?.billboards,
+        kites: slotAnim?.kites,
       };
       mountSlotMeshes(slot);
       activeHouseSlots.push(slot);
     }
 
-    // 8. Dynamic Colorful Hillside Favela / Morro Communities Elevated Behind the Houses (x = ±15.2, y = 1.8!)
+    // 8. Coastal Condominiums (Praia) or Dynamic Colorful Hillside Favela / Morro Communities (Favela)
+    const NUM_CONDO_SLOTS = 12;
+    const CONDO_STEP_Z = 26.0;
+    interface CondoSlot {
+      z: number;
+      mesh: THREE.Group;
+    }
+    const condoSlots: CondoSlot[] = [];
+    if (isPraia) {
+      for (let c = 0; c < NUM_CONDO_SLOTS; c++) {
+        const z = 4.0 - c * CONDO_STEP_Z;
+        const condoMesh = buildCoastalCondominiumBuilding(c, maxAniso);
+        const hScale = 0.94 - (c % 3) * 0.06;
+        condoMesh.scale.set(0.94, hScale, 0.94);
+        condoMesh.position.set(-25.5, 2.2, z);
+        scene.add(condoMesh);
+        condoSlots.push({ z, mesh: condoMesh });
+      }
+    }
+
     interface FavelaPair {
       z: number;
       leftFavela: THREE.Group;
       rightFavela: THREE.Group;
     }
     const favelaPairs: FavelaPair[] = [];
-    for (let f = 0; f < NUM_FAVELA_PAIRS; f++) {
-      const z = 12.0 - f * FAVELA_STEP_Z;
-      const leftFavela = buildHillsideFavelaCluster(f * 2, 'left', maxAniso);
-      const rightFavela = buildHillsideFavelaCluster(f * 2 + 1, 'right', maxAniso);
-      leftFavela.position.set(-15.2, 1.8, z);
-      rightFavela.position.set(15.2, 1.8, z);
-      scene.add(leftFavela, rightFavela);
-      favelaPairs.push({ z, leftFavela, rightFavela });
+    if (!isPraia && !isInferno) {
+      for (let f = 0; f < NUM_FAVELA_PAIRS; f++) {
+        const z = 12.0 - f * FAVELA_STEP_Z;
+        const leftFavela = buildHillsideFavelaCluster(f * 2, 'left', maxAniso);
+        const rightFavela = buildHillsideFavelaCluster(f * 2 + 1, 'right', maxAniso);
+        leftFavela.position.set(-15.2, 1.8, z);
+        rightFavela.position.set(15.2, 1.8, z);
+        scene.add(leftFavela, rightFavela);
+        favelaPairs.push({ z, leftFavela, rightFavela });
+      }
     }
 
-    // 9. Sidewalk Concrete Utility Poles with Sagging Electrical Wires (Rendering Further Ahead at x = ±6.45!)
+    // 9. Sidewalk Concrete Utility Poles with Sagging Electrical Wires
     interface PolePair {
       z: number;
       leftPole: THREE.Group;
       rightPole: THREE.Group;
     }
     const polePairs: PolePair[] = [];
-    for (let p = 0; p < NUM_POLE_PAIRS; p++) {
-      const z = 12.0 - p * POLE_STEP_Z;
-      const leftPole = buildUtilityPoleWithWires('left', POLE_STEP_Z, p % 2 === 0, p % 3 === 0);
-      const rightPole = buildUtilityPoleWithWires('right', POLE_STEP_Z, false, p % 3 === 1);
-      leftPole.position.set(-6.45, 0.22, z);
-      rightPole.position.set(6.45, 0.22, z);
-      scene.add(leftPole, rightPole);
-      polePairs.push({ z, leftPole, rightPole });
+    if (!isInferno) {
+      for (let p = 0; p < NUM_POLE_PAIRS; p++) {
+        const z = 12.0 - p * POLE_STEP_Z;
+        const leftPole = buildUtilityPoleWithWires('left', POLE_STEP_Z, p % 2 === 0, p % 3 === 0);
+        const rightPole = buildUtilityPoleWithWires('right', POLE_STEP_Z, false, p % 3 === 1);
+        leftPole.position.set(isPraia ? -6.38 : -6.45, 0.22, z);
+        rightPole.position.set(6.45, 0.22, z);
+        rightPole.visible = !isPraia;
+        scene.add(leftPole, rightPole);
+        polePairs.push({ z, leftPole, rightPole });
+      }
     }
 
-    // 9B. Sparse Sidewalk Payphones ("Orelhões BR nas Calçadas — apenas algumas vezes aparecendo") at x = ±6.65
+    // 9B. Sparse Sidewalk Payphones ("Orelhões BR nas Calçadas")
     interface OrelhaoPair {
       z: number;
       activeSide: 'left' | 'right';
@@ -692,21 +997,22 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       rightOrelhao: THREE.Group;
     }
     const orelhaoPairs: OrelhaoPair[] = [];
-    for (let o = 0; o < NUM_ORELHAO_PAIRS; o++) {
-      const z = -22.0 - o * ORELHAO_STEP_Z;
-      const activeSide: 'left' | 'right' = o % 2 === 0 ? 'left' : 'right';
-      const leftOrelhao = buildBrazilianOrelhao('left', o * 2);
-      const rightOrelhao = buildBrazilianOrelhao('right', o * 2 + 1);
-      leftOrelhao.position.set(-6.65, 0.22, z);
-      rightOrelhao.position.set(6.65, 0.22, z);
-      leftOrelhao.visible = activeSide === 'left';
-      rightOrelhao.visible = activeSide === 'right';
-      scene.add(leftOrelhao, rightOrelhao);
-      orelhaoPairs.push({ z, activeSide, leftOrelhao, rightOrelhao });
+    if (!isInferno) {
+      for (let o = 0; o < NUM_ORELHAO_PAIRS; o++) {
+        const z = -22.0 - o * ORELHAO_STEP_Z;
+        const activeSide: 'left' | 'right' = o % 2 === 0 ? 'left' : 'right';
+        const leftOrelhao = buildBrazilianOrelhao('left', o * 2);
+        const rightOrelhao = buildBrazilianOrelhao('right', o * 2 + 1);
+        leftOrelhao.position.set(-6.65, 0.22, z);
+        rightOrelhao.position.set(6.65, 0.22, z);
+        leftOrelhao.visible = !isPraia && activeSide === 'left';
+        rightOrelhao.visible = !isPraia && activeSide === 'right';
+        scene.add(leftOrelhao, rightOrelhao);
+        orelhaoPairs.push({ z, activeSide, leftOrelhao, rightOrelhao });
+      }
     }
 
-    // 9C. Roadside "Outdoor" Billboards ("SEU ANÚNCIO AQUI!") locked in the open inter-house gap (slot.z - 4.2m)
-    // and elevated above all roofs (y = 8.95 .. 12.45m) so they NEVER intersect or clip inside any house ("arruem nos autdor para nao ficar bugado dentro das casas")!
+    // 9C. Roadside "Outdoor" Billboards ("SEU ANÚNCIO AQUI!")
     interface BillboardPair {
       leftZ: number;
       rightZ: number;
@@ -716,18 +1022,21 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       rightBillboard: THREE.Group;
     }
     const billboardPairs: BillboardPair[] = [];
-    for (let b = 0; b < NUM_BILLBOARD_PAIRS; b++) {
-      const leftZ = 7.8 - b * BILLBOARD_STEP_Z; // Exact slot.z - 4.2m inter-house gap
-      const rightZ = -7.8 - b * BILLBOARD_STEP_Z; // Exact slot.z - 4.2m inter-house gap on opposite phase
-      const leftBillboard = buildRoadsideOutdoorBillboard('left', b * 2, maxAniso);
-      const rightBillboard = buildRoadsideOutdoorBillboard('right', b * 2 + 1, maxAniso);
-      leftBillboard.position.set(-11.2, 0.22, leftZ);
-      rightBillboard.position.set(11.2, 0.22, rightZ);
-      // Item 11: Alterna presença dos outdoors para evitar excesso visual simultâneo nos dois lados
-      const showLeft = b % 2 === 0;
-      const showRight = b % 2 === 1;
-      scene.add(leftBillboard, rightBillboard);
-      billboardPairs.push({ leftZ, rightZ, showLeft, showRight, leftBillboard, rightBillboard });
+    if (!isInferno) {
+      for (let b = 0; b < NUM_BILLBOARD_PAIRS; b++) {
+        const leftZ = 7.8 - b * BILLBOARD_STEP_Z;
+        const rightZ = -7.8 - b * BILLBOARD_STEP_Z;
+        const leftBillboard = buildRoadsideOutdoorBillboard('left', b * 2, maxAniso);
+        const rightBillboard = buildRoadsideOutdoorBillboard('right', b * 2 + 1, maxAniso);
+        leftBillboard.position.set(-11.2, 0.22, leftZ);
+        rightBillboard.position.set(11.2, 0.22, rightZ);
+        const showLeft = !isPraia && b % 2 === 0;
+        const showRight = !isPraia && b % 2 === 1;
+        leftBillboard.visible = showLeft;
+        rightBillboard.visible = showRight;
+        scene.add(leftBillboard, rightBillboard);
+        billboardPairs.push({ leftZ, rightZ, showLeft, showRight, leftBillboard, rightBillboard });
+      }
     }
 
     // 9D. Item 11: Presença Equilibrada e Natural de Caramelos no Cenário (apenas 2 unidades isoladas a cada 78m, sem grupos!)
@@ -740,14 +1049,16 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       tailPivot: THREE.Group;
     }
     const sidewalkCaramelos: SidewalkCarameloSlot[] = [];
-    for (let s = 0; s < NUM_SIDEWALK_DOGS; s++) {
-      const z = -54.0 - s * SIDEWALK_DOG_STEP_Z;
-      const side: 'left' | 'right' = s % 2 === 0 ? 'right' : 'left';
-      const prop = buildSparseSidewalkCarameloProp();
-      prop.root.position.set(side === 'left' ? -6.75 : 6.75, 0.22, z);
-      prop.root.rotation.y = side === 'left' ? 0.55 : -0.55;
-      scene.add(prop.root);
-      sidewalkCaramelos.push({ z, side, root: prop.root, tailPivot: prop.tailPivot });
+    if (!isInferno) {
+      for (let s = 0; s < NUM_SIDEWALK_DOGS; s++) {
+        const z = -54.0 - s * SIDEWALK_DOG_STEP_Z;
+        const side: 'left' | 'right' = s % 2 === 0 ? 'right' : 'left';
+        const prop = buildSparseSidewalkCarameloProp();
+        prop.root.position.set(side === 'left' ? -6.75 : 6.75, 0.22, z);
+        prop.root.rotation.y = side === 'left' ? 0.55 : -0.55;
+        scene.add(prop.root);
+        sidewalkCaramelos.push({ z, side, root: prop.root, tailPivot: prop.tailPivot });
+      }
     }
 
     // 10. Pool Ultra-Otimizado de 7 Veículos na Contramão (Geometrias Fundidas + Removidos da Cena ao Passar da Câmera!)
@@ -778,6 +1089,12 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
         if (isDisposed) {
           for (const v of pool) eraseVehicleFromScene(v);
           return;
+        }
+        if (isInferno) {
+          for (const v of pool) {
+            const infernalOverlay = buildInfernalVehicleOverlayGroup(v.halfWidth, v.halfLength, v.height);
+            v.root.add(infernalOverlay.group);
+          }
         }
         trafficPool = pool;
         if (seedInitialTrafficRef) {
@@ -1149,6 +1466,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     const clearBikeParticles = () => {
       exActive.fill(0);
       dtActive.fill(0);
+      clearFireFootprints();
       for (let i = 0; i < EXHAUST_POOL_SIZE; i++) {
         exhaustInstanced.setMatrixAt(i, _particleZeroMatrix);
       }
@@ -1311,6 +1629,108 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       dirtInstanced.instanceMatrix.needsUpdate = true;
     };
 
+    // =========================================================================
+    // RASTRO DE PEGADAS DE FOGO NO ASFALTO (CARAMELO DIABO / MODO INFERNO)
+    // =========================================================================
+    const FIRE_FOOTPRINT_POOL_SIZE = 28;
+    const fireFootprintSlots: Array<{
+      group: THREE.Group;
+      decalMesh: THREE.Mesh;
+      flameMeshA: THREE.Mesh;
+      flameMeshB: THREE.Mesh;
+      life: number;
+      maxLife: number;
+      active: boolean;
+      baseX: number;
+      baseZ: number;
+    }> = [];
+
+    const fpDecalGeo = new THREE.PlaneGeometry(0.18, 0.22);
+    fpDecalGeo.rotateX(-Math.PI / 2);
+    const fpFlameGeo = new THREE.ConeGeometry(0.042, 0.24, 7);
+    fpFlameGeo.rotateX(Math.PI);
+
+    const fpDecalMat = new THREE.MeshBasicMaterial({
+      color: 0xffea00,
+      transparent: true,
+      opacity: 0.95,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const fpFlameMatA = new THREE.MeshBasicMaterial({
+      color: 0xf97316,
+      transparent: true,
+      opacity: 0.92,
+      depthWrite: false,
+    });
+    const fpFlameMatB = new THREE.MeshBasicMaterial({
+      color: 0xdc2626,
+      transparent: true,
+      opacity: 0.88,
+      depthWrite: false,
+    });
+
+    const fireFootprintsGroup = new THREE.Group();
+    fireFootprintsGroup.name = 'CarameloFireFootprints';
+    scene.add(fireFootprintsGroup);
+
+    for (let i = 0; i < FIRE_FOOTPRINT_POOL_SIZE; i++) {
+      const fpGrp = new THREE.Group();
+      fpGrp.visible = false;
+
+      // Decalque da pegada canina no chão
+      const decal = new THREE.Mesh(fpDecalGeo, fpDecalMat.clone());
+      decal.position.y = 0.016;
+      fpGrp.add(decal);
+
+      // Duas labaredas cartoon vivas crepitando saindo da pegada
+      const flmA = new THREE.Mesh(fpFlameGeo, fpFlameMatA.clone());
+      flmA.position.set(0.02, 0.12, 0.01);
+      const flmB = new THREE.Mesh(fpFlameGeo, fpFlameMatB.clone());
+      flmB.position.set(-0.02, 0.10, -0.02);
+      flmB.scale.set(0.85, 0.85, 0.85);
+      fpGrp.add(flmA, flmB);
+
+      fireFootprintsGroup.add(fpGrp);
+      fireFootprintSlots.push({
+        group: fpGrp,
+        decalMesh: decal,
+        flameMeshA: flmA,
+        flameMeshB: flmB,
+        life: 0,
+        maxLife: 2.1,
+        active: false,
+        baseX: 0,
+        baseZ: 0,
+      });
+    }
+
+    let fpCursor = 0;
+    let fpEmitTimer = 0;
+    let fpFootSideToggle = false;
+
+    const emitFireFootprint = (footX: number, footZ: number) => {
+      const slot = fireFootprintSlots[fpCursor];
+      fpCursor = (fpCursor + 1) % FIRE_FOOTPRINT_POOL_SIZE;
+
+      slot.active = true;
+      slot.life = 2.1;
+      slot.maxLife = 2.1;
+      slot.baseX = footX;
+      slot.baseZ = footZ;
+      slot.group.position.set(footX, 0, footZ);
+      slot.group.visible = true;
+      slot.group.scale.setScalar(1.0);
+    };
+
+    const clearFireFootprints = () => {
+      for (let i = 0; i < FIRE_FOOTPRINT_POOL_SIZE; i++) {
+        fireFootprintSlots[i].active = false;
+        fireFootprintSlots[i].life = 0;
+        fireFootprintSlots[i].group.visible = false;
+      }
+    };
+
     // 10E. Pool de Notas de Dinheiro Brasileiro Cartoon na Rua (R$ 10, R$ 50, R$ 100 e R$ 200 Bordô Rara — Zero GC Alloc!)
     interface PooledCashStack {
       mesh: THREE.Group;
@@ -1370,9 +1790,9 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       }
     };
 
-    // 10F. Explosão Cartoon 3D de Notas & Brilhos na Coleta de Dinheiro (1 Único Draw Call Zero-GC!)
-    const MAX_CASH_BURST = 32;
-    const cashBurstGeo = new THREE.BoxGeometry(0.28, 0.018, 0.15);
+    // 10F. Efeito Discreto e Limpo na Coleta de Dinheiro (Item 2: Removidas as fitas e partículas compridas!)
+    const MAX_CASH_BURST = 12;
+    const cashBurstGeo = new THREE.OctahedronGeometry(0.042, 0);
     const cashBurstMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     const cashBurstInstanced = new THREE.InstancedMesh(cashBurstGeo, cashBurstMat, MAX_CASH_BURST);
     cashBurstInstanced.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -1390,7 +1810,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     const cashBurstPool = Array.from({ length: MAX_CASH_BURST }, () => ({
       active: false,
       age: 0,
-      life: 0.65,
+      life: 0.24,
       x: 0,
       y: 0,
       z: 0,
@@ -1411,28 +1831,29 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       bz: number,
       primaryHex: number,
       accentHex: number,
-      count = 12
+      count = 4
     ) => {
-      for (let k = 0; k < count; k++) {
+      const safeCount = Math.min(4, count);
+      for (let k = 0; k < safeCount; k++) {
         const p = cashBurstPool[cashBurstCursor];
         const idx = cashBurstCursor;
         cashBurstCursor = (cashBurstCursor + 1) % MAX_CASH_BURST;
-        const ang = (k / count) * Math.PI * 2 + Math.random() * 0.35;
-        const spd = 2.4 + Math.random() * 3.1;
+        const ang = (k / safeCount) * Math.PI * 2 + Math.random() * 0.25;
+        const spd = 1.1 + Math.random() * 0.9;
         p.active = true;
         p.age = 0;
-        p.life = 0.52 + Math.random() * 0.25;
-        p.x = bx + (Math.random() - 0.5) * 0.22;
-        p.y = by + Math.random() * 0.16;
-        p.z = bz + (Math.random() - 0.5) * 0.22;
+        p.life = 0.22 + Math.random() * 0.08;
+        p.x = bx + (Math.random() - 0.5) * 0.12;
+        p.y = by + Math.random() * 0.1;
+        p.z = bz + (Math.random() - 0.5) * 0.12;
         p.vx = Math.cos(ang) * spd;
-        p.vy = 4.5 + Math.random() * 3.5;
-        p.vz = Math.sin(ang) * spd * 0.75 + 2.2;
+        p.vy = 1.8 + Math.random() * 1.2;
+        p.vz = Math.sin(ang) * spd * 0.5;
         p.rx = Math.random() * Math.PI;
         p.ry = Math.random() * Math.PI;
         p.rz = Math.random() * Math.PI;
-        p.vrx = (Math.random() - 0.5) * 15;
-        p.vry = (Math.random() - 0.5) * 17;
+        p.vrx = 4;
+        p.vry = 5;
 
         _burstCol.setHex(k % 2 === 0 ? primaryHex : accentHex);
         cashBurstInstanced.setColorAt(idx, _burstCol);
@@ -1445,7 +1866,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     const triggerCashPickupBurst = (bx: number, by: number, bz: number, denom: CashDenomination) => {
       const mainHex =
         denom === 200 ? 0xbe123c : denom === 100 ? 0x38bdf8 : denom === 50 ? 0xf97316 : 0xf43f5e;
-      triggerCustomColorBurst(bx, by, bz, mainHex, 0xfde047, 12);
+      triggerCustomColorBurst(bx, by, bz, mainHex, 0xfde047, 4);
     };
 
     const updateCashPickupBurst = (dtStep: number) => {
@@ -1637,6 +2058,26 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     const manholePool: PooledManholeHazard[] = [];
     for (let i = 0; i < 5; i++) {
       const rig = buildCartoonManholeHazard();
+      if (isInferno) {
+        // No Modo Extremo / Mapa Inferno, transforma o jato de água convencional em um Ataque de Lava Cartoon!
+        let meshCounter = 0;
+        rig.geyserGroup.traverse((obj) => {
+          const mesh = obj as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          const m = (mesh.material as THREE.Material).clone() as THREE.MeshStandardMaterial & THREE.MeshBasicMaterial;
+          if (m.side !== THREE.BackSide) {
+            const lavaPalette = [0xfef08a, 0xfacc15, 0xf97316, 0xef4444, 0x1c1917];
+            const chosenHex = lavaPalette[meshCounter % lavaPalette.length];
+            meshCounter++;
+            if (m.color) m.color.setHex(chosenHex);
+            if ('emissive' in m && m.emissive) {
+              m.emissive.setHex(chosenHex === 0x1c1917 ? 0x991b1b : chosenHex);
+              m.emissiveIntensity = 0.85;
+            }
+          }
+          mesh.material = m;
+        });
+      }
       rig.root.visible = false;
       manholePool.push({
         rig,
@@ -1748,17 +2189,17 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       manholeSpawnTimer = 4.2;
     };
 
-    // 10H. Respingos de Água Translúcidos e Iluminados de Múltiplos Tamanhos (Zero GC, 1 Draw Call!)
+    // 10H. Respingos de Água / Lava Translúcidos e Iluminados de Múltiplos Tamanhos (Zero GC, 1 Draw Call!)
     const WATER_SPLASH_POOL = 42;
     const waterSplashGeo = new THREE.IcosahedronGeometry(0.085, 1);
     const waterSplashMat = new THREE.MeshStandardMaterial({
-      color: 0xe0f2fe,
-      emissive: 0x38bdf8,
-      emissiveIntensity: 0.28,
+      color: isInferno ? 0xfef08a : 0xe0f2fe,
+      emissive: isInferno ? 0xf97316 : 0x38bdf8,
+      emissiveIntensity: isInferno ? 0.85 : 0.28,
       roughness: 0.08,
       metalness: 0.12,
       transparent: true,
-      opacity: 0.78,
+      opacity: isInferno ? 0.92 : 0.78,
       depthWrite: false,
     });
     const waterSplashInstanced = new THREE.InstancedMesh(
@@ -1783,7 +2224,19 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       waterSplashInstanced.setMatrixAt(i, _particleZeroMatrix);
       waterSplashInstanced.setColorAt(
         i,
-        _tmpColor.setHex(i % 3 === 0 ? 0xffffff : i % 3 === 1 ? 0x7dd3fc : 0x38bdf8)
+        _tmpColor.setHex(
+          isInferno
+            ? i % 3 === 0
+              ? 0xfef08a
+              : i % 3 === 1
+                ? 0xf97316
+                : 0xef4444
+            : i % 3 === 0
+              ? 0xffffff
+              : i % 3 === 1
+                ? 0x7dd3fc
+                : 0x38bdf8
+        )
       );
     }
     if (waterSplashInstanced.instanceColor) waterSplashInstanced.instanceColor.needsUpdate = true;
@@ -1964,6 +2417,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     // Item 8: Pool de Zonas Verdes Piscantes de Entrega de Pizza (em frente às casas dos dois lados da rua!) + Caixa Voadora 3D!
     interface PooledPizzaDeliveryZone {
       rig: PizzaDeliveryZoneRig;
+      ghostRig?: InfernoGhostCustomerRig;
       side: 'left' | 'right';
       lane: LaneIndex;
       x: number;
@@ -1976,9 +2430,19 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     for (let i = 0; i < 4; i++) {
       const side: 'left' | 'right' = i % 2 === 0 ? 'left' : 'right';
       const rig = buildPizzaDeliveryZoneRig(side, i);
+      let ghostRig: InfernoGhostCustomerRig | undefined;
+      if (isInferno) {
+        // No Mapa Inferno, substitui o NPC convencional pelo Fantasma faminto aguardando sua libertação!
+        for (const child of rig.npcGroup.children) {
+          child.visible = false;
+        }
+        ghostRig = buildInfernoGhostCustomerGroup(side, i);
+        rig.npcGroup.add(ghostRig.root);
+      }
       scene.add(rig.root);
       pizzaZonePool.push({
         rig,
+        ghostRig,
         side,
         lane: side === 'left' ? -1 : 1,
         x: side === 'left' ? -3.15 : 3.15,
@@ -1988,21 +2452,68 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       });
     }
 
+    // Sistema de Libertação da Alma no Mapa Inferno (sai do fantasma -> atravessa o centro da câmera -> sobe ao céu!)
+    const liberatedSoulRig: LiberatedSoulAscensionRig = buildLiberatedSoulAscensionRig();
+    scene.add(liberatedSoulRig.root);
+    const liberatedSoulState = {
+      active: false,
+      age: 0,
+      duration: 2.35,
+      startX: 0,
+      startY: 1.25,
+      startZ: 0,
+    };
+
     const flyingPizzaBoxMesh = createSingleCartoonPizzaBoxMesh(0);
+    flyingPizzaBoxMesh.scale.setScalar(1.42);
     flyingPizzaBoxMesh.visible = false;
     scene.add(flyingPizzaBoxMesh);
     const flyingPizzaState = {
       active: false,
       age: 0,
-      duration: 0.36,
+      duration: 0.52,
       startX: 0,
-      startY: 1.15,
+      startY: 1.32,
       startZ: 0,
       endX: 0,
-      endY: 1.15,
+      endY: 1.18,
       endZ: 0,
+      sideSign: 1 as -1 | 1,
       targetZoneIdx: -1,
     };
+    let pizzaSlowMoTimer = 0;
+
+    // Item 7: Onomatopeia Visual Cartoon de Raiva (💢 estilo anime/cartoon acima da cabeça do Motoboy na Cutscene)
+    const angerVeinRig = new THREE.Group();
+    angerVeinRig.visible = false;
+    {
+      const veinOutlineMat = new THREE.MeshBasicMaterial({ color: 0x1a0802, side: THREE.BackSide });
+      const veinFillMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+      const veinHighlightMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
+      for (let q = 0; q < 4; q++) {
+        const branch = new THREE.Group();
+        branch.rotation.z = (q * Math.PI) / 2 + Math.PI * 0.25;
+        const arcGeo = new THREE.TorusGeometry(0.115, 0.028, 10, 18, Math.PI * 0.48);
+        const outGeo = new THREE.TorusGeometry(0.115, 0.044, 10, 18, Math.PI * 0.52);
+        const arcMesh = new THREE.Mesh(arcGeo, veinFillMat);
+        const outMesh = new THREE.Mesh(outGeo, veinOutlineMat);
+        const hiMesh = new THREE.Mesh(
+          new THREE.TorusGeometry(0.115, 0.012, 8, 14, Math.PI * 0.36),
+          veinHighlightMat
+        );
+        arcMesh.position.set(0.065, 0.065, 0);
+        arcMesh.rotation.z = Math.PI * 1.02;
+        outMesh.position.set(0.065, 0.065, -0.004);
+        outMesh.rotation.z = Math.PI * 1.0;
+        hiMesh.position.set(0.065, 0.065, 0.008);
+        hiMesh.rotation.z = Math.PI * 1.08;
+        branch.add(outMesh, arcMesh, hiMesh);
+        angerVeinRig.add(branch);
+      }
+    }
+    scene.add(angerVeinRig);
+
+    // Item 9: Reutiliza na fuga final o mesmo sistema de fumaça já existente na movimentação pela cidade (exhaustInstanced / updateBikeExhaustAndDirt), sem criar segundo sistema duplicado.
 
     // 11. Moto do Jogador c/ Piloto Motoboy Cartoon + 1 Único Caramelo Cartoon (Perseguindo Dinâmico ou Jogável!)
     let playerMotoInstance: MotoInstance | null = null;
@@ -2051,6 +2562,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
 
     // Instância 3D de 1 único Caramelo Cartoon (perseguição super dinâmica atrás da moto ou modo jogável!)
     let leadCaramelo: CarameloInstance | null = null;
+    let currentLoadedDogId = '';
     let chaseDogX = -0.35;
     let chaseDogVelX = 0;
     let chaseLungeTimer = 2.8;
@@ -2058,6 +2570,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     let chaseBarkTimer = 4.5;
 
     const loadLeadCaramelo = (dogId: string) => {
+      currentLoadedDogId = dogId;
       createCarameloInstance(dogId, { targetHeight: 0.92 })
         .then((inst) => {
           if (isDisposed) {
@@ -2080,13 +2593,26 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
         })
         .catch((err) => {
           console.warn('[RunnerCanvas] Erro ao carregar Caramelo principal:', err);
+          if (dogId !== 'caramelo_default') {
+            loadLeadCaramelo('caramelo_default');
+          }
         });
     };
 
-    loadLeadCaramelo(equippedCarameloRef.current || 'caramelo_default');
+    const resolveActivePursuerDogId = (preferredId: string): string => {
+      if (isInferno || difficultyRef.current === 'extreme') {
+        return 'caramelo_diabo';
+      }
+      return preferredId || 'caramelo_default';
+    };
+
+    loadLeadCaramelo(resolveActivePursuerDogId(equippedCarameloRef.current || 'caramelo_default'));
 
     updateCarameloRef.current = (newDogId: string) => {
-      loadLeadCaramelo(newDogId);
+      const targetDogId = resolveActivePursuerDogId(newDogId);
+      if (!leadCaramelo || currentLoadedDogId !== targetDogId) {
+        loadLeadCaramelo(targetDogId);
+      }
     };
 
     // 14. Game State, Crash Sequence State & Reset Handler
@@ -2121,15 +2647,19 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     let activeCrashReason = '';
 
     // Estados de Combate Cômico, Perseguição Dupla, Estamina, Carne & Mordida c/ Precisão (Zero GC!)
-    type MotoDogAttackPhase = 'stalking' | 'warning' | 'lunging' | 'latched' | 'recovering';
+    type MotoDogAttackPhase = 'stalking' | 'warning' | 'lunging' | 'latched' | 'fire_blast' | 'recovering';
     let motoDogAttackPhase: MotoDogAttackPhase = 'stalking';
-    let motoDogAttackTimer = 6.8;
+    let motoDogAttackTimer = 5.4;
     let motoDogPhaseClock = 0;
     let motoDogWarnBlinkPhase = 0;
     let motoDogLockedX = 0;
     let motoDogStartX = 0;
     let motoDogStartZ = 1.85;
     let dodgeSuccessNonce = 0;
+    let fireBlastDamagedPlayer = false;
+    let soulLiberatedNonce = 0;
+    let damageScreenFlashNonce = 0;
+    let wheelieShoulderZoomBlend = 0;
 
     let riderDamageFlashTimer = 0;
     let thermalVisionBlend = 0;
@@ -2150,7 +2680,11 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     let bitePrepBlend = 0;
     let biteStrikeTimer = 0;
     let biteResultNonce = 0;
-    let biteLastResult: { quality: BitePrecisionQuality; nonce: number } | null = null;
+    let biteLastResult: {
+      quality: BitePrecisionQuality;
+      nonce: number;
+      variant?: 'snap_bite' | 'spin_whip' | 'alpha_pounce';
+    } | null = null;
     let impactReactTimer = 0;
 
     let bonesCollectedRun = 0;
@@ -2180,8 +2714,11 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     let brawlCenterZ = -4.2;
 
     // Item 2: Estado do Tutorial Cinematográfico Jogável em Câmera Lenta ("Agora se vire hahaha...")
+    // Nos modos Difícil e Extremo (e Inferno), o tutorial é TOTALMENTE desativado conforme solicitado!
+    const isTutorialDisabled = () =>
+      difficultyRef.current === 'hard' || difficultyRef.current === 'extreme' || isInferno;
     type TutorialIntroPhase = 'none' | 'approaching' | 'slowmo' | 'complete';
-    let tutorialPhase: TutorialIntroPhase = 'approaching';
+    let tutorialPhase: TutorialIntroPhase = isTutorialDisabled() ? 'complete' : 'approaching';
     let tutorialTimeScale = 1.0;
     let tutorialSlowMoClock = 0;
     let tutorialBannerTimer = 0;
@@ -2204,14 +2741,41 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     let specialEndReason = '';
     let escapeBikeZ = 0;
 
-    // Item 8: Estado das Missões de Entrega de Pizzas
-    const PIZZA_MISSION_GOAL = 8;
-    let pizzasLeft = PIZZA_MISSION_GOAL;
+    // Item 4: Quantidade de pizzas necessárias por dificuldade (Fácil = 20, Médio = 40, Difícil = 90, Extremo = 30)
+    let pizzasLeft = getPizzaMissionGoal(difficultyRef.current);
     let pizzasDelivered = 0;
     let inDeliveryZone = false;
     let deliveryZoneSide: 'left' | 'right' | null = null;
     let activeDeliveryZoneIdx = -1;
     let lastPizzaDeliveredNonce = 0;
+    let pizzaChallengeClock = 0;
+    let pizzaChallengeMarker = 0.5;
+    let pizzaChallengeResultNonce = 0;
+    let pizzaChallengeResult: { success: boolean; nonce: number } | null = null;
+
+    // Item 7 & 8: Estado de Combos Sequenciais (Notas de Dinheiro no Motoboy / Ossos no Caramelo) + Quebra c/ SLASH + Cooldown de Recarga
+    const PICKUP_COMBO_MAX_TIME = 2.65;
+    const PICKUP_COMBO_COOLDOWN_MAX = 3.2;
+    let pickupComboCount = 0;
+    let pickupComboTimer = 0;
+    let pickupComboCooldownTimer = 0;
+    let pickupComboNonce = 0;
+    let comboBreakNonce = 0;
+    let comboBreakEvent: {
+      brokenCombo: number;
+      nonce: number;
+      mode: 'moto' | 'caramelo';
+    } | null = null;
+    let carameloAttackCycle = 0;
+
+    // Item 9: Cutscene Cinematográfica de Chegada (Motoboy + Caramelo) diferenciada por Mapa
+    const INTRO_CUTSCENE_DURATION = 3.45;
+    let isIntroCutscene = false;
+    let introCutsceneClock = 0;
+    let introBarkPlayed = false;
+    let introGrowlPlayed = false;
+    let hasNotifiedSceneReady = false;
+    let renderedFramesCount = 0;
 
     const initBrawlFlyingParts = () => {
       const launchDirs: Array<{ vx: number; vy: number; vz: number; rx: number; ry: number; rz: number; delay: number }> = [
@@ -2295,22 +2859,46 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
           specialEndSequence === 'wheelie_brawl',
         dodgeSuccessNonce,
         playerScreenPos,
+        pickupComboCount,
+        pickupComboNonce,
+        pickupComboTimeRatio: THREE.MathUtils.clamp(
+          pickupComboTimer / PICKUP_COMBO_MAX_TIME,
+          0,
+          1
+        ),
+        pickupComboCooldownRatio: THREE.MathUtils.clamp(
+          pickupComboCooldownTimer / PICKUP_COMBO_COOLDOWN_MAX,
+          0,
+          1
+        ),
+        comboBreakEvent,
         pizzasLeft,
         pizzasDelivered,
-        pizzaMissionGoal: PIZZA_MISSION_GOAL,
+        pizzaMissionGoal: getPizzaMissionGoal(difficultyRef.current),
         inDeliveryZone: isMoto && inDeliveryZone && pizzasLeft > 0,
         deliveryZoneSide: isMoto && inDeliveryZone ? deliveryZoneSide : null,
         lastPizzaDeliveredNonce,
-        tutorialPhase: isMoto ? tutorialPhase : 'none',
+        pizzaChallengeActive: isMoto && inDeliveryZone && pizzasLeft > 0 && !flyingPizzaState.active,
+        pizzaChallengeMarker,
+        pizzaChallengeResult,
+        tutorialPhase,
         tutorialBannerText:
-          isMoto && tutorialBannerTimer > 0 ? 'Agora se vire hahaha...' : null,
-        wheelieBalanceRatio: isMoto ? THREE.MathUtils.clamp(wheelieAngle / 0.74, 0, 1) : 0,
+          tutorialBannerTimer > 0 ? 'Agora se vire hahaha...' : null,
+        wheelieBalanceRatio: isMoto ? THREE.MathUtils.clamp(wheelieAngle / 0.55, 0, 1) : 0,
         missionVictorySequenceActive: specialEndSequence === 'pizza_escape',
+        introCutsceneActive: isIntroCutscene,
+        soulLiberatedNonce,
+        damageScreenFlashNonce,
       };
     };
 
     const emitHud = (force = false) => {
-      const minInterval = carameloBitePhase === 'precision' ? 0.015 : 0.08;
+      const minInterval =
+        carameloBitePhase === 'precision' || (playModeRef.current === 'moto' && inDeliveryZone)
+          ? 0.015
+          : pickupComboTimer > 0 || pickupComboCooldownTimer > 0
+          ? 0.05
+          : 0.08;
       if (!force && hudEmitTimer < minInterval) return;
       hudEmitTimer = 0;
       onHudUpdateRef.current(buildHudSnapshot());
@@ -2420,13 +3008,8 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
         chosenStack.x = laneToX(selectedLane);
         chosenStack.z = zPos;
 
-        const curveDist = Math.max(0, -(zPos - WORLD_CURVE_START_Z));
-        chosenStack.mesh.position.set(
-          chosenStack.x,
-          -curveY * curveDist * curveDist,
-          zPos
-        );
-        chosenStack.mesh.rotation.x = Math.atan(2 * curveY * curveDist);
+        chosenStack.mesh.position.set(chosenStack.x, 0, zPos);
+        chosenStack.mesh.rotation.x = 0;
         attachCashStack(chosenStack);
       }
     };
@@ -2503,9 +3086,8 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
         chosen.lane = selectedLane;
         chosen.x = laneToX(selectedLane);
         chosen.z = zPos;
-        const cDist = Math.max(0, -(zPos - WORLD_CURVE_START_Z));
-        chosen.root.position.set(chosen.x, -curveY * cDist * cDist, zPos);
-        chosen.root.rotation.x = Math.atan(2 * curveY * cDist);
+        chosen.root.position.set(chosen.x, 0, zPos);
+        chosen.root.rotation.x = 0;
         attachWhiteBone(chosen);
       }
     };
@@ -2558,13 +3140,11 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       }
       if (chosenLane === null) return;
 
-      const curveY = worldCurveUniforms.uWorldCurveY.value;
       freeMeat.lane = chosenLane;
       freeMeat.x = laneToX(chosenLane);
       freeMeat.z = spawnZ;
-      const cDist = Math.max(0, -(spawnZ - WORLD_CURVE_START_Z));
-      freeMeat.root.position.set(freeMeat.x, -curveY * cDist * cDist, spawnZ);
-      freeMeat.root.rotation.x = Math.atan(2 * curveY * cDist);
+      freeMeat.root.position.set(freeMeat.x, 0, spawnZ);
+      freeMeat.root.rotation.x = 0;
       attachRedMeat(freeMeat);
     };
 
@@ -2592,12 +3172,23 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       if (activeCount >= activeMaxTraffic) return;
 
       const diff = difficultyRef.current;
-      // No modo difícil os carros e ônibus vêm significativamente mais rápidos!
-      const speedMult = diff === 'easy' ? 0.82 : diff === 'hard' ? 1.58 : 1.0;
+      // No modo difícil e extremo os carros e ônibus vêm mais rápidos, e no modo extremo alguns carros aceleram mais (imprevisível)!
+      const speedMult =
+        diff === 'easy'
+          ? 0.82
+          : diff === 'hard'
+            ? 1.58
+            : diff === 'extreme'
+              ? 1.52
+              : 1.0;
       const distFactor = Math.min(0.28, playerState.distance / 2600);
 
       const doubleWaveChance =
-        diff === 'easy' ? 0.22 : diff === 'hard' ? 0.68 : 0.44;
+        diff === 'easy'
+          ? 0.22
+          : diff === 'hard' || diff === 'extreme'
+            ? 0.68
+            : 0.44;
       const wantTwoVehicles =
         Math.random() < doubleWaveChance && activeCount + 2 <= activeMaxTraffic;
       const countToSpawn = wantTwoVehicles ? 2 : 1;
@@ -2657,24 +3248,33 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
         veh.lane = chosenLane;
         veh.x = laneToX(chosenLane);
         veh.z = spawnZ;
-        veh.speedMs = veh.def.baseSpeedMs * (speedMult + distFactor);
+        // Item 6: No Modo Extremo, aumenta moderadamente a velocidade de ALGUNS veículos (não todos igualmente) criando trânsito imprevisível!
+        const extremeSelectiveBoost =
+          diff === 'extreme' && Math.random() < 0.46 ? 1.24 + Math.random() * 0.24 : 1.0;
+        veh.speedMs = veh.def.baseSpeedMs * (speedMult + distFactor) * extremeSelectiveBoost;
         veh.wheelAngle = 0;
         veh.nearMissAwarded = false;
         veh.honked = false;
         veh.root.rotation.set(0, 0, 0);
         veh.contactShadow.visible = showContactShadows;
 
-        const curveDist = Math.max(0, -(veh.z - WORLD_CURVE_START_Z));
-        const curveY = worldCurveUniforms.uWorldCurveY.value;
-        veh.root.position.set(veh.x, -curveY * curveDist * curveDist, veh.z);
-        veh.root.rotation.x = Math.atan(2 * curveY * curveDist);
+        const surf = sampleRoadSurfaceTransform(veh.z);
+        veh.root.position.set(veh.x + surf.xOffset, surf.yOffset, veh.z);
+        veh.root.rotation.set(surf.pitchX, surf.yawY, 0);
+        const distAhead = Math.max(0, -veh.z);
+        veh.setVehicleLod(distAhead <= 54 ? 0 : distAhead <= 98 ? 1 : 2);
         attachVehicleToScene(veh);
 
         lastSpawnedLane = chosenLane;
       }
 
-      const baseInterval = diff === 'easy' ? 1.65 : diff === 'hard' ? 0.75 : 1.28;
-      trafficSpawnTimer = Math.max(0.56, baseInterval - distFactor * 0.85) + Math.random() * 0.25;
+      const baseInterval =
+        diff === 'easy'
+          ? 1.78
+          : diff === 'hard' || diff === 'extreme'
+            ? 0.88
+            : 1.40;
+      trafficSpawnTimer = Math.max(0.62, baseInterval - distFactor * 0.8) + Math.random() * 0.28;
     };
 
     // Popula imediatamente veículos já visíveis na rua ao iniciar (e remove da cena todos os demais!)
@@ -2686,22 +3286,19 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       }
 
       const diff = difficultyRef.current;
-      const speedMult = diff === 'easy' ? 0.82 : diff === 'hard' ? 1.58 : 1.0;
-      const curveY = worldCurveUniforms.uWorldCurveY.value;
+      const speedMult =
+        diff === 'easy'
+          ? 0.82
+          : diff === 'hard' || diff === 'extreme'
+            ? 1.56
+            : 1.0;
 
-      const initialSeeds: Array<{ z: number; lane: LaneIndex; wantBus: boolean }> =
-        playModeRef.current === 'moto'
-          ? [
-              // Item 2: No início da corrida do Motoboy, o 1º carro vem em alta velocidade na mesma faixa (lane 0) para o Tutorial Cinematográfico!
-              { z: -38.0, lane: 0, wantBus: false },
-              { z: -76.0, lane: -1, wantBus: true },
-              { z: -108.0, lane: 1, wantBus: false },
-            ]
-          : [
-              { z: -42.0, lane: Math.random() < 0.5 ? -1 : 1, wantBus: false },
-              { z: -72.0, lane: 0, wantBus: true },
-              { z: -102.0, lane: Math.random() < 0.5 ? 1 : -1, wantBus: false },
-            ];
+      const initialSeeds: Array<{ z: number; lane: LaneIndex; wantBus: boolean }> = [
+        // Item 4: Logo após a câmera virar na cutscene de entrada, o 1º carro vem na faixa central (lane 0) ativando a câmera lenta para desviar!
+        { z: -56.0, lane: 0, wantBus: false },
+        { z: -92.0, lane: -1, wantBus: true },
+        { z: -126.0, lane: 1, wantBus: false },
+      ];
 
       tutorialCarRef = null;
       let spawned = 0;
@@ -2721,7 +3318,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
         veh.x = laneToX(seed.lane);
         veh.z = seed.z;
         veh.speedMs =
-          spawned === 0 && playModeRef.current === 'moto'
+          spawned === 0
             ? veh.def.baseSpeedMs * Math.max(1.22, speedMult)
             : veh.def.baseSpeedMs * speedMult;
         veh.wheelAngle = 0;
@@ -2730,11 +3327,13 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
         veh.root.rotation.set(0, 0, 0);
         veh.contactShadow.visible = showContactShadows;
 
-        const curveDist = Math.max(0, -(veh.z - WORLD_CURVE_START_Z));
-        veh.root.position.set(veh.x, -curveY * curveDist * curveDist, veh.z);
-        veh.root.rotation.x = Math.atan(2 * curveY * curveDist);
+        const surf = sampleRoadSurfaceTransform(veh.z);
+        veh.root.position.set(veh.x + surf.xOffset, surf.yOffset, veh.z);
+        veh.root.rotation.set(surf.pitchX, surf.yawY, 0);
+        const distAhead = Math.max(0, -veh.z);
+        veh.setVehicleLod(distAhead <= 54 ? 0 : distAhead <= 98 ? 1 : 2);
         attachVehicleToScene(veh);
-        if (spawned === 0 && playModeRef.current === 'moto') {
+        if (spawned === 0) {
           tutorialCarRef = veh;
         }
         spawned++;
@@ -2759,15 +3358,58 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       }
       flyingPizzaState.active = false;
       flyingPizzaBoxMesh.visible = false;
+      pizzaSlowMoTimer = 0;
+      angerVeinRig.visible = false;
+    };
+
+    const registerSequentialPickup = () => {
+      // Se o combo quebrou recentemente, precisa aguardar o tempo de recarga terminar antes de acumular novos combos!
+      if (pickupComboCooldownTimer > 0) {
+        return;
+      }
+      pickupComboCount += 1;
+      pickupComboTimer = PICKUP_COMBO_MAX_TIME;
+      pickupComboNonce += 1;
+      const nextMult = Math.min(10, 1 + Math.floor(pickupComboCount / 2));
+      if (nextMult > playerState.combo) {
+        playerState = { ...playerState, combo: nextMult };
+      }
+    };
+
+    const triggerSequentialComboBreak = () => {
+      if (pickupComboCount >= 1) {
+        comboBreakNonce += 1;
+        comboBreakEvent = {
+          brokenCombo: pickupComboCount,
+          nonce: comboBreakNonce,
+          mode: playModeRef.current === 'moto' ? 'moto' : 'caramelo',
+        };
+        pickupComboCount = 0;
+        pickupComboTimer = 0;
+        pickupComboCooldownTimer = PICKUP_COMBO_COOLDOWN_MAX;
+        playerState = { ...playerState, combo: 1 };
+        cameraTrauma = Math.max(cameraTrauma, 0.28);
+        triggerCustomColorBurst(
+          playerState.x,
+          playerState.y + 1.05,
+          0,
+          0xef4444,
+          0xfef08a,
+          14,
+        );
+        emitHud(true);
+      } else {
+        pickupComboCount = 0;
+        pickupComboTimer = 0;
+      }
     };
 
     const resetRun = () => {
       playerState = createInitialPlayerState(difficultyRef.current);
-      // Item 4: O Motoboy tem 10 vidas dinâmicas!
-      if (playModeRef.current === 'moto') {
-        playerState.hp = 10;
-        playerState.maxHp = 10;
-      }
+      // Item 6: Vidas iniciais conforme a dificuldade selecionada (Fácil = 10, Médio = 5, Difícil = 4)
+      const initialLives = getInitialLivesForDifficulty(difficultyRef.current);
+      playerState.hp = initialLives;
+      playerState.maxHp = initialLives;
       hitstopTimer = 0;
       cameraTrauma = 0;
       camRollAngle = 0;
@@ -2787,18 +3429,31 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       chaseLungeBoost = 0;
       chaseBarkTimer = 3.8;
       motoDogAttackPhase = 'stalking';
-      motoDogAttackTimer = difficultyRef.current === 'hard' ? 6.8 : 8.2;
+      // Item 2 & 6: Aumenta a velocidade e frequência dos ataques dos Caramelos em todas as fases!
+      motoDogAttackTimer =
+        difficultyRef.current === 'extreme'
+          ? 3.1
+          : difficultyRef.current === 'hard'
+            ? 3.7
+            : difficultyRef.current === 'medium'
+              ? 5.2
+              : 6.6;
       motoDogPhaseClock = 0;
       motoDogWarnBlinkPhase = 0;
       motoDogLockedX = 0;
       motoDogStartX = 0;
       motoDogStartZ = 1.85;
       dodgeSuccessNonce = 0;
+      fireBlastDamagedPlayer = false;
+      wheelieShoulderZoomBlend = 0;
+      liberatedSoulState.active = false;
+      liberatedSoulRig.root.visible = false;
       carameloWarnRig.root.visible = false;
       dangerGroundStrip.root.visible = false;
       brawlFinaleRig.root.visible = false;
 
-      tutorialPhase = playModeRef.current === 'moto' ? 'approaching' : 'none';
+      // Desativação total do tutorial em dificuldades Difícil, Extremo e Inferno
+      tutorialPhase = isTutorialDisabled() ? 'complete' : 'approaching';
       tutorialTimeScale = 1.0;
       tutorialSlowMoClock = 0;
       tutorialBannerTimer = 0;
@@ -2808,11 +3463,21 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       specialEndReason = '';
       escapeBikeZ = 0;
 
-      pizzasLeft = PIZZA_MISSION_GOAL;
+      pizzasLeft = getPizzaMissionGoal(difficultyRef.current);
       pizzasDelivered = 0;
       inDeliveryZone = false;
       deliveryZoneSide = null;
       activeDeliveryZoneIdx = -1;
+      lastPizzaDeliveredNonce = 0;
+      pizzaChallengeClock = 0;
+      pizzaChallengeMarker = 0.5;
+      pizzaChallengeResult = null;
+      pickupComboCount = 0;
+      pickupComboTimer = 0;
+      pickupComboCooldownTimer = 0;
+      pickupComboNonce = 0;
+      comboBreakEvent = null;
+      carameloAttackCycle = 0;
 
       riderDamageFlashTimer = 0;
       thermalVisionBlend = 0;
@@ -2850,12 +3515,18 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
         playerMotoInstance.setRiderKnockoutFall(0);
         playerMotoInstance.setPizzaBoxCount(pizzasLeft);
       }
+      const desiredDogId = resolveActivePursuerDogId(equippedCarameloRef.current || 'caramelo_default');
+      if (!leadCaramelo || currentLoadedDogId !== desiredDogId) {
+        loadLeadCaramelo(desiredDogId);
+      }
       if (leadCaramelo) {
         leadCaramelo.setBitePrepFactor(0);
         leadCaramelo.setDefeatPose(0);
+        leadCaramelo.setFireBreathState('idle', 0);
       }
 
-      dayNightCycleProgress = presetToCyclePhase(skyPresetRef.current);
+      // Item 12: O mapa da Praia sempre começa durante o dia ensolarado e evolui naturalmente para o entardecer e noite!
+      dayNightCycleProgress = isPraia ? 0.04 : presetToCyclePhase(skyPresetRef.current);
       keysDown.left = false;
       keysDown.right = false;
       keysDown.wheelie = false;
@@ -2874,6 +3545,51 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       seedInitialManholes();
       seedInitialPizzaZones();
       const isPlayingOrPaused = phaseRef.current === 'playing' || phaseRef.current === 'paused';
+      if (phaseRef.current === 'playing') {
+        isIntroCutscene = true;
+        introCutsceneClock = 0;
+        introBarkPlayed = false;
+        introGrowlPlayed = false;
+        onIntroCutsceneChangeRef.current?.(true);
+        sound.startProceduralBikeEngine();
+
+        // Item 5: Na Cutscene de Entrada, posiciona casas, favelas, postes e rua atrás dos personagens (+Z)
+        // para que o cenário traseiro apareça completo enquanto a câmera estiver virada para eles!
+        for (let i = 0; i < activeHouseSlots.length; i++) {
+          const slot = activeHouseSlots[i];
+          slot.z = 58.8 - i * HOUSE_SLOT_STEP_Z;
+          slot.leftMesh.position.z = slot.z;
+          slot.rightMesh.position.z = slot.z;
+        }
+        for (let f = 0; f < favelaPairs.length; f++) {
+          const fp = favelaPairs[f];
+          fp.z = 56.0 - f * FAVELA_STEP_Z;
+          fp.leftFavela.position.z = fp.z;
+          fp.rightFavela.position.z = fp.z;
+        }
+        for (let p = 0; p < polePairs.length; p++) {
+          const pp = polePairs[p];
+          pp.z = 58.8 - p * POLE_STEP_Z;
+          pp.leftPole.position.z = pp.z;
+          pp.rightPole.position.z = pp.z;
+        }
+        for (let r = 0; r < streetMotionRows.length; r++) {
+          const row = streetMotionRows[r];
+          row.z = 56.0 - r * STREET_MOTION_STEP_Z;
+          row.mesh.position.z = row.z;
+        }
+        if (isPraia) {
+          for (let c = 0; c < condoSlots.length; c++) {
+            const cs = condoSlots[c];
+            cs.z = 56.0 - c * CONDO_STEP_Z;
+            cs.mesh.position.z = cs.z;
+          }
+        }
+      } else {
+        isIntroCutscene = false;
+        introCutsceneClock = 0;
+        onIntroCutsceneChangeRef.current?.(false);
+      }
       if (playerMotoInstance) {
         playerMotoInstance.root.visible = isPlayingOrPaused;
       }
@@ -2922,17 +3638,24 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       pizzasLeft = Math.max(0, pizzasLeft - 1);
       playerMotoInstance?.setPizzaBoxCount(pizzasLeft);
       const sideSign: -1 | 1 = pz.side === 'left' ? -1 : 1;
+      playerMotoInstance?.setPizzaAiming(false, sideSign);
       playerMotoInstance?.triggerPizzaThrow(sideSign);
       sound.playPizzaThrowWhoosh();
+      sound.playSlowMoTransition(true);
 
+      // Item 1: Ativa breve câmera lenta cinematográfica no arremesso da pizza!
+      pizzaSlowMoTimer = 0.68;
+
+      const targetSurf = sampleRoadSurfaceTransform(pz.z);
       flyingPizzaState.active = true;
       flyingPizzaState.age = 0;
-      flyingPizzaState.duration = 0.34;
-      flyingPizzaState.startX = playerState.x + sideSign * 0.52;
-      flyingPizzaState.startY = playerState.y + 1.18;
-      flyingPizzaState.startZ = -0.15;
-      flyingPizzaState.endX = sideSign * 5.25;
-      flyingPizzaState.endY = 1.18;
+      flyingPizzaState.duration = 0.48;
+      flyingPizzaState.sideSign = sideSign;
+      flyingPizzaState.startX = playerState.x + sideSign * 0.62;
+      flyingPizzaState.startY = playerState.y + 1.36;
+      flyingPizzaState.startZ = -0.14;
+      flyingPizzaState.endX = sideSign * 5.45 + targetSurf.xOffset;
+      flyingPizzaState.endY = 1.24 + targetSurf.yOffset;
       flyingPizzaState.endZ = pz.z;
       flyingPizzaState.targetZoneIdx = zoneIdx;
       flyingPizzaBoxMesh.position.set(
@@ -2947,7 +3670,13 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     const doThrowPizza = () => {
       if (phaseRef.current !== 'playing' || isCrashing || specialEndSequence !== 'none') return;
       if (playModeRef.current !== 'moto') return;
-      if (activeDeliveryZoneIdx >= 0 && pizzasLeft > 0) {
+      if (activeDeliveryZoneIdx >= 0 && pizzasLeft > 0 && !flyingPizzaState.active) {
+        // Sistema de Arremesso Rápido por Clique Instantâneo: clicou/apertou na zona, joga a pizza na hora com sucesso garantido!
+        pizzaChallengeResultNonce += 1;
+        pizzaChallengeResult = {
+          success: true,
+          nonce: pizzaChallengeResultNonce,
+        };
         triggerPizzaThrowToZone(activeDeliveryZoneIdx);
       }
     };
@@ -2956,13 +3685,19 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     const doShiftLeft = () => {
       if (phaseRef.current !== 'playing' || isCrashing || specialEndSequence !== 'none') return;
       const prevLane = playerState.lane;
-      playerState = shiftLane(playerState, -1);
+      const stepM =
+        tutorialPhase === 'slowmo'
+          ? 2.05
+          : playModeRef.current === 'caramelo'
+          ? 0.78
+          : 0.95;
+      playerState = shiftLane(playerState, -1, stepM);
       if (playerState.lane !== prevLane) {
-        camRollImpulse = 0.068;
+        camRollImpulse = 0.032;
       }
       if (tutorialPhase === 'slowmo') {
         if (playerState.lane === 0) {
-          playerState = shiftLane(playerState, -1);
+          playerState = shiftLane(playerState, -1, 2.05);
         }
         completeTutorialSlowMoDodge(-1);
       }
@@ -2971,13 +3706,19 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     const doShiftRight = () => {
       if (phaseRef.current !== 'playing' || isCrashing || specialEndSequence !== 'none') return;
       const prevLane = playerState.lane;
-      playerState = shiftLane(playerState, 1);
+      const stepM =
+        tutorialPhase === 'slowmo'
+          ? 2.05
+          : playModeRef.current === 'caramelo'
+          ? 0.78
+          : 0.95;
+      playerState = shiftLane(playerState, 1, stepM);
       if (playerState.lane !== prevLane) {
-        camRollImpulse = -0.068;
+        camRollImpulse = -0.032;
       }
       if (tutorialPhase === 'slowmo') {
         if (playerState.lane === 0) {
-          playerState = shiftLane(playerState, 1);
+          playerState = shiftLane(playerState, 1, 2.05);
         }
         completeTutorialSlowMoDodge(1);
       }
@@ -3026,12 +3767,23 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
     const resolveCarameloPrecisionBite = (quality: BitePrecisionQuality) => {
       leadCaramelo?.setBitePrepFactor(0);
       biteResultNonce += 1;
-      biteLastResult = { quality, nonce: biteResultNonce };
+      const attackVariant: 'snap_bite' | 'spin_whip' | 'alpha_pounce' =
+        quality === 'perfect'
+          ? 'alpha_pounce'
+          : carameloAttackCycle++ % 2 === 0
+            ? 'snap_bite'
+            : 'spin_whip';
+      biteLastResult = {
+        quality,
+        nonce: biteResultNonce,
+        variant: quality === 'miss' ? undefined : attackVariant,
+      };
       isBiteCurrentlyReady = false;
 
       if (quality === 'miss') {
-        // Vermelho -> Erro: mordida falha e o Motoboy acelera progressivamente escapando!
+        // Vermelho -> Erro: mordida falha, quebra o combo de ossos e o Motoboy acelera escapando!
         sound.playBitePrecisionConfirm('miss');
+        triggerSequentialComboBreak();
         biteCooldownTimer = 1.65;
         carameloBitePhase = 'escaping';
         aiMotoEscapeVel = 1.5;
@@ -3041,27 +3793,35 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
         return;
       }
 
-      // Acerto (Laranja / Amarelo / Verde): piscar azul na tela + VFX proporcional + Motoboy achatado!
+      // Item 11: Novas variações de ataque do Caramelo (snap_bite, spin_whip, alpha_pounce) c/ impacto visual e sonoro!
       biteCooldownTimer = BITE_COOLDOWN_MAX;
-      biteStrikeTimer = 0.28;
-      leadCaramelo?.triggerBiteChomp();
+      biteStrikeTimer = 0.34;
+      leadCaramelo?.triggerBiteChomp(attackVariant);
       sound.playCustomBark();
       sound.playBitePrecisionConfirm(quality);
 
-      const squashPower = quality === 'perfect' ? 1.15 : quality === 'good' ? 0.88 : 0.62;
-      const burstCount = quality === 'perfect' ? 26 : quality === 'good' ? 18 : 11;
+      const squashPower = quality === 'perfect' ? 1.18 : quality === 'good' ? 0.90 : 0.64;
+      const burstCount = quality === 'perfect' ? 28 : quality === 'good' ? 20 : 12;
       const accentColor =
-        quality === 'perfect' ? 0x4ade80 : quality === 'good' ? 0xfacc15 : 0xf97316;
+        attackVariant === 'alpha_pounce'
+          ? 0x4ade80
+          : attackVariant === 'spin_whip'
+            ? 0x38bdf8
+            : 0xfacc15;
 
       playerMotoInstance?.triggerRiderSquash(squashPower);
-      triggerCustomColorBurst(aiMotoX, 0.82, aiMotoZ + 0.32, 0x38bdf8, accentColor, burstCount);
-      riderDamageFlashTimer = 0.55;
+      triggerCustomColorBurst(aiMotoX, 0.86, aiMotoZ + 0.32, 0xf97316, accentColor, burstCount);
+      triggerCustomColorBurst(playerState.x, playerState.y + 0.65, -0.35, 0xfef08a, accentColor, 10);
+      riderDamageFlashTimer = 0.58;
+      damageScreenFlashNonce += 1;
       cameraTrauma = Math.max(
         cameraTrauma,
-        quality === 'perfect' ? 0.74 : quality === 'good' ? 0.54 : 0.38,
+        quality === 'perfect' ? 0.86 : quality === 'good' ? 0.68 : 0.52,
       );
 
-      aiMotoHp = Math.max(0, aiMotoHp - 1);
+      // Item 10: Quando o jogador acertar o meio ('perfect'), tira 2 corações do Motoboy!
+      const hpDamage = quality === 'perfect' ? 2 : 1;
+      aiMotoHp = Math.max(0, aiMotoHp - hpDamage);
       chasePressure = 0;
 
       const nextCombo = Math.min(10, playerState.combo + 1);
@@ -3188,7 +3948,15 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
         } else if (e.code === 'KeyF' || e.code === 'Enter') {
           e.preventDefault();
           if (!e.repeat) doThrowPizza();
-        } else if (e.code === 'KeyQ' || e.code === 'KeyE') {
+        } else if (e.code === 'KeyQ') {
+          // Tecla Q é EXCLUSIVA para JOGAR A PIZZA (ou morder no Modo Caramelo)!
+          e.preventDefault();
+          if (playModeRef.current === 'caramelo') {
+            if (!e.repeat) doCarameloBite();
+          } else {
+            if (!e.repeat) doThrowPizza();
+          }
+        } else if (e.code === 'KeyE') {
           e.preventDefault();
           if (playModeRef.current === 'caramelo') {
             if (!e.repeat) doCarameloBite();
@@ -3197,6 +3965,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
             wheeliePulseTimer = 0.48;
           }
         } else if (e.code === 'Space') {
+          // Tecla Espaço é EXCLUSIVA para PULAR (nunca arremessa pizza com Espaço)!
           if (!e.repeat) {
             e.preventDefault();
             if (
@@ -3204,13 +3973,20 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
               (carameloBitePhase === 'precision' || isBiteCurrentlyReady)
             ) {
               doCarameloBite();
-            } else if (playModeRef.current === 'moto' && inDeliveryZone && pizzasLeft > 0 && tutorialPhase !== 'slowmo') {
-              doThrowPizza();
             } else {
               doJump();
             }
           }
-        } else if (e.code === 'ArrowUp' || e.code === 'KeyW') {
+        } else if (e.code === 'KeyW') {
+          e.preventDefault();
+          if (playModeRef.current === 'moto') {
+            // Item 3: A tecla W controla a empinada da motocicleta (Grau)!
+            keysDown.wheelie = true;
+            wheeliePulseTimer = 0.42;
+          } else if (!e.repeat) {
+            doJump();
+          }
+        } else if (e.code === 'ArrowUp') {
           if (!e.repeat) {
             e.preventDefault();
             doJump();
@@ -3229,7 +4005,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
         keysDown.left = false;
       } else if (e.code === 'ArrowRight' || e.code === 'KeyD') {
         keysDown.right = false;
-      } else if (e.code === 'KeyQ' || e.code === 'KeyE') {
+      } else if (e.code === 'KeyQ' || e.code === 'KeyE' || e.code === 'KeyW') {
         keysDown.wheelie = false;
         wheeliePulseTimer = 0;
       }
@@ -3337,22 +4113,31 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
         specialEndSequence === 'none';
       const isMotoMode = playModeRef.current === 'moto';
 
-      // Item 2: Gerenciamento da Câmera Lenta Cinematográfica do Tutorial Inicial
-      if (activePhase === 'playing' && isMotoMode) {
+      // Item 4: Gerenciamento da Câmera Lenta Cinematográfica do Carro após a Câmera Virar na Cutscene de Entrada
+      if (activePhase === 'playing') {
         if (tutorialBannerTimer > 0) {
           tutorialBannerTimer = Math.max(0, tutorialBannerTimer - dt);
           if (tutorialBannerTimer <= 0) {
             emitHud(true);
           }
         }
-        if (tutorialPhase === 'approaching' && tutorialCarRef && tutorialCarRef.inUse) {
+        if (
+          !isIntroCutscene &&
+          !isTutorialDisabled() &&
+          tutorialPhase === 'approaching' &&
+          tutorialCarRef &&
+          tutorialCarRef.inUse
+        ) {
           if (
-            tutorialCarRef.z >= -18.5 &&
+            tutorialCarRef.z >= -20.5 &&
             tutorialCarRef.z <= -4.5 &&
-            Math.abs(playerState.x - tutorialCarRef.x) < 1.55
+            Math.abs(playerState.x - tutorialCarRef.x) < 1.65
           ) {
             tutorialPhase = 'slowmo';
             tutorialSlowMoClock = 0;
+            if (!isInferno && difficultyRef.current !== 'extreme') {
+              sound.playVehicleHonk(false, 0.38);
+            }
             sound.playSlowMoTransition(true);
             emitHud(true);
           } else if (tutorialCarRef.z > -4.5) {
@@ -3376,7 +4161,29 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       } else {
         tutorialTimeScale = 1.0;
       }
-      const simDt = dt * tutorialTimeScale;
+
+      // Item 1 & 7: Escala de tempo cinematográfica para o Arremesso de Pizza e Cutscene de Entrada
+      let pizzaTimeScale = 1.0;
+      if (pizzaSlowMoTimer > 0 && activePhase === 'playing' && !isCrashing) {
+        pizzaSlowMoTimer = Math.max(0, pizzaSlowMoTimer - dt);
+        const u = 1.0 - pizzaSlowMoTimer / 0.68;
+        if (u < 0.16) {
+          pizzaTimeScale = THREE.MathUtils.lerp(1.0, 0.30, u / 0.16);
+        } else if (u < 0.66) {
+          pizzaTimeScale = 0.30;
+        } else {
+          pizzaTimeScale = THREE.MathUtils.lerp(0.30, 1.0, (u - 0.66) / 0.34);
+        }
+      }
+      let introTimeScale = 1.0;
+      if (isIntroCutscene && activePhase === 'playing') {
+        const ip = introCutsceneClock / INTRO_CUTSCENE_DURATION;
+        if (ip > 0.24 && ip < 0.66) {
+          const mid = Math.sin(((ip - 0.24) / 0.42) * Math.PI);
+          introTimeScale = THREE.MathUtils.lerp(1.0, 0.46, mid);
+        }
+      }
+      const simDt = dt * tutorialTimeScale * pizzaTimeScale * introTimeScale;
 
       if (isActivelyRunning) {
         dayNightCycleProgress = (dayNightCycleProgress + simDt / 64.0) % 1.0;
@@ -3387,14 +4194,22 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       horizonSkyline.update(elapsed, playerState.x);
 
       // Keep World Horizon Curvature Uniforms 100% static so distant mountains & skyline buildings never bob, pulse, or sway!
+      let effectiveGroundSpeed = playerState.speed;
       worldCurveUniforms.uHorizonFogPulse.value = 0.0;
+      worldCurveUniforms.uPalmWindTime.value = elapsed;
       const inspectedId = inspectedHouseRef.current;
       if (inspectedId !== null) {
         worldCurveUniforms.uWorldCurveY.value = 0.0008;
         worldCurveUniforms.uWorldCurveX.value = 0.0;
+        worldCurveUniforms.uLadeiraSlope.value = 0.0;
+        worldCurveUniforms.uRoadWindPhase.value = 0.0;
       } else {
         worldCurveUniforms.uWorldCurveY.value = DEFAULT_WORLD_CURVE_Y;
         worldCurveUniforms.uWorldCurveX.value = 0.0;
+        worldCurveUniforms.uLadeiraSlope.value = isPraia ? 1.0 : 0.0;
+        worldCurveUniforms.uRoadWindPhase.value = isPraia
+          ? 0.38 + playerState.distance * 0.015 + Math.sin(elapsed * 0.34) * 0.24
+          : 0.0;
       }
 
       // Handle 30-House Catalog Inspector Showcase if active
@@ -3460,11 +4275,11 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
         }
 
         // Mantém os 7 veículos ultra-otimizados circulando no fundo do Menu e apaga assim que passam da câmera!
+        sound.stopProceduralBikeEngine();
         trafficSpawnTimer -= dt;
         if (trafficSpawnTimer <= 0) {
           spawnOncomingTrafficWave();
         }
-        const curveY = worldCurveUniforms.uWorldCurveY.value;
         for (let i = 0; i < trafficPool.length; i++) {
           const veh = trafficPool[i];
           if (!veh.inUse) continue;
@@ -3473,11 +4288,13 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
             eraseVehicleFromScene(veh);
             continue;
           }
-          const curveDist = Math.max(0, -(veh.z - WORLD_CURVE_START_Z));
-          veh.root.position.set(veh.x, -curveY * curveDist * curveDist, veh.z);
-          veh.root.rotation.x = Math.atan(2 * curveY * curveDist);
+          const surf = sampleRoadSurfaceTransform(veh.z);
+          veh.root.position.set(veh.x + surf.xOffset, surf.yOffset, veh.z);
+          veh.root.rotation.set(surf.pitchX, surf.yawY, 0);
+          const distAhead = Math.max(0, -veh.z);
+          veh.setVehicleLod(distAhead <= 54 ? 0 : distAhead <= 98 ? 1 : 2);
           veh.contactShadow.visible = showContactShadows;
-          veh.root.visible = veh.z >= -120.0;
+          veh.root.visible = veh.z >= -138.0;
           veh.spinWheels(dt, veh.speedMs);
         }
 
@@ -3489,6 +4306,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
         camera.rotation.z = 0;
       } else if (activePhase === 'playing') {
         if (isCrashing) {
+          sound.stopProceduralBikeEngine();
           // Sequência Cinematográfica de Explosão Cartoon 3D (1.18s) -> Transição SE LASCOU! (Intacta para batidas de carro!)
           atmosGroup.visible = false;
           exhaustInstanced.visible = false;
@@ -3509,16 +4327,15 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
           updateCartoonExplosion(dt, crashProgress);
 
           // Desacelera suavemente os outros veículos distantes durante a explosão
-          const curveY = worldCurveUniforms.uWorldCurveY.value;
           for (let i = 0; i < trafficPool.length; i++) {
             const veh = trafficPool[i];
             if (!veh.inUse) continue;
             if (Math.abs(veh.z) > 4.5) {
               const slowSpeed = veh.speedMs * Math.max(0, 1 - crashProgress * 1.1) * 0.35;
               veh.z += slowSpeed * dt;
-              const curveDist = Math.max(0, -(veh.z - WORLD_CURVE_START_Z));
-              veh.root.position.set(veh.x, -curveY * curveDist * curveDist, veh.z);
-              veh.root.rotation.x = Math.atan(2 * curveY * curveDist);
+              const surf = sampleRoadSurfaceTransform(veh.z);
+              veh.root.position.set(veh.x + surf.xOffset, surf.yOffset, veh.z);
+              veh.root.rotation.set(surf.pitchX, surf.yawY, 0);
               veh.spinWheels(dt, slowSpeed);
             }
           }
@@ -3709,31 +4526,163 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
               onGameOverRef.current(finalSnap, specialEndReason);
             }
           } else if (specialEndSequence === 'pizza_escape') {
-            // Item 9: Fim das Pizzas! Motoboy percebe que entregou tudo, empina e acelera fugindo do Caramelo!
-            brawlFinaleRig.root.visible = false;
-            escapeBikeZ -= 21.5 * dt;
-            const escapeWheelie = Math.min(0.46, specialEndClock * 1.15) * Math.max(0, 1 - specialEndClock * 0.35);
+            // Item 9: Fuga Final do Motoboy -> Motoboy escapa deixando Nuvem de Fumaça Cômica no Caramelo + Câmera Lenta Bem Suave + Leve Zoom no Cachorro!
+            angerVeinRig.visible = false;
+
+            // Transição suave para câmera lenta assim que o Motoboy arranca e deixa o Caramelo na fumaça
+            const slowMoBlend = THREE.MathUtils.smoothstep(specialEndClock, 0.65, 1.45);
+            const slowDt = dt * THREE.MathUtils.lerp(1.0, 0.32, slowMoBlend);
+
+            // Mantém o cenário e a rua fluindo com desaceleração suave na câmera lenta
+            const escapeRoadMove = playerState.speed * 1.35 * slowDt;
+            roadTex.offset.y = (roadTex.offset.y + computeRoadTextureOffsetDelta(escapeRoadMove, 15.0)) % 1;
+            roadBumpTex.offset.y = roadTex.offset.y;
+            sidewalkTex.offset.y =
+              (sidewalkTex.offset.y + computeRoadTextureOffsetDelta(escapeRoadMove, 150.0 / 18.0)) % 1;
+
+            // Motoboy dispara lá na frente escapando em alta velocidade
+            const accelSpeed = THREE.MathUtils.lerp(11.5, 28.0, Math.min(1, specialEndClock / 0.95));
+            escapeBikeZ -= accelSpeed * slowDt;
+            const escapeWheelie =
+              Math.min(0.45, specialEndClock * 1.35) * Math.max(0, 1 - specialEndClock * 0.28);
+            const desperateWeave = Math.sin(specialEndClock * 9.5) * 0.2;
+
+            const escSurf = sampleRoadSurfaceTransform(escapeBikeZ);
+            const bikeWorldX = playerState.x + escSurf.xOffset + desperateWeave * 0.16;
+            const bikeWorldY = escSurf.yOffset;
+
             if (playerMotoInstance) {
               playerMotoInstance.root.visible = true;
-              const cDist = Math.max(0, -(escapeBikeZ - WORLD_CURVE_START_Z));
-              const cY = -worldCurveUniforms.uWorldCurveY.value * cDist * cDist;
-              playerMotoInstance.root.position.set(playerState.x, cY, escapeBikeZ);
-              playerMotoInstance.update(dt, playerState.speed * 1.65, 0, escapeWheelie);
+              playerMotoInstance.setPizzaAiming(false);
+              playerMotoInstance.root.position.set(bikeWorldX, bikeWorldY, escapeBikeZ);
+              playerMotoInstance.root.rotation.set(escSurf.pitchX, escSurf.yawY, 0);
+              playerMotoInstance.update(slowDt, playerState.speed * 1.9, desperateWeave, escapeWheelie);
             }
+
+            // Escapamento da moto soltando bastante fumaça na arrancada
+            updateBikeExhaustAndDirt(
+              slowDt,
+              bikeWorldX,
+              bikeWorldY,
+              playerState.speed * 1.9,
+              desperateWeave,
+              0,
+              escapeWheelie,
+              specialEndClock < 3.1,
+              true
+            );
+
+            // Posição do Caramelo ficando para trás tossindo/tonto dentro da nuvem de fumaça cômica!
+            const dogChaseZ = THREE.MathUtils.lerp(
+              1.1,
+              -0.95,
+              Math.min(1, specialEndClock / 1.05)
+            );
+            const dogSurf = sampleRoadSurfaceTransform(dogChaseZ);
+            const dogChaseX =
+              playerState.x +
+              dogSurf.xOffset +
+              Math.sin(specialEndClock * (1.0 - slowMoBlend * 0.55) * 10.0) * 0.16;
+
             if (leadCaramelo) {
               leadCaramelo.root.visible = true;
-              // Caramelo fica pra trás na poeira dando pulinhos cômicos de frustração!
-              const dogFrustratedHop = Math.abs(Math.sin(specialEndClock * 12.0)) * 0.28;
-              leadCaramelo.root.position.set(playerState.x, dogFrustratedHop, 1.65);
-              leadCaramelo.update(dt, 6.0, Math.sin(specialEndClock * 10.0) * 0.25, dogFrustratedHop, false);
+              const comicCoughBounce =
+                Math.abs(Math.sin(specialEndClock * 11.5)) * (0.18 * (1 - slowMoBlend * 0.45));
+              leadCaramelo.setBitePrepFactor(Math.max(0, 0.75 - slowMoBlend * 0.75));
+              leadCaramelo.setDefeatPose(slowMoBlend * 0.35);
+              leadCaramelo.root.position.set(
+                dogChaseX,
+                dogSurf.yOffset + comicCoughBounce,
+                dogChaseZ
+              );
+              // Balanço cômico de cabeça/corpo do Caramelo tonto na fumaça
+              const dizzyYaw = Math.sin(specialEndClock * 7.2) * (0.25 + slowMoBlend * 0.38);
+              leadCaramelo.root.rotation.set(dogSurf.pitchX, dogSurf.yawY + dizzyYaw, 0);
+              leadCaramelo.update(
+                slowDt,
+                playerState.speed * (1.35 - slowMoBlend * 0.85),
+                Math.sin(specialEndClock * 8.0) * 0.28,
+                comicCoughBounce,
+                false
+              );
             }
-            _camTargetPos.set(playerState.x * 0.5, 2.25, 4.45);
-            _camLookAt.set(playerState.x * 0.5, 1.15, Math.max(-28, escapeBikeZ));
-            camera.position.lerp(_camTargetPos, 1 - Math.exp(-7 * dt));
-            currentCamLook.lerp(_camLookAt, 1 - Math.exp(-7 * dt));
+
+            // Nuvem de Fumaça Cartoon Cômica envolvendo o Caramelo enquanto o Motoboy foge!
+            brawlFinaleRig.root.visible = inspectedId === null;
+            brawlFinaleRig.root.position.set(dogChaseX, dogSurf.yOffset + 0.08, dogChaseZ);
+            for (let k = 0; k < brawlFinaleRig.flyingParts.length; k++) {
+              brawlFinaleRig.flyingParts[k].group.visible = false;
+            }
+            const smokeGrowth = THREE.MathUtils.lerp(
+              0.42,
+              1.38,
+              THREE.MathUtils.smoothstep(specialEndClock, 0.05, 1.35)
+            );
+            const smokeFade = 1.0 - THREE.MathUtils.smoothstep(specialEndClock, 2.85, 3.45);
+            brawlFinaleRig.dustCloudGroup.scale.setScalar(smokeGrowth);
+
+            for (let p = 0; p < brawlFinaleRig.dustPuffs.length; p++) {
+              const puff = brawlFinaleRig.dustPuffs[p];
+              const ang = puff.orbitAngle + specialEndClock * puff.speed * 0.52;
+              const wobbleR =
+                puff.orbitRadius * (0.78 + 0.24 * Math.sin(specialEndClock * 6.5 + p));
+              puff.group.position.set(
+                Math.cos(ang) * wobbleR,
+                puff.orbitHeight * 0.85 +
+                  Math.abs(Math.sin(specialEndClock * 7.5 + p * 1.1)) * 0.24,
+                Math.sin(ang) * wobbleR * 0.85
+              );
+              const sPulse =
+                puff.baseScale * (0.85 + 0.2 * Math.sin(specialEndClock * 9.0 + p));
+              puff.group.scale.setScalar(sPulse);
+              puff.mat.opacity = smokeFade * 0.88;
+              puff.outMat.opacity = smokeFade * 0.88;
+            }
+
+            for (let s = 0; s < brawlFinaleRig.comicSpikes.length; s++) {
+              const sp = brawlFinaleRig.comicSpikes[s];
+              const sAng =
+                (s / brawlFinaleRig.comicSpikes.length) * Math.PI * 2 +
+                specialEndClock * 3.8;
+              const pop =
+                Math.max(0, Math.sin(specialEndClock * 9.5 + s * 1.9)) * smokeFade;
+              sp.position.set(
+                Math.cos(sAng) * 0.98,
+                0.62 + Math.sin(specialEndClock * 7.0 + s) * 0.25,
+                Math.sin(sAng) * 0.88
+              );
+              sp.rotation.set(specialEndClock * 4.5, sAng, specialEndClock * 3.5);
+              sp.scale.setScalar(0.38 + pop * 0.95);
+            }
+
+            // Câmera em Câmera Lenta com Leve Zoom Suave focado no Caramelo na fumaça cômica (e Motoboy fugindo ao fundo)
+            const targetFov = THREE.MathUtils.lerp(56, 44, slowMoBlend);
+            if (Math.abs(camera.fov - targetFov) > 0.05) {
+              camera.fov = targetFov;
+              camera.updateProjectionMatrix();
+            }
+
+            _camTargetPos.set(
+              THREE.MathUtils.lerp(playerState.x * 0.55 + 0.65, dogChaseX + 0.48, slowMoBlend),
+              THREE.MathUtils.lerp(2.05, 1.42, slowMoBlend),
+              THREE.MathUtils.lerp(4.35, dogChaseZ + 2.55, slowMoBlend)
+            );
+            _camLookAt.set(
+              THREE.MathUtils.lerp(bikeWorldX * 0.75, dogChaseX, slowMoBlend),
+              THREE.MathUtils.lerp(1.08, dogSurf.yOffset + 0.56, slowMoBlend),
+              THREE.MathUtils.lerp(Math.max(-18, escapeBikeZ * 0.65), dogChaseZ - 0.45, slowMoBlend)
+            );
+            camera.position.lerp(_camTargetPos, 1 - Math.exp(-5.5 * dt));
+            currentCamLook.lerp(_camLookAt, 1 - Math.exp(-5.5 * dt));
+            camera.up.set(0, 1, 0);
             camera.lookAt(currentCamLook);
 
-            if (specialEndClock >= 2.35) {
+            if (specialEndClock >= 3.45) {
+              camera.fov = 56;
+              camera.updateProjectionMatrix();
+              brawlFinaleRig.root.visible = false;
+              leadCaramelo?.setBitePrepFactor(0);
+              leadCaramelo?.setDefeatPose(0);
               specialEndSequence = 'none';
               sound.playWin();
               const finalSnap = buildHudSnapshot();
@@ -3770,29 +4719,18 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
               !isMotoMode &&
               (carameloBitePhase === 'brawl_leap' || carameloBitePhase === 'brawl_cloud');
 
-            // Item 10: Alimenta direção contínua analógica/suave na física da moto
+            // Item 2 & 3: Liberdade total de pilotagem lateral + giro mais calmo e fluido no Modo Caramelo
             const prevPosX = playerState.x;
             playerState.steerInput = inBrawlFinale
               ? 0
               : (keysDown.right ? 1 : 0) - (keysDown.left ? 1 : 0);
-            playerState = stepPlayerPhysics(playerState, simDt, difficultyRef.current);
-
-            // Suporte contínuo para transição e navegação fluida entre as 3 ruas (segurar tecla ou botão touch!)
-            if (!inBrawlFinale && keysDown.left) {
-              holdSteerTimer += dt;
-              if (holdSteerTimer > 0.185 && playerState.lane > -1) {
-                doShiftLeft();
-                holdSteerTimer = 0;
-              }
-            } else if (!inBrawlFinale && keysDown.right) {
-              holdSteerTimer += dt;
-              if (holdSteerTimer > 0.185 && playerState.lane < 1) {
-                doShiftRight();
-                holdSteerTimer = 0;
-              }
-            } else {
-              holdSteerTimer = 0;
-            }
+            playerState = stepPlayerPhysics(
+              playerState,
+              simDt,
+              difficultyRef.current,
+              !isMotoMode
+            );
+            holdSteerTimer = 0;
 
             const lateralVx = (playerState.x - prevPosX) / Math.max(0.001, dt);
             steerVelocityX = THREE.MathUtils.lerp(steerVelocityX, lateralVx, Math.min(1, 16.0 * dt));
@@ -3835,44 +4773,94 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
             roadBumpTex.offset.y = roadTex.offset.y;
             sidewalkTex.offset.y =
               (sidewalkTex.offset.y + computeRoadTextureOffsetDelta(moveZ, 150.0 / 18.0)) % 1;
+            if (isPraia && copacabanaTex) {
+              copacabanaTex.offset.y =
+                (copacabanaTex.offset.y + computeRoadTextureOffsetDelta(moveZ, 18.0)) % 1;
+            }
+
+            // Item 5: Desativa a ocultação traseira durante a Cutscene de Entrada e restaura gradualmente quando a câmera vira para frente!
+            const activeBehindCullZ = isIntroCutscene
+              ? THREE.MathUtils.lerp(
+                  74.0,
+                  BEHIND_GAMEPLAY_CULL_Z,
+                  THREE.MathUtils.smoothstep(
+                    introCutsceneClock / INTRO_CUTSCENE_DURATION,
+                    0.56,
+                    0.90,
+                  ),
+                )
+              : BEHIND_GAMEPLAY_CULL_Z;
 
             // Recycle physical 3D lane reflector studs & curb joints immediately when passing gameplay
             for (const row of streetMotionRows) {
               row.z += moveZ;
-              if (row.z > BEHIND_GAMEPLAY_CULL_Z) {
+              if (row.z > activeBehindCullZ) {
                 row.z -= NUM_STREET_MOTION_ROWS * STREET_MOTION_STEP_Z;
               }
               row.mesh.position.z = row.z;
             }
 
-            // Recycle the 30 Brazilian house variations when completely behind the camera (z > 14.5)
+            // Recycle the 30 Brazilian house variations (or coastal hillside + beachfront clusters + Inferno ruins) when behind camera
             for (const slot of activeHouseSlots) {
               slot.z += moveZ;
-              if (slot.z > BEHIND_GAMEPLAY_CULL_Z) {
+              if (slot.z > activeBehindCullZ) {
                 scene.remove(slot.leftMesh);
                 scene.remove(slot.rightMesh);
                 slot.z -= NUM_HOUSE_PAIRS * HOUSE_SLOT_STEP_Z;
-                slot.leftVarIndex = nextHouseSeq % 30;
-                slot.rightVarIndex = (nextHouseSeq + 1) % 30;
+                slot.leftVarIndex = nextHouseSeq % poolLen;
+                slot.rightVarIndex = (nextHouseSeq + 1) % poolLen;
                 nextHouseSeq += 2;
-                slot.leftMesh = leftHousePool[slot.leftVarIndex].clone();
-                slot.rightMesh = rightHousePool[slot.rightVarIndex].clone();
+                if (isPraia) {
+                  slot.leftMesh = new THREE.Group();
+                  slot.leftMesh.userData.keepAllMeshesVisible = true;
+                  const lH = leftHousePool[slot.leftVarIndex].clone();
+                  lH.position.set(-14.6, 2.38, 0);
+                  const lW = wallSegmentPool[nextHouseSeq % wallSegmentPool.length].clone();
+                  lW.position.set(-8.65, 0.22, 0);
+                  slot.leftMesh.add(lH, lW);
+
+                  slot.rightMesh = new THREE.Group();
+                  slot.rightMesh.userData.keepAllMeshesVisible = true;
+                  const rB = beachClusterPool[nextHouseSeq % beachClusterPool.length].clone();
+                  slot.rightMesh.add(rB);
+
+                  const animNodes = collectBeachSlotNodes(lW, rB);
+                  slot.palmCrowns = animNodes.palmCrowns;
+                  slot.billboards = animNodes.billboards;
+                  slot.kites = animNodes.kites;
+                } else {
+                  slot.leftMesh = leftHousePool[slot.leftVarIndex].clone();
+                  slot.rightMesh = rightHousePool[slot.rightVarIndex].clone();
+                }
                 applyHouseDistanceOpacity(slot.leftMesh, 0.0);
                 applyHouseDistanceOpacity(slot.rightMesh, 0.0);
                 slot.leftMesh.visible = false;
                 slot.rightMesh.visible = false;
                 mountSlotMeshes(slot);
-                playerState.housesPassed += 2;
+                if (!isIntroCutscene) {
+                  playerState.housesPassed += 2;
+                }
               } else {
                 slot.leftMesh.position.z = slot.z;
                 slot.rightMesh.position.z = slot.z;
               }
             }
 
-            // Recycle sidewalk utility poles when behind camera (z > 14.5)
+            // Recycle coastal condominium towers on the left hillside when in Praia map
+            if (isPraia) {
+              for (const cSlot of condoSlots) {
+                cSlot.z += moveZ;
+                if (cSlot.z > activeBehindCullZ + 10.0) {
+                  cSlot.z -= NUM_CONDO_SLOTS * CONDO_STEP_Z;
+                }
+                cSlot.mesh.position.z = cSlot.z;
+              }
+            }
+
+            // Recycle sidewalk utility poles when behind camera
             for (const pair of polePairs) {
               pair.z += moveZ;
-              if (pair.z > BEHIND_GAMEPLAY_CULL_Z) {
+              if (pair.z > activeBehindCullZ) {
                 pair.z -= NUM_POLE_PAIRS * POLE_STEP_Z;
               }
               pair.leftPole.position.z = pair.z;
@@ -3882,7 +4870,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
             // Recycle sparse sidewalk Brazilian Orelhões when behind camera (z > 14.5)
             for (const oPair of orelhaoPairs) {
               oPair.z += moveZ;
-              if (oPair.z > BEHIND_GAMEPLAY_CULL_Z) {
+              if (oPair.z > activeBehindCullZ) {
                 oPair.z -= NUM_ORELHAO_PAIRS * ORELHAO_STEP_Z;
               }
               oPair.leftOrelhao.position.z = oPair.z;
@@ -3892,11 +4880,11 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
             // Recycle roadside "SEU ANÚNCIO AQUI!" Outdoor Billboards independently per side when behind camera (z > 14.5)
             for (const bPair of billboardPairs) {
               bPair.leftZ += moveZ;
-              if (bPair.leftZ > BEHIND_GAMEPLAY_CULL_Z) {
+              if (bPair.leftZ > activeBehindCullZ) {
                 bPair.leftZ -= NUM_BILLBOARD_PAIRS * BILLBOARD_STEP_Z;
               }
               bPair.rightZ += moveZ;
-              if (bPair.rightZ > BEHIND_GAMEPLAY_CULL_Z) {
+              if (bPair.rightZ > activeBehindCullZ) {
                 bPair.rightZ -= NUM_BILLBOARD_PAIRS * BILLBOARD_STEP_Z;
               }
               bPair.leftBillboard.position.z = bPair.leftZ;
@@ -3907,17 +4895,17 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
             for (let s = 0; s < sidewalkCaramelos.length; s++) {
               const sc = sidewalkCaramelos[s];
               sc.z += moveZ;
-              if (sc.z > BEHIND_GAMEPLAY_CULL_Z) {
+              if (sc.z > activeBehindCullZ) {
                 sc.z -= NUM_SIDEWALK_DOGS * SIDEWALK_DOG_STEP_Z;
               }
               sc.root.position.z = sc.z;
               sc.tailPivot.rotation.z = Math.sin(elapsed * 7.8 + s * 2.1) * 0.36;
             }
 
-            // Recycle hillside favela clusters immediately when passing gameplay (z > 3.8)
+            // Recycle hillside favela clusters when passing behind camera
             for (const fPair of favelaPairs) {
               fPair.z += moveZ;
-              if (fPair.z > BEHIND_GAMEPLAY_CULL_Z) {
+              if (fPair.z > activeBehindCullZ) {
                 fPair.z -= NUM_FAVELA_PAIRS * FAVELA_STEP_Z;
               }
               fPair.leftFavela.position.z = fPair.z;
@@ -3940,6 +4928,17 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
 
             const curveY = worldCurveUniforms.uWorldCurveY.value;
             const maxVisibleVehicleZ = -138.0 * Math.max(0.82, activeCullScale);
+
+            // Item 6: Decaimento do temporizador de combo sequencial -> Quebra com SLASH + Cooldown de espera até voltar os combos!
+            if (pickupComboCooldownTimer > 0 && !isIntroCutscene) {
+              pickupComboCooldownTimer = Math.max(0, pickupComboCooldownTimer - simDt);
+            }
+            if (pickupComboTimer > 0 && !isIntroCutscene) {
+              pickupComboTimer -= simDt;
+              if (pickupComboTimer <= 0) {
+                triggerSequentialComboBreak();
+              }
+            }
 
             // =========================================================================
             // ITEM 3: COLETÁVEIS COM ATRAÇÃO MAGNÉTICA E SEM BARRAS/FAIXAS PRETAS!
@@ -3978,10 +4977,9 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                   stack.y = THREE.MathUtils.lerp(stack.y, playerState.y + 0.86, pullLerp);
                 }
 
-                const cDist = Math.max(0, -(stack.z - WORLD_CURVE_START_Z));
-                const rY = -curveY * cDist * cDist + (stack.attracting ? stack.y : 0);
+                const rY = stack.attracting ? stack.y : 0;
                 stack.mesh.position.set(stack.x, rY, stack.z);
-                stack.mesh.rotation.x = Math.atan(2 * curveY * cDist);
+                stack.mesh.rotation.x = 0;
                 stack.mesh.visible = stack.z >= maxVisibleVehicleZ && inspectedId === null;
 
                 if (stack.spinHolder) {
@@ -4005,6 +5003,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                   const sx = stack.x;
                   const sz = stack.z;
                   eraseCashStack(stack);
+                  registerSequentialPickup();
                   sound.playCashMagnetCollect(collectedDenom);
                   triggerCashPickupBurst(sx, 0.68, sz, collectedDenom);
                   playerMotoInstance?.triggerRiderCashFlash(getDenomVisualHex(collectedDenom), 0.75);
@@ -4012,7 +5011,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                   playerState = {
                     ...playerState,
                     coins: playerState.coins + 1,
-                    score: playerState.score + collectedDenom * 2 * playerState.combo,
+                    score: playerState.score + collectedDenom * 2 * Math.max(playerState.combo, pickupComboCount),
                   };
                   onCashCollectedRef.current?.(collectedDenom, collectedDenom);
                   emitHud(true);
@@ -4037,10 +5036,8 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                   pz.rig.floorZoneGroup.visible = true;
                 }
 
-                const pzCurveDist = Math.max(0, -(pz.z - WORLD_CURVE_START_Z));
-                const pzRoadY = -curveY * pzCurveDist * pzCurveDist;
-                pz.rig.root.position.set(0, pzRoadY, pz.z);
-                pz.rig.root.rotation.x = Math.atan(2 * curveY * pzCurveDist);
+                pz.rig.root.position.set(0, 0, pz.z);
+                pz.rig.root.rotation.x = 0;
                 pz.rig.root.visible =
                   pz.z >= maxVisibleVehicleZ && inspectedId === null && pizzasLeft > 0;
 
@@ -4049,54 +5046,101 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                 pz.rig.floorFillMat.opacity = pz.delivered ? 0.12 : 0.34 + greenPulse * 0.34;
                 pz.rig.floorBorderMat.opacity = pz.delivered ? 0.25 : 0.65 + greenPulse * 0.35;
 
-                // Animação do cliente NPC acenando ou comemorando a entrega!
-                if (pz.happyJumpTimer > 0) {
+                // Animação do cliente NPC (ou Fantasma no Mapa Inferno) acenando, esticando os braços para receber a pizza e comemorando!
+                const isIncomingPizzaTarget =
+                  flyingPizzaState.active && flyingPizzaState.targetZoneIdx === i;
+                if (pz.ghostRig) {
+                  // Animação sobrenatural flutuante do Fantasma Cartoon no Mapa Inferno (voando alegremente ao receber a pizza!)
+                  if (pz.happyJumpTimer > 0) {
+                    pz.happyJumpTimer = Math.max(0, pz.happyJumpTimer - simDt);
+                  }
+                  const celebrateProgress =
+                    pz.happyJumpTimer > 0 ? 1.0 - pz.happyJumpTimer / 1.38 : 0;
+                  const flyUpOffset =
+                    pz.happyJumpTimer > 0 ? Math.sin(celebrateProgress * Math.PI) * 1.45 : 0;
+                  pz.ghostRig.update(elapsed + i * 0.9, flyUpOffset);
+                  pz.rig.npcGroup.position.y = 0.28 + flyUpOffset;
+                  pz.ghostRig.wavingArmPivot.rotation.z =
+                    (pz.side === 'left' ? -1 : 1) * (1.85 + Math.sin(elapsed * 7.5 + i) * 0.35);
+                  pz.ghostRig.catchingArmPivot.rotation.x = isIncomingPizzaTarget ? -1.15 : -0.45;
+                  pz.ghostRig.auraRing.rotation.z = elapsed * 2.8;
+                } else if (pz.happyJumpTimer > 0) {
                   pz.happyJumpTimer = Math.max(0, pz.happyJumpTimer - simDt);
-                  pz.rig.npcGroup.position.y =
-                    0.22 + Math.abs(Math.sin(pz.happyJumpTimer * 16.0)) * 0.42;
+                  const celebrateBounce = Math.abs(Math.sin(pz.happyJumpTimer * 16.5));
+                  pz.rig.npcGroup.position.y = 0.22 + celebrateBounce * 0.46;
+                  pz.rig.npcGroup.rotation.y =
+                    (pz.side === 'left' ? Math.PI * 0.35 : -Math.PI * 0.35) +
+                    Math.sin(pz.happyJumpTimer * 14.0) * 0.35;
                   pz.rig.wavingArmPivot.rotation.z =
-                    (pz.side === 'left' ? -1 : 1) * (2.5 + Math.sin(elapsed * 22.0) * 0.35);
+                    (pz.side === 'left' ? -1 : 1) * (2.65 + Math.sin(elapsed * 24.0) * 0.35);
+                  pz.rig.catchingArmPivot.rotation.x = -1.45 + Math.sin(elapsed * 22.0) * 0.28;
+                } else if (isIncomingPizzaTarget) {
+                  // Estica ambos os braços na direção da pizza voando para recebê-la nas mãos!
+                  pz.rig.npcGroup.position.y = 0.24;
+                  pz.rig.npcGroup.rotation.y =
+                    pz.side === 'left' ? Math.PI * 0.45 : -Math.PI * 0.45;
+                  pz.rig.wavingArmPivot.rotation.z = (pz.side === 'left' ? -1 : 1) * 1.35;
+                  pz.rig.catchingArmPivot.rotation.x = -1.15;
                 } else {
                   pz.rig.npcGroup.position.y = 0.22;
+                  pz.rig.npcGroup.rotation.y =
+                    pz.side === 'left' ? Math.PI * 0.35 : -Math.PI * 0.35;
                   pz.rig.wavingArmPivot.rotation.z =
                     (pz.side === 'left' ? -1 : 1) * (2.15 + Math.sin(elapsed * 6.5 + i) * 0.32);
+                  pz.rig.catchingArmPivot.rotation.x = 0;
+                }
+                if (pz.ghostRig && pz.happyJumpTimer > 0) {
+                  pz.happyJumpTimer = Math.max(0, pz.happyJumpTimer - simDt);
                 }
 
-                // Verifica se o Motoboy está na área verde de entrega (ou se aproximando dela na faixa certa)
+                // Verifica se o Motoboy está na área de entrega (janela ampla para arremesso rápido clicando!)
                 if (
                   !pz.delivered &&
                   pizzasLeft > 0 &&
-                  pz.z >= -8.2 &&
-                  pz.z <= 3.4 &&
-                  Math.abs(playerState.x - pz.x) < 2.45
+                  pz.z >= -24.0 &&
+                  pz.z <= 4.8 &&
+                  Math.abs(playerState.x - pz.x) < 4.4
                 ) {
                   foundZoneIdx = i;
                   foundZoneSide = pz.side;
-
-                  // Se o Motoboy passar diretamente por cima do tapete verde e ainda não clicou, lança a pizza fluindo com uma mão!
-                  if (
-                    !flyingPizzaState.active &&
-                    pz.z >= -0.85 &&
-                    pz.z <= 2.25 &&
-                    Math.abs(playerState.x - pz.x) < 1.85
-                  ) {
-                    triggerPizzaThrowToZone(i);
-                  }
                 }
               }
 
               const prevInZone = inDeliveryZone;
               inDeliveryZone = foundZoneIdx >= 0 && !flyingPizzaState.active && pizzasLeft > 0;
               deliveryZoneSide = foundZoneSide;
+              if (inDeliveryZone) {
+                if (!prevInZone || activeDeliveryZoneIdx !== foundZoneIdx) {
+                  pizzaChallengeClock = 0;
+                }
+                pizzaChallengeClock += dt * 7.5;
+                pizzaChallengeMarker = 0.5;
+              }
+              playerMotoInstance?.setPizzaAiming(
+                inDeliveryZone,
+                deliveryZoneSide === 'left'
+                  ? -1
+                  : deliveryZoneSide === 'right'
+                  ? 1
+                  : undefined
+              );
               activeDeliveryZoneIdx = foundZoneIdx;
-              if (prevInZone !== inDeliveryZone) {
-                emitHud(true);
+              if (prevInZone !== inDeliveryZone || inDeliveryZone) {
+                emitHud(prevInZone !== inDeliveryZone);
               }
 
-              // Animação parabólica da Caixa de Pizza 3D voando até o NPC cliente!
+              // Item 4: Trajetória física sincronizada em tempo real com a posição real do NPC na calçada!
               if (flyingPizzaState.active) {
                 flyingPizzaState.age += simDt;
                 const u = Math.min(1, flyingPizzaState.age / flyingPizzaState.duration);
+                const liveTargetZone = pizzaZonePool[flyingPizzaState.targetZoneIdx];
+                if (liveTargetZone) {
+                  const liveSurf = sampleRoadSurfaceTransform(liveTargetZone.z);
+                  flyingPizzaState.endX =
+                    flyingPizzaState.sideSign * 5.45 + liveSurf.xOffset;
+                  flyingPizzaState.endY = 1.24 + liveSurf.yOffset;
+                  flyingPizzaState.endZ = liveTargetZone.z;
+                }
                 const curX = THREE.MathUtils.lerp(
                   flyingPizzaState.startX,
                   flyingPizzaState.endX,
@@ -4109,32 +5153,53 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                 );
                 const curY =
                   THREE.MathUtils.lerp(flyingPizzaState.startY, flyingPizzaState.endY, u) +
-                  Math.sin(u * Math.PI) * 1.35;
+                  Math.sin(u * Math.PI) * 1.42;
                 flyingPizzaBoxMesh.position.set(curX, curY, curZ);
                 flyingPizzaBoxMesh.rotation.y += 14.0 * simDt;
                 flyingPizzaBoxMesh.rotation.z =
-                  (flyingPizzaState.endX < 0 ? 1 : -1) * Math.sin(u * Math.PI) * 0.45;
+                  (flyingPizzaState.endX < 0 ? 1 : -1) * Math.sin(u * Math.PI) * 0.42;
 
                 if (u >= 1) {
                   flyingPizzaState.active = false;
                   flyingPizzaBoxMesh.visible = false;
                   const targetZone = pizzaZonePool[flyingPizzaState.targetZoneIdx];
                   if (targetZone) {
-                    targetZone.happyJumpTimer = 1.15;
+                    targetZone.happyJumpTimer = 1.38;
                     targetZone.rig.orderBadgeMesh.visible = false;
                     targetZone.rig.deliveredBadgeMesh.visible = true;
                   }
                   pizzasDelivered += 1;
                   lastPizzaDeliveredNonce += 1;
                   sound.playPizzaDeliveredChime();
-                  triggerCustomColorBurst(
-                    flyingPizzaState.endX,
-                    flyingPizzaState.endY + 0.4,
-                    flyingPizzaState.endZ,
-                    0x22c55e,
-                    0xfacc15,
-                    18,
-                  );
+                  if (isInferno) {
+                    // Item 9: Fantasma recebe a pizza -> inicia animação de Libertação da Alma!
+                    // A alma sai do corpo, atravessa a região central da câmera e sobe ao céu desaparecendo gradualmente!
+                    sound.playSoulLiberationSfx();
+                    soulLiberatedNonce += 1;
+                    liberatedSoulState.active = true;
+                    liberatedSoulState.age = 0;
+                    liberatedSoulState.startX = flyingPizzaState.endX;
+                    liberatedSoulState.startY = flyingPizzaState.endY + 0.55;
+                    liberatedSoulState.startZ = flyingPizzaState.endZ;
+                    liberatedSoulRig.root.visible = true;
+                    triggerCustomColorBurst(
+                      flyingPizzaState.endX,
+                      flyingPizzaState.endY + 0.55,
+                      flyingPizzaState.endZ,
+                      0x38bdf8,
+                      0xfef08a,
+                      26,
+                    );
+                  } else {
+                    triggerCustomColorBurst(
+                      flyingPizzaState.endX,
+                      flyingPizzaState.endY + 0.4,
+                      flyingPizzaState.endZ,
+                      0x22c55e,
+                      0xfacc15,
+                      18,
+                    );
+                  }
                   const nextCombo = Math.min(10, playerState.combo + 1);
                   playerState = {
                     ...playerState,
@@ -4154,6 +5219,41 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                     sound.playCartoonDodgeSuccess();
                     emitHud(true);
                   }
+                }
+              }
+
+              // Animação da Alma / Fantasma Cartoon Libertado no Mapa Inferno: sai do corpo do Fantasma -> atravessa o centro da câmera -> voa lá pra cima em direção ao céu!
+              if (liberatedSoulState.active) {
+                liberatedSoulState.age += dt;
+                const soulU = Math.min(1, liberatedSoulState.age / liberatedSoulState.duration);
+                if (soulU >= 1) {
+                  liberatedSoulState.active = false;
+                  liberatedSoulRig.root.visible = false;
+                } else {
+                  liberatedSoulRig.update(soulU, elapsed);
+                  const centerBlend = THREE.MathUtils.smoothstep(soulU, 0.0, 0.38);
+                  const skyAscend = Math.pow(Math.max(0, (soulU - 0.16) / 0.84), 1.35);
+                  const sx =
+                    THREE.MathUtils.lerp(liberatedSoulState.startX, playerState.x * 0.45, centerBlend) +
+                    Math.sin(soulU * Math.PI * 3.2) * 0.55 * (1.0 - soulU * 0.35);
+                  const sy =
+                    THREE.MathUtils.lerp(liberatedSoulState.startY, 2.35, centerBlend) +
+                    skyAscend * 15.5;
+                  const sz = THREE.MathUtils.lerp(
+                    Math.max(-11.0, liberatedSoulState.startZ),
+                    -2.9 - skyAscend * 5.8,
+                    centerBlend,
+                  );
+                  liberatedSoulRig.root.position.set(sx, sy, sz);
+                  liberatedSoulRig.root.rotation.set(
+                    -0.18 * skyAscend,
+                    Math.sin(soulU * Math.PI * 2.5) * 0.28,
+                    Math.cos(soulU * Math.PI * 3.0) * 0.14
+                  );
+                  const soulScale =
+                    THREE.MathUtils.lerp(0.85, 1.38, Math.min(1, soulU / 0.28)) *
+                    (1.0 - Math.max(0, (soulU - 0.78) / 0.22) * 0.35);
+                  liberatedSoulRig.root.scale.setScalar(soulScale);
                 }
               }
             } else {
@@ -4196,10 +5296,9 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                   b.y = THREE.MathUtils.lerp(b.y, playerState.y + 0.62, pullLerp);
                 }
 
-                const cDist = Math.max(0, -(b.z - WORLD_CURVE_START_Z));
-                const rY = -curveY * cDist * cDist + (b.attracting ? b.y : 0);
+                const rY = b.attracting ? b.y : 0;
                 b.root.position.set(b.x, rY, b.z);
-                b.root.rotation.x = Math.atan(2 * curveY * cDist);
+                b.root.rotation.x = 0;
                 b.root.visible = b.z >= maxVisibleVehicleZ && inspectedId === null;
 
                 b.spinVisual.rotation.y += (b.attracting ? 15.0 : 2.8) * simDt;
@@ -4219,6 +5318,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                   const bx = b.x;
                   const bz = b.z;
                   eraseWhiteBone(b);
+                  registerSequentialPickup();
                   sound.playBoneMagnetCollect();
                   leadCaramelo?.triggerBonePuff();
                   triggerCustomColorBurst(bx, 0.56, bz, 0xfefce8, 0xfde047, 12);
@@ -4228,7 +5328,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                   playerState = {
                     ...playerState,
                     coins: playerState.coins + 1,
-                    score: playerState.score + 85 * playerState.combo,
+                    score: playerState.score + 85 * Math.max(playerState.combo, pickupComboCount),
                   };
                   onBoneCollectedRef.current?.(40, 'bone');
                   emitHud(true);
@@ -4250,10 +5350,8 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                   continue;
                 }
 
-                const cDist = Math.max(0, -(m.z - WORLD_CURVE_START_Z));
-                const rY = -curveY * cDist * cDist;
-                m.root.position.set(m.x, rY, m.z);
-                m.root.rotation.x = Math.atan(2 * curveY * cDist);
+                m.root.position.set(m.x, 0, m.z);
+                m.root.rotation.x = 0;
                 m.root.visible = m.z >= maxVisibleVehicleZ && inspectedId === null;
 
                 m.spinVisual.rotation.y = elapsed * 2.2 + m.phaseOffset;
@@ -4269,6 +5367,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                   const mx = m.x;
                   const mz = m.z;
                   eraseRedMeat(m);
+                  registerSequentialPickup();
                   carameloStamina = 100;
                   meatBoostTimer = 4.2;
                   chasePressure = Math.min(1, chasePressure + 0.36);
@@ -4279,7 +5378,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                   playerState = {
                     ...playerState,
                     coins: playerState.coins + 2,
-                    score: playerState.score + 220 * playerState.combo,
+                    score: playerState.score + 220 * Math.max(playerState.combo, pickupComboCount),
                   };
                   onBoneCollectedRef.current?.(90, 'meat');
                   emitHud(true);
@@ -4299,7 +5398,9 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
             if (manholeSpawnTimer <= 0) {
               spawnStreetManholeHazard();
               const diffInterval =
-                difficultyRef.current === 'hard'
+                difficultyRef.current === 'extreme'
+                  ? 3.2
+                  : difficultyRef.current === 'hard'
                   ? 3.8
                   : difficultyRef.current === 'medium'
                   ? 4.8
@@ -4317,13 +5418,13 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                 continue;
               }
 
-              const mhCurveDist = Math.max(0, -(mh.z - WORLD_CURVE_START_Z));
-              const mhRoadY = -curveY * mhCurveDist * mhCurveDist;
-              mh.rig.root.position.set(mh.x, mhRoadY, mh.z);
-              mh.rig.root.rotation.x = Math.atan(2 * curveY * mhCurveDist);
+              const mhSurf = sampleRoadSurfaceTransform(mh.z);
+              const mhRoadY = mhSurf.yOffset;
+              mh.rig.root.position.set(mh.x, 0, mh.z);
+              mh.rig.root.rotation.x = 0;
               mh.rig.root.visible = mh.z >= maxVisibleVehicleZ && inspectedId === null;
 
-              // Quando o motoboy/Caramelo chega perto (z >= -25m), a tampa explode voando e o jato de água estoura!
+              // Quando o motoboy/Caramelo chega perto (z >= -25m), a tampa explode voando e o jato de água/lava estoura!
               if (!mh.erupted && mh.z >= -25.0) {
                 mh.erupted = true;
                 mh.eruptAge = 0;
@@ -4334,7 +5435,11 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                 mh.lidVz = -1.8;
                 mh.lidSpinX = 11.5;
                 mh.lidSpinZ = -9.2;
-                sound.playWaterGeyserBurst();
+                if (isInferno) {
+                  sound.playLavaEruptionSfx();
+                } else {
+                  sound.playWaterGeyserBurst();
+                }
                 emitDirectionalWaterSplash(
                   mh.x,
                   mhRoadY + 0.45,
@@ -4367,73 +5472,91 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                   mh.rig.lidGroup.rotation.z += mh.lidSpinZ * simDt;
                 }
 
-                // 2) Jato de Água Cinematográfico jorrando alto e espirrando gotas translúcidas iluminadas!
-                const rise = Math.min(1, mh.eruptAge * 6.5);
-                const jetHeight = (2.65 + Math.sin(elapsed * 18.0 + i) * 0.28) * rise;
-                const jetWidth = 0.92 + Math.cos(elapsed * 21.0 + i) * 0.12;
+                // 2) Jato de Água Cartoon/HQ 100% 3D Animado com coluna turbilhonante, espuma viva e 28 gotas de água voando pelos ares!
+                const rise = Math.min(1, mh.eruptAge * 7.5);
+                const jetHeight = (4.25 + Math.sin(elapsed * 18.0 + i) * 0.38) * rise;
+                const jetWidth = 1.12 + Math.cos(elapsed * 20.0 + i) * 0.14;
                 mh.rig.coreColumn.scale.set(jetWidth, Math.max(0.1, jetHeight), jetWidth);
-                mh.rig.coreColumn.rotation.y = elapsed * 6.5;
+                mh.rig.coreColumn.rotation.y = elapsed * 2.6 + i * 0.7;
+                mh.rig.coreColumn.rotation.z = Math.cos(elapsed * 12.0 + i) * 0.045;
 
-                mh.rig.foamCrown.position.y = jetHeight;
-                const crownScale = (0.95 + Math.sin(elapsed * 16.0) * 0.18) * rise;
+                mh.rig.foamCrown.position.y = jetHeight * 0.92;
+                const crownScale = (1.06 + Math.sin(elapsed * 18.0 + i) * 0.19) * rise;
                 mh.rig.foamCrown.scale.setScalar(Math.max(0.05, crownScale));
-                mh.rig.foamCrown.rotation.y = -elapsed * 5.0;
+                mh.rig.foamCrown.rotation.y = -elapsed * 4.4;
+                mh.rig.foamCrown.rotation.z = Math.sin(elapsed * 15.0 + i) * 0.12;
 
-                const ringSplash = 0.85 + ((elapsed * 3.4) % 1.0) * 0.75;
-                mh.rig.baseSplashRing.scale.setScalar(ringSplash);
+                const ringSplash = (0.98 + Math.sin(elapsed * 16.0 + i) * 0.11) * rise;
+                mh.rig.baseSplashRing.scale.setScalar(Math.max(0.2, ringSplash));
+                mh.rig.baseSplashRing.rotation.y = elapsed * 1.8;
 
-                // Emite gotas 3D translúcidas de múltiplos tamanhos reagindo à velocidade e direção
-                if (mh.z > -32.0 && mh.z < 3.5 && Math.random() < Math.min(0.85, simDt * 30.0)) {
+                // Emite gotas 3D translúcidas continuamente voando do jato de água
+                if (mh.z > -38.0 && mh.z < 4.0 && Math.random() < Math.min(0.95, simDt * 45.0)) {
                   emitDirectionalWaterSplash(
                     mh.x,
-                    mhRoadY + jetHeight * 0.58,
+                    mhRoadY + jetHeight * (0.45 + Math.random() * 0.45),
                     mh.z,
-                    effectiveGroundSpeed * 0.34,
-                    steerVelocityX * 0.35,
-                    2
+                    effectiveGroundSpeed * 0.36,
+                    steerVelocityX * 0.35 + (Math.random() - 0.5) * 3.2,
+                    4
                   );
                 }
 
                 // Ao passar próximo ou através do jato de água: respingos e desfoque cinematográfico na lente da câmera!
                 if (
                   !mh.splashedLens &&
-                  Math.abs(mh.z) < 2.25 &&
-                  Math.abs(playerState.x - mh.x) < 2.35
+                  Math.abs(mh.z) < 2.35 &&
+                  Math.abs(playerState.x - mh.x) < 2.45
                 ) {
                   mh.splashedLens = true;
-                  const directPass = Math.abs(playerState.x - mh.x) < 1.05;
+                  const directPass = Math.abs(playerState.x - mh.x) < 1.15;
                   emitDirectionalWaterSplash(
                     mh.x,
-                    mhRoadY + 1.05,
+                    mhRoadY + 1.25,
                     mh.z,
                     effectiveGroundSpeed,
                     steerVelocityX,
-                    directPass ? 22 : 14
+                    directPass ? 26 : 18
                   );
                   cameraTrauma = Math.max(cameraTrauma, directPass ? 0.52 : 0.26);
-                  onWaterJetSplashRef.current?.(directPass ? 1.0 : 0.68);
+                  if (isInferno) {
+                    sound.playLavaEruptionSfx();
+                  }
+                  onWaterJetSplashRef.current?.(directPass ? 1.0 : 0.72);
                 }
 
                 const drops = mh.rig.sideDroplets;
                 for (let d = 0; d < drops.length; d++) {
-                  const dropPhase = (mh.eruptAge * 2.35 + d * 0.1) % 1.0;
-                  const angle = (d / drops.length) * Math.PI * 2 + 0.35;
-                  const sideRadius = 0.32 + dropPhase * 1.65;
+                  const speedMult = Number(drops[d].userData?.speedMult || 2.1);
+                  const radialSpread = Number(drops[d].userData?.radialSpread || 1.75);
+                  const heightMult = Number(drops[d].userData?.heightMult || 0.85);
+                  const phaseSeed = Number(drops[d].userData?.phaseSeed || d * 0.06);
+                  const dropPhase = (mh.eruptAge * speedMult + phaseSeed) % 1.0;
+                  const angle = (d / drops.length) * Math.PI * 2 + elapsed * 0.65;
+                  const sideRadius = 0.22 + dropPhase * radialSpread * 1.35;
+                  const launchTopY = jetHeight * heightMult;
                   const arcY =
-                    jetHeight * 0.68 +
+                    0.35 +
+                    launchTopY * Math.sin(dropPhase * Math.PI * 0.88) +
                     dropPhase * 1.45 -
-                    dropPhase * dropPhase * (jetHeight * 0.68 + 1.42);
+                    dropPhase * dropPhase * 2.65;
                   drops[d].position.set(
                     Math.cos(angle) * sideRadius,
                     Math.max(0.08, arcY),
-                    Math.sin(angle) * sideRadius * 0.75
+                    Math.sin(angle) * sideRadius * 0.88
                   );
-                  const dScale = (1.0 - dropPhase * 0.55) * rise;
-                  drops[d].scale.setScalar(Math.max(0.05, dScale));
-                  drops[d].rotation.z = -Math.cos(angle) * dropPhase * 1.4;
+                  const baseMult = Number(drops[d].userData?.baseSizeMult || 1.0);
+                  const dScale = baseMult * (1.15 - dropPhase * 0.42) * rise;
+                  drops[d].scale.set(
+                    Math.max(0.05, dScale * 0.94),
+                    Math.max(0.06, dScale * (1.05 + dropPhase * 0.42)),
+                    Math.max(0.05, dScale * 0.94),
+                  );
+                  drops[d].rotation.z = -Math.cos(angle) * (0.35 + dropPhase * 1.65);
+                  drops[d].rotation.x = Math.sin(angle) * (0.35 + dropPhase * 1.25);
                 }
 
-                // 3) Dano ao passar por cima do bueiro estourado: perde 1 vida!
+                // 3) Dano ao passar por cima do bueiro estourado (No Inferno: ataque de lava retira METADE da barra de vida!)
                 if (
                   !inBrawlFinale &&
                   !mh.damagedPlayer &&
@@ -4443,16 +5566,26 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                   playerState.y < 1.25
                 ) {
                   mh.damagedPlayer = true;
-                  const nextHp = Math.max(0, playerState.hp - 1);
+                  const lavaOrWaterDmg = isInferno
+                    ? Math.max(1, Math.ceil(playerState.maxHp / 2))
+                    : 1;
+                  const nextHp = Math.max(0, playerState.hp - lavaOrWaterDmg);
+                  damageScreenFlashNonce += 1;
                   if (nextHp <= 0) {
                     // Item 7: Derrota Cômica Específica por Modo (Motoboy cai de costas vs Caramelo flop)
                     playerState = { ...playerState, hp: 0 };
                     specialEndSequence = isMotoMode ? 'motoboy_backfall' : 'caramelo_flop';
                     specialEndClock = 0;
-                    specialEndReason = 'Bueiro Estourado na Pista';
-                    cameraTrauma = 1.15;
+                    specialEndReason = isInferno
+                      ? 'Atingido pela Erupção de Lava Infernal!'
+                      : 'Bueiro Estourado na Pista';
+                    cameraTrauma = 1.25;
                     clearBikeParticles();
-                    sound.playSplash();
+                    if (isInferno) {
+                      sound.playLavaEruptionSfx();
+                    } else {
+                      sound.playSplash();
+                    }
                     if (isMotoMode) {
                       sound.playMotoboyFunnyScream();
                     } else {
@@ -4462,15 +5595,20 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                     emitHud(true);
                     break;
                   } else {
-                    riderDamageFlashTimer = 0.62;
+                    riderDamageFlashTimer = 0.72;
+                    triggerSequentialComboBreak();
                     playerState = {
                       ...playerState,
                       hp: nextHp,
                       combo: 1,
                       invulnerableTimer: 1.5,
                     };
-                    cameraTrauma = Math.max(cameraTrauma, 0.72);
-                    sound.playSplash();
+                    cameraTrauma = Math.max(cameraTrauma, isInferno ? 0.96 : 0.72);
+                    if (isInferno) {
+                      sound.playLavaEruptionSfx();
+                    } else {
+                      sound.playSplash();
+                    }
                     sound.playStumble();
                     emitHud(true);
                   }
@@ -4490,27 +5628,246 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
               const veh = trafficPool[i];
               if (!veh.inUse) continue;
 
+              // =========================================================================
+              // ITEM 8: INTELIGÊNCIA DOS VEÍCULOS (MODOS MÉDIO E DIFÍCIL) +
+              // SISTEMA DE PREVENÇÃO DE COLISÕES ENTRE VEÍCULOS
+              // =========================================================================
+              const activeDiff = difficultyRef.current;
+              const vData = veh.root.userData as {
+                targetLane?: LaneIndex;
+                dodgeCooldown?: number;
+                steerYaw?: number;
+                steerRoll?: number;
+              };
+              if (vData.targetLane === undefined) {
+                vData.targetLane = veh.lane;
+              }
+              vData.dodgeCooldown = Math.max(0, (vData.dodgeCooldown || 0) - simDt);
+
+              // Verifica se há outro veículo à frente na mesma faixa (lembrando que os carros da contramão avançam para +Z!)
+              let vehicleAheadInSameCorridor: PooledTrafficVehicle | null = null;
+              let minAheadGapZ = Infinity;
+              for (let j = 0; j < trafficPool.length; j++) {
+                if (i === j) continue;
+                const other = trafficPool[j];
+                if (!other.inUse) continue;
+                const latDist = Math.abs(other.x - veh.x);
+                const minLatClearance = veh.halfWidth + other.halfWidth + 0.55;
+                if (latDist < minLatClearance && other.z > veh.z) {
+                  const gapZ = other.z - veh.z - (veh.halfLength + other.halfLength);
+                  if (gapZ < minAheadGapZ) {
+                    minAheadGapZ = gapZ;
+                    vehicleAheadInSameCorridor = other;
+                  }
+                }
+              }
+
+              // Verifica também se há bueiro prestes a estourar na trajetória imediata do veículo
+              let manholeAheadInLane = false;
+              for (let m = 0; m < manholePool.length; m++) {
+                const mh = manholePool[m];
+                if (
+                  mh.inUse &&
+                  Math.abs(mh.x - veh.x) < veh.halfWidth + 0.75 &&
+                  mh.z > veh.z &&
+                  mh.z - veh.z < veh.halfLength + 16.0
+                ) {
+                  manholeAheadInLane = true;
+                  break;
+                }
+              }
+
+              const canUseSmartDodge =
+                (activeDiff === 'medium' || activeDiff === 'hard' || activeDiff === 'extreme') &&
+                !isIntroCutscene &&
+                veh !== tutorialCarRef &&
+                veh.z > -78.0 &&
+                veh.z < -18.0;
+
+              const wantsLaneChange =
+                canUseSmartDodge &&
+                vData.dodgeCooldown <= 0 &&
+                (manholeAheadInLane ||
+                  (vehicleAheadInSameCorridor !== null && minAheadGapZ < 14.0) ||
+                  ((activeDiff === 'hard' || activeDiff === 'extreme') &&
+                    veh.def.kind === 'car' &&
+                    veh.z > -56.0 &&
+                    veh.z < -28.0 &&
+                    Math.abs(playerState.x - veh.x) > 2.2 &&
+                    Math.random() < simDt * 0.55));
+
+              if (wantsLaneChange) {
+                const curLane = vData.targetLane ?? veh.lane;
+                const adjLanes: LaneIndex[] =
+                  curLane === 0 ? (Math.random() < 0.5 ? [-1, 1] : [1, -1]) : [0];
+
+                for (const candLane of adjLanes) {
+                  const candX = laneToX(candLane);
+                  let corridorSafe = true;
+
+                  // 1) Verifica distância lateral e longitudinal + previsão de trajetória contra TODOS os outros veículos
+                  for (let j = 0; j < trafficPool.length; j++) {
+                    if (i === j) continue;
+                    const other = trafficPool[j];
+                    if (!other.inUse) continue;
+                    const otherTargetX = laneToX(
+                      (other.root.userData?.targetLane as LaneIndex | undefined) ?? other.lane,
+                    );
+                    const latOverlapNow =
+                      Math.abs(other.x - candX) < veh.halfWidth + other.halfWidth + 0.95;
+                    const latOverlapTarget =
+                      Math.abs(otherTargetX - candX) < veh.halfWidth + other.halfWidth + 0.95;
+                    if (latOverlapNow || latOverlapTarget) {
+                      const zDiffNow = Math.abs(other.z - veh.z);
+                      const zDiffPred = Math.abs(
+                        other.z + other.speedMs * 1.1 - (veh.z + veh.speedMs * 1.1),
+                      );
+                      const safeLongitudinal = veh.halfLength + other.halfLength + 9.5;
+                      if (zDiffNow < safeLongitudinal || zDiffPred < safeLongitudinal) {
+                        corridorSafe = false;
+                        break;
+                      }
+                    }
+                  }
+
+                  // 2) Verifica se não há bueiro na faixa candidata
+                  if (corridorSafe) {
+                    for (let m = 0; m < manholePool.length; m++) {
+                      const mh = manholePool[m];
+                      if (
+                        mh.inUse &&
+                        Math.abs(mh.x - candX) < veh.halfWidth + 0.85 &&
+                        Math.abs(mh.z - veh.z) < veh.halfLength + 11.0
+                      ) {
+                        corridorSafe = false;
+                        break;
+                      }
+                    }
+                  }
+
+                  // 3) Garante que as 3 faixas nunca fiquem fechadas simultaneamente na mesma faixa de Z
+                  if (corridorSafe) {
+                    const occupiedLanes = new Set<number>([candLane]);
+                    for (let j = 0; j < trafficPool.length; j++) {
+                      if (i === j) continue;
+                      const other = trafficPool[j];
+                      if (other.inUse && Math.abs(other.z - veh.z) < 16.0) {
+                        occupiedLanes.add(other.lane);
+                      }
+                    }
+                    if (occupiedLanes.size >= 3) {
+                      corridorSafe = false;
+                    }
+                  }
+
+                  if (corridorSafe) {
+                    vData.targetLane = candLane;
+                    veh.lane = candLane;
+                    vData.dodgeCooldown = activeDiff === 'hard' ? 3.8 : 5.2;
+                    break;
+                  }
+                }
+              }
+
+              // Caso exista veículo à frente na mesma faixa e não haja espaço lateral livre: reduz a velocidade e aguarda sem jamais colidir!
+              if (vehicleAheadInSameCorridor && minAheadGapZ < 8.5) {
+                veh.speedMs = THREE.MathUtils.lerp(
+                  veh.speedMs,
+                  Math.min(veh.speedMs, vehicleAheadInSameCorridor.speedMs * 0.9),
+                  Math.min(1, 10.0 * simDt),
+                );
+              }
+
+              // Movimento lateral suave e natural durante o desvio
+              const targetLaneX = laneToX(vData.targetLane ?? veh.lane);
+              const lateralErr = targetLaneX - veh.x;
+              if (Math.abs(lateralErr) > 0.005) {
+                const dodgeSpeed = activeDiff === 'hard' ? 5.2 : 4.2;
+                const stepLat = THREE.MathUtils.clamp(
+                  lateralErr * dodgeSpeed * simDt,
+                  -3.8 * simDt,
+                  3.8 * simDt,
+                );
+                veh.x += stepLat;
+                const latVelNorm = THREE.MathUtils.clamp(lateralErr * 0.45, -1, 1);
+                vData.steerYaw = THREE.MathUtils.lerp(
+                  vData.steerYaw || 0,
+                  latVelNorm * 0.14,
+                  Math.min(1, 12.0 * simDt),
+                );
+                vData.steerRoll = THREE.MathUtils.lerp(
+                  vData.steerRoll || 0,
+                  -latVelNorm * 0.045,
+                  Math.min(1, 12.0 * simDt),
+                );
+              } else {
+                veh.x = targetLaneX;
+                vData.steerYaw = THREE.MathUtils.lerp(vData.steerYaw || 0, 0, Math.min(1, 10.0 * simDt));
+                vData.steerRoll = THREE.MathUtils.lerp(vData.steerRoll || 0, 0, Math.min(1, 10.0 * simDt));
+              }
+
               // Veículo vem de frente na contramão (+Z) somando velocidade dele com a da moto/Caramelo!
               const closingSpeed = effectiveGroundSpeed + veh.speedMs;
               veh.z += closingSpeed * simDt;
 
+              // Impede sobreposição longitudinal absoluta se um veículo alcançar outro à frente
+              if (vehicleAheadInSameCorridor) {
+                const maxAllowedZ =
+                  vehicleAheadInSameCorridor.z -
+                  (veh.halfLength + vehicleAheadInSameCorridor.halfLength + 2.2);
+                if (veh.z > maxAllowedZ) {
+                  veh.z = maxAllowedZ;
+                  veh.speedMs = Math.min(veh.speedMs, vehicleAheadInSameCorridor.speedMs * 0.95);
+                }
+              }
+
+              if (isIntroCutscene) {
+                if (veh === tutorialCarRef) {
+                  // Mantém o 1º carro na mesma faixa do player aguardando o giro da câmera para acionar a câmera lenta!
+                  veh.lane = playerState.lane;
+                  vData.targetLane = playerState.lane;
+                  veh.x = laneToX(playerState.lane);
+                  if (veh.z > -17.5) {
+                    veh.z = -17.5;
+                  }
+                } else if (veh.z > -46.0) {
+                  veh.z = -46.0;
+                }
+              }
+
               // Apaga e remove imediatamente da cena (scene.remove) assim que passa da câmera!
               if (veh.z - veh.halfLength > 4.65) {
+                vData.targetLane = undefined;
+                vData.dodgeCooldown = 0;
+                vData.steerYaw = 0;
+                vData.steerRoll = 0;
                 eraseVehicleFromScene(veh);
                 continue;
               }
 
-              const curveDist = Math.max(0, -(veh.z - WORLD_CURVE_START_Z));
-              const roadY = -curveY * curveDist * curveDist;
-              veh.root.position.set(veh.x, roadY, veh.z);
-              veh.root.rotation.x = Math.atan(2 * curveY * curveDist);
+              const surf = sampleRoadSurfaceTransform(veh.z);
+              veh.root.position.set(veh.x + surf.xOffset, surf.yOffset, veh.z);
+              veh.root.rotation.set(
+                surf.pitchX,
+                surf.yawY + (vData.steerYaw || 0),
+                vData.steerRoll || 0,
+              );
+              const distAhead = Math.max(0, -veh.z);
+              veh.setVehicleLod(distAhead <= 54 ? 0 : distAhead <= 98 ? 1 : 2);
               veh.contactShadow.visible = showContactShadows;
               veh.root.visible = veh.z >= maxVisibleVehicleZ && inspectedId === null;
               veh.spinWheels(simDt, veh.speedMs);
 
-              // Buzina de alerta quando o carro/ônibus se aproxima na mesma faixa
+              // Buzina de alerta quando o carro/ônibus se aproxima na mesma faixa (desativada no Modo Extremo: Inferno!)
               const dx = Math.abs(playerState.x - veh.x);
-              if (!veh.honked && veh.z > -36.0 && veh.z < -11.5 && dx < 1.35) {
+              if (
+                !isInferno &&
+                difficultyRef.current !== 'extreme' &&
+                !veh.honked &&
+                veh.z > -36.0 &&
+                veh.z < -11.5 &&
+                dx < 1.35
+              ) {
                 veh.honked = true;
                 sound.playVehicleHonk(veh.def.kind === 'bus', 0.28);
               }
@@ -4575,9 +5932,13 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                 break;
               }
 
-              // Bônus de "Tirar Fina" (Near-Miss) ao passar raspando pelo carro/ônibus!
-              if (veh.z > 1.35 && !veh.nearMissAwarded) {
+              // Bônus de "Tirar Fina" (Near-Miss) + Efeito de Borrão de Velocidade quando o carro passa pela câmera!
+              if (veh.z > 1.15 && !veh.nearMissAwarded) {
                 veh.nearMissAwarded = true;
+                const passSide: 'left' | 'right' = veh.x <= playerState.x ? 'left' : 'right';
+                const passIntensity = THREE.MathUtils.clamp(1.18 - dx * 0.16, 0.48, 1.0);
+                onVehiclePassBlurRef.current?.(passSide, passIntensity);
+                cameraTrauma = Math.max(cameraTrauma, passIntensity * 0.18);
                 if (dx < 3.55) {
                   const nextCombo = Math.min(10, playerState.combo + 1);
                   playerState = {
@@ -4602,18 +5963,19 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
             const shakeY = (Math.random() - 0.5) * shake * 0.48;
 
             const speedBoostFov = !isMotoMode && meatBoostTimer > 0 ? 5.5 : 0;
-            const targetFov = 68 + Math.max(0, playerState.speed - 14.0) * 0.52 + speedBoostFov;
+            const wheelieFovStretch = isMotoMode ? wheelieShoulderZoomBlend * 3.8 : 0;
+            const targetFov = 68 + Math.max(0, playerState.speed - 14.0) * 0.52 + speedBoostFov + wheelieFovStretch;
             if (Math.abs(camera.fov - targetFov) > 0.05) {
               camera.fov += (targetFov - camera.fov) * (1 - Math.exp(-4 * dt));
               camera.updateProjectionMatrix();
             }
 
-            // Inclinação dinâmica e fluida ao navegar entre as 3 ruas (Banking realista)
-            const steerLean = THREE.MathUtils.clamp((steerVelocityX / 5.5) * 1.5, -1.2, 1.2);
+            // Inclinação lateral mais controlada e menos exagerada (Item 3)
+            const steerLean = THREE.MathUtils.clamp((steerVelocityX / 6.4) * 1.05, -0.85, 0.85);
 
             // =========================================================================
-            // ITEM 6: SISTEMA DE EMPINAR A MOTO (GRAU) COM EQUILÍBRIO DINÂMICO,
-            // RETORNO GARANTIDO AO NORMAL E QUEDA C/ NUVEM DE PANCADARIA DO CARAMELO!
+            // ITEM 6: SISTEMA DE EMPINAR A MOTO (GRAU INFINITO SEGURO)
+            // A moto empina perfeitamente ao segurar W sem capotar ou cair para trás!
             // =========================================================================
             if (wheeliePulseTimer > 0) {
               wheeliePulseTimer = Math.max(0, wheeliePulseTimer - dt);
@@ -4625,43 +5987,18 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
               !playerState.isRolling;
 
             if (wantWheelie) {
-              // Se segurar o comando continuamente além do ponto de equilíbrio, acumula desequilíbrio gradual!
-              if (keysDown.wheelie && wheelieAngle > 0.48) {
-                wheelieOverbalanceTimer = Math.min(1.05, wheelieOverbalanceTimer + simDt * 0.48);
-              } else {
-                wheelieOverbalanceTimer = Math.max(0, wheelieOverbalanceTimer - simDt * 0.85);
-              }
+              // Empinar suave e estável sem capotamento ou perda de equilíbrio!
+              wheelieOverbalanceTimer = 0;
               const balanceFloat =
-                Math.sin(elapsed * 5.2) * 0.025 + Math.sin(elapsed * 11.3) * 0.008;
-              const targetAngle = 0.54 + wheelieOverbalanceTimer * 0.24 + balanceFloat;
-              const accel = (targetAngle - wheelieAngle) * 26.0 - wheelieVel * 7.8;
+                Math.sin(elapsed * 5.2) * 0.02 + Math.sin(elapsed * 11.3) * 0.007;
+              const targetAngle = 0.55 + balanceFloat;
+              const accel = (targetAngle - wheelieAngle) * 40.0 - wheelieVel * 9.0;
               wheelieVel += accel * dt;
               wheelieAngle += wheelieVel * dt;
-
-              // Passou da margem de tolerância e virou para trás: Cai da moto + Caramelo pula em cima na Nuvem de Pancadaria!
-              if (wheelieOverbalanceTimer >= 0.98 && specialEndSequence === 'none') {
-                wheelieOverbalanceTimer = 0;
-                keysDown.wheelie = false;
-                wheeliePulseTimer = 0;
-                specialEndSequence = 'wheelie_brawl';
-                specialEndClock = 0;
-                specialEndReason = 'Virou no Grau — Pego pelo Caramelo!';
-                playerState = { ...playerState, hp: 0 };
-                brawlCenterX = playerState.x;
-                brawlCenterZ = 0;
-                initBrawlFlyingParts();
-                brawlFinaleRig.root.visible = true;
-                clearBikeParticles();
-                sound.playMotoboyFunnyScream();
-                sound.playCartoonBrawlFinale();
-                sound.setGameOverMuffledVolume();
-                cameraTrauma = 1.15;
-                emitHud(true);
-              }
             } else {
-              wheelieOverbalanceTimer = Math.max(0, wheelieOverbalanceTimer - dt * 2.8);
-              // Retorno forte e garantido à posição horizontal normal (corrige qualquer travamento no grau!)
-              const accel = (0 - wheelieAngle) * 34.0 - wheelieVel * 10.6;
+              wheelieOverbalanceTimer = 0;
+              // Retorno forte e garantido à posição horizontal normal
+              const accel = (0 - wheelieAngle) * 38.0 - wheelieVel * 11.2;
               wheelieVel += accel * dt;
               wheelieAngle += wheelieVel * dt;
               if (wheelieAngle <= 0.004) {
@@ -4672,7 +6009,12 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                 wheelieVel = 0;
               }
             }
-            wheelieAngle = THREE.MathUtils.clamp(wheelieAngle, 0, 0.82);
+            wheelieAngle = THREE.MathUtils.clamp(wheelieAngle, 0, 0.65);
+            wheelieShoulderZoomBlend = THREE.MathUtils.lerp(
+              wheelieShoulderZoomBlend,
+              wantWheelie ? 1.0 : 0.0,
+              1 - Math.exp(-3.6 * dt),
+            );
 
             forkDipVel += (-forkDip * 46.0 - forkDipVel * 11.5) * dt;
             forkDip += forkDipVel * dt;
@@ -4680,8 +6022,75 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
             const jumpPitch = playerState.isJumping
               ? Math.min(0.42, (playerState.vy + 5) * 0.04)
               : 0;
-            const totalPitch = isMotoMode ? Math.max(wheelieAngle, jumpPitch) + forkDip : 0;
+
+            // Item 3: Correção da Direção de Entrada nas Cutscenes — Personagens entram por trás (+Z) avançando para frente (-Z), respeitando a orientação real e a câmera!
+            let introProgress = 1.0;
+            let introMotoOffsetZ = 0;
+            let introDogOffsetZ = 0;
+            let introWheelieFlare = 0;
+            let introCharacterFaceCameraYaw = 0;
+            let introIrritationShake = 0;
+            if (isIntroCutscene) {
+              introCutsceneClock += dt;
+              introProgress = Math.min(1.0, introCutsceneClock / INTRO_CUTSCENE_DURATION);
+
+              // Ambos sempre orientados na direção da corrida (-Z -> yaw = 0), entrando por trás (+Z) sem atravessar o jogador!
+              introCharacterFaceCameraYaw = 0;
+
+              const easeIn = 1.0 - Math.pow(1.0 - introProgress, 2.35);
+              const posBlend = 1.0 - easeIn; // 1.0 no início -> 0.0 ao final da entrada
+              introMotoOffsetZ = 2.65 * posBlend;
+              introDogOffsetZ = 2.95 * posBlend; // Entra por trás do Motoboy (+Z) e avança sem jamais surgir pela frente (-Z)
+
+              if (introProgress > 0.18 && introProgress < 0.74) {
+                const angerPhase = (introProgress - 0.18) / 0.56;
+                introIrritationShake = Math.sin(introCutsceneClock * 22.0) * 0.11 * Math.sin(angerPhase * Math.PI);
+              }
+              if (introProgress > 0.68 && introProgress < 0.96) {
+                const wNorm = (introProgress - 0.68) / 0.28;
+                introWheelieFlare = Math.sin(wNorm * Math.PI) * 0.24;
+              }
+              if (!introBarkPlayed && introCutsceneClock >= 0.42) {
+                introBarkPlayed = true;
+                sound.playCustomBark();
+              }
+              if (!introGrowlPlayed && introCutsceneClock >= 1.35) {
+                introGrowlPlayed = true;
+                sound.playDogGrowl(0.85);
+              }
+              if (isInferno && leadCaramelo) {
+                // Na cutscene de entrada, o Caramelo Diabo apenas corre sem cuspir fogo (baforada exclusiva da gameplay!)
+                leadCaramelo.setFireBreathState('idle', 0);
+              }
+              if (introCutsceneClock >= INTRO_CUTSCENE_DURATION) {
+                isIntroCutscene = false;
+                angerVeinRig.visible = false;
+                if (isInferno && leadCaramelo) {
+                  leadCaramelo.setFireBreathState('idle', 0);
+                }
+                onIntroCutsceneChangeRef.current?.(false);
+                emitHud(true);
+              }
+            } else {
+              angerVeinRig.visible = false;
+            }
+
+            const totalPitch = isMotoMode
+              ? Math.max(wheelieAngle, jumpPitch, introWheelieFlare) + forkDip
+              : 0;
             const wheelieRatio = isMotoMode ? THREE.MathUtils.clamp(wheelieAngle / 0.56, 0, 1) : 0;
+
+            // Item 10: Som dinâmico do motor da motocicleta sincronizado com velocidade, aceleração, marchas e Grau
+            if (isActivelyRunning) {
+              const currentKmh = Math.round(effectiveGroundSpeed * 5.6);
+              sound.updateEngineRPM(
+                currentKmh,
+                isIntroCutscene || keysDown.left || keysDown.right || wantWheelie,
+                wantWheelie || introWheelieFlare > 0.08,
+              );
+            } else {
+              sound.stopProceduralBikeEngine();
+            }
 
             const isPlayingOrPaused = activePhase === 'playing' || activePhase === 'paused';
 
@@ -4701,19 +6110,48 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                 playerMotoInstance.root.visible =
                   isPlayingOrPaused && !isCrashing && inspectedId === null && invulnBlinkVisible;
                 if (playerMotoInstance.root.visible) {
-                  playerMotoInstance.root.position.set(playerState.x, playerState.y, 0);
+                  const motoSurf = sampleRoadSurfaceTransform(introMotoOffsetZ);
+                  const motoX = playerState.x + (isIntroCutscene ? -0.18 * (introMotoOffsetZ / 1.35) : 0);
+                  const motoY = playerState.y + motoSurf.yOffset;
+                  playerMotoInstance.root.position.set(
+                    motoX,
+                    motoY,
+                    introMotoOffsetZ,
+                  );
+                  playerMotoInstance.root.rotation.set(
+                    motoSurf.pitchX,
+                    motoSurf.yawY + introCharacterFaceCameraYaw,
+                    0
+                  );
                   playerMotoInstance.update(
                     dt,
                     isActivelyRunning ? playerState.speed : 0,
-                    steerLean,
+                    steerLean + introIrritationShake,
                     totalPitch,
                   );
+
+                  // Item 7: Onomatopeia de Raiva (💢) acima da cabeça do Motoboy durante a Cutscene Frontal
+                  if (isIntroCutscene && introProgress > 0.18 && introProgress < 0.74) {
+                    angerVeinRig.visible = true;
+                    const popIn = Math.min(1, (introProgress - 0.18) / 0.1);
+                    const popOut = Math.min(1, (0.74 - introProgress) / 0.08);
+                    const pulse = 1.0 + Math.sin(introCutsceneClock * 22.0) * 0.18;
+                    angerVeinRig.position.set(
+                      motoX - 0.26,
+                      motoY + 1.86 + Math.sin(introCutsceneClock * 14.0) * 0.03,
+                      introMotoOffsetZ + 0.14
+                    );
+                    angerVeinRig.scale.setScalar(0.95 * popIn * popOut * pulse);
+                    angerVeinRig.rotation.set(0, 0, Math.sin(introCutsceneClock * 16.0) * 0.08);
+                  } else {
+                    angerVeinRig.visible = false;
+                  }
                 }
               }
 
               // Posicionamento seguro um pouco atrás do Motoboy (z ≈ +1.85m..+2.15m) desviando de carros!
               const baseBehindZ =
-                1.92 + Math.sin(elapsed * 2.35) * 0.16 + wheelieRatio * 0.18;
+                1.92 + Math.sin(elapsed * 2.35) * 0.16 + wheelieRatio * 0.18 + introDogOffsetZ;
               let desiredDogX =
                 playerState.x +
                 Math.sin(elapsed * 2.55) * 0.26 -
@@ -4743,8 +6181,11 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                 chaseDogVelX += springAccelX * dt;
                 chaseDogX = THREE.MathUtils.clamp(chaseDogX + chaseDogVelX * dt, -4.75, 4.75);
 
-                motoDogAttackTimer -= dt;
+                if (!isIntroCutscene) {
+                  motoDogAttackTimer -= dt;
+                }
                 if (
+                  !isIntroCutscene &&
                   motoDogAttackTimer <= 0 &&
                   playerState.invulnerableTimer <= 0 &&
                   !playerState.isJumping
@@ -4754,26 +6195,37 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                   motoDogWarnBlinkPhase = 0;
                   motoDogLockedX = playerState.x;
                   sound.playAttackWarning();
+                  sound.playDogGrowl(0.9);
                   sound.playCustomBark();
                   emitHud(true);
                 }
               } else if (motoDogAttackPhase === 'warning') {
-                // Item 5: Faixa Vermelha Piscante no Chão (acelerando a frequência conforme o bote se aproxima!)
+                // Item 2 & Item 11: Ataques mais rápidos dos caramelos em todas as fases + preparação da Baforada de Fogo no Inferno!
                 motoDogPhaseClock += dt;
-                const warnTotal = 1.22;
+                const warnTotal =
+                  difficultyRef.current === 'extreme'
+                    ? 0.82
+                    : difficultyRef.current === 'hard'
+                    ? 0.88
+                    : difficultyRef.current === 'medium'
+                    ? 1.05
+                    : 1.14;
                 const warnProgress = THREE.MathUtils.clamp(motoDogPhaseClock / warnTotal, 0, 1);
 
-                const springAccelX = (motoDogLockedX - chaseDogX) * 44.0 - chaseDogVelX * 10.0;
+                const springAccelX = (motoDogLockedX - chaseDogX) * 48.0 - chaseDogVelX * 10.5;
                 chaseDogVelX += springAccelX * dt;
                 chaseDogX = THREE.MathUtils.clamp(chaseDogX + chaseDogVelX * dt, -4.75, 4.75);
-                dogZ = THREE.MathUtils.lerp(baseBehindZ, 1.46, Math.min(1, motoDogPhaseClock / 0.45));
-                dogRunSpeedMult = 1.24;
-                leadCaramelo?.setBitePrepFactor(warnProgress * 0.85);
+                dogZ = THREE.MathUtils.lerp(baseBehindZ, 1.44, Math.min(1, motoDogPhaseClock / 0.38));
+                dogRunSpeedMult = 1.28;
+                leadCaramelo?.setBitePrepFactor(warnProgress * 0.9);
+                if (isInferno) {
+                  leadCaramelo?.setFireBreathState('charge', warnProgress);
+                }
 
                 // Faixa vermelha na pista demarcando exatamente a zona de ataque sob o Motoboy
                 dangerGroundStrip.root.visible = inspectedId === null;
                 dangerGroundStrip.root.position.set(motoDogLockedX, 0, -1.35);
-                const blinkFreq = THREE.MathUtils.lerp(8.5, 34.0, warnProgress * warnProgress);
+                const blinkFreq = THREE.MathUtils.lerp(10.0, 38.0, warnProgress * warnProgress);
                 motoDogWarnBlinkPhase += dt * blinkFreq;
                 const blinkWave = 0.5 + 0.5 * Math.sin(motoDogWarnBlinkPhase);
                 dangerGroundStrip.fillMat.opacity = 0.16 + blinkWave * 0.46;
@@ -4796,23 +6248,122 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                   carameloWarnRig.root.visible = false;
                   dangerGroundStrip.root.visible = false;
                   leadCaramelo?.setBitePrepFactor(0);
-                  motoDogAttackPhase = 'lunging';
-                  motoDogPhaseClock = 0;
-                  motoDogStartX = chaseDogX;
-                  motoDogStartZ = dogZ;
-                  sound.playBoing();
+                  if (isInferno) {
+                    // Item 11: No Modo Extremo (Inferno), o Caramelo Diabo dispara uma Baforada de Fogo substituindo a mordida!
+                    motoDogAttackPhase = 'fire_blast';
+                    motoDogPhaseClock = 0;
+                    fireBlastDamagedPlayer = false;
+                    sound.playDemonFireBreathSfx();
+                  } else {
+                    motoDogAttackPhase = 'lunging';
+                    motoDogPhaseClock = 0;
+                    motoDogStartX = chaseDogX;
+                    motoDogStartZ = dogZ;
+                    sound.playBoing();
+                  }
                   emitHud(true);
                 }
-              } else if (motoDogAttackPhase === 'lunging') {
-                // Salto parabólico em direção à área demarcada! Remove a faixa vermelha ao saltar!
+              } else if (motoDogAttackPhase === 'fire_blast') {
+                // Item 11: Baforada de Fogo do Caramelo Diabo (fumaça -> jato intenso de fogo -> dissipação em faíscas!)
                 carameloWarnRig.root.visible = false;
                 dangerGroundStrip.root.visible = false;
                 motoDogPhaseClock += dt;
-                const u = Math.min(1, motoDogPhaseClock / 0.26);
+                const blastDuration = 0.92;
+                const u = Math.min(1, motoDogPhaseClock / blastDuration);
+                chaseDogX = THREE.MathUtils.lerp(chaseDogX, motoDogLockedX, Math.min(1, dt * 14.0));
+                dogZ = 1.42;
+                dogY = 0;
+                dogRunSpeedMult = 1.32;
+
+                if (u < 0.78) {
+                  leadCaramelo?.setFireBreathState('blast', u / 0.78);
+                } else {
+                  leadCaramelo?.setFireBreathState('dissipate', (u - 0.78) / 0.22);
+                }
+
+                // Checa colisão do jato de chamas com o motoboy na faixa travada
+                if (
+                  !fireBlastDamagedPlayer &&
+                  u >= 0.16 &&
+                  u <= 0.74 &&
+                  Math.abs(playerState.x - motoDogLockedX) < 1.18 &&
+                  playerState.y < 0.85
+                ) {
+                  fireBlastDamagedPlayer = true;
+                  damageScreenFlashNonce += 1;
+                  riderDamageFlashTimer = 0.82;
+                  cameraTrauma = Math.max(cameraTrauma, 0.88);
+                  triggerCustomColorBurst(
+                    playerState.x,
+                    playerState.y + 1.05,
+                    0.18,
+                    0xff2a00,
+                    0xfacc15,
+                    18,
+                  );
+                  const nextHp = Math.max(0, playerState.hp - 1);
+                  if (nextHp <= 0) {
+                    playerState = { ...playerState, hp: 0 };
+                    specialEndSequence = 'motoboy_backfall';
+                    specialEndClock = 0;
+                    specialEndReason = 'Atingido pela Baforada de Fogo do Caramelo Diabo!';
+                    cameraTrauma = 1.28;
+                    clearBikeParticles();
+                    sound.playMotoboyFunnyScream();
+                    sound.setGameOverMuffledVolume();
+                    emitHud(true);
+                  } else {
+                    triggerSequentialComboBreak();
+                    playerState = {
+                      ...playerState,
+                      hp: nextHp,
+                      combo: 1,
+                      invulnerableTimer: 1.65,
+                    };
+                    emitHud(true);
+                  }
+                }
+
+                if (u >= 1) {
+                  leadCaramelo?.setFireBreathState('idle', 0);
+                  if (!fireBlastDamagedPlayer) {
+                    dodgeSuccessNonce += 1;
+                    sound.playCartoonDodgeSuccess();
+                    triggerCustomColorBurst(
+                      playerState.x,
+                      playerState.y + 0.95,
+                      0.0,
+                      0xf97316,
+                      0xfacc15,
+                      14,
+                    );
+                    const nextCombo = Math.min(10, playerState.combo + 1);
+                    playerState = {
+                      ...playerState,
+                      combo: nextCombo,
+                      score: playerState.score + 150 * nextCombo,
+                    };
+                  }
+                  motoDogAttackPhase = 'recovering';
+                  motoDogPhaseClock = 0;
+                  motoDogStartX = chaseDogX;
+                  motoDogStartZ = 1.42;
+                  emitHud(true);
+                }
+              } else if (motoDogAttackPhase === 'lunging') {
+                // Salto parabólico mais ágil em direção à área demarcada! Remove a faixa vermelha ao saltar!
+                carameloWarnRig.root.visible = false;
+                dangerGroundStrip.root.visible = false;
+                motoDogPhaseClock += dt;
+                const lungeDuration =
+                  difficultyRef.current === 'hard' || difficultyRef.current === 'extreme'
+                    ? 0.18
+                    : 0.22;
+                const u = Math.min(1, motoDogPhaseClock / lungeDuration);
                 chaseDogX = THREE.MathUtils.lerp(motoDogStartX, motoDogLockedX, u);
                 dogZ = THREE.MathUtils.lerp(motoDogStartZ, 0.42, u);
                 dogY = Math.sin(u * Math.PI) * 0.95 + u * 0.78;
-                dogRunSpeedMult = 1.38;
+                dogRunSpeedMult = 1.44;
 
                 if (u >= 1) {
                   // Zona real da faixa (largura 2.36m -> raio lateral 1.12m)
@@ -4842,9 +6393,10 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                     motoDogStartZ = 0.55;
                     emitHud(true);
                   } else {
-                    // Permaneceu na faixa marcada: Caramelo se agarra às costas + mordida + dano!
+                    // Permaneceu na faixa marcada: Caramelo se agarra às costas + mordida c/ dentes se fechando + tremor cinematográfico + flash vermelho!
                     motoDogAttackPhase = 'latched';
                     motoDogPhaseClock = 0;
+                    damageScreenFlashNonce += 1;
                     leadCaramelo?.triggerBiteChomp();
                     sound.playBiteAttack();
                     sound.playCustomBark();
@@ -4857,7 +6409,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                       18,
                     );
                     riderDamageFlashTimer = 0.78;
-                    cameraTrauma = Math.max(cameraTrauma, 0.76);
+                    cameraTrauma = Math.max(cameraTrauma, 0.86);
 
                     const nextHp = Math.max(0, playerState.hp - 1);
                     if (nextHp <= 0) {
@@ -4872,6 +6424,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                       sound.setGameOverMuffledVolume();
                       emitHud(true);
                     } else {
+                      triggerSequentialComboBreak();
                       playerState = {
                         ...playerState,
                         hp: nextHp,
@@ -4915,20 +6468,28 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                 carameloWarnRig.root.visible = false;
                 dangerGroundStrip.root.visible = false;
                 motoDogPhaseClock += dt;
-                const u = Math.min(1, motoDogPhaseClock / 0.52);
+                const u = Math.min(1, motoDogPhaseClock / 0.46);
                 chaseDogX = THREE.MathUtils.lerp(motoDogStartX, desiredDogX, u);
                 dogZ = THREE.MathUtils.lerp(motoDogStartZ, baseBehindZ, u);
                 dogY = Math.sin(u * Math.PI) * 0.45 + (1 - u) * 0.35;
 
                 if (u >= 1) {
                   motoDogAttackPhase = 'stalking';
+                  leadCaramelo?.setFireBreathState('idle', 0);
+                  // Item 2: Aumentado um pouco o ritmo dos ataques dos caramelos em todas as fases!
                   const baseCd =
-                    difficultyRef.current === 'hard'
-                      ? 5.2
+                    difficultyRef.current === 'extreme'
+                      ? 2.6
+                      : difficultyRef.current === 'hard'
+                      ? 3.2
                       : difficultyRef.current === 'medium'
-                      ? 6.6
-                      : 8.2;
-                  motoDogAttackTimer = baseCd + Math.random() * 2.4;
+                      ? 5.2
+                      : 6.8;
+                  const randSpan =
+                    difficultyRef.current === 'extreme' || difficultyRef.current === 'hard'
+                      ? 1.3
+                      : 2.0;
+                  motoDogAttackTimer = baseCd + Math.random() * randSpan;
                 }
               }
 
@@ -4936,7 +6497,16 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
               if (leadCaramelo && !isCrashing) {
                 leadCaramelo.root.visible =
                   isPlayingOrPaused && inspectedId === null;
-                leadCaramelo.root.position.set(chaseDogX, dogY, dogZ);
+                const effectiveDogX = isIntroCutscene
+                  ? THREE.MathUtils.lerp(chaseDogX, playerState.x + 0.54, Math.min(1, introMotoOffsetZ / 1.1))
+                  : chaseDogX;
+                const dogSurf = sampleRoadSurfaceTransform(dogZ);
+                leadCaramelo.root.position.set(effectiveDogX, dogY + dogSurf.yOffset, dogZ);
+                leadCaramelo.root.rotation.set(
+                  dogSurf.pitchX,
+                  dogSurf.yawY + introCharacterFaceCameraYaw,
+                  0
+                );
                 leadCaramelo.update(
                   dt,
                   isActivelyRunning ? playerState.speed * dogRunSpeedMult : 0,
@@ -5204,28 +6774,35 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
 
               if (playerMotoInstance) {
                 playerMotoInstance.setRiderThermalVision(thermalVisionBlend);
-                const aiCurveDist = Math.max(0, -(aiMotoZ - WORLD_CURVE_START_Z));
-                const aiRoadY = -curveY * aiCurveDist * aiCurveDist;
+                // Na cutscene de entrada do Modo Caramelo, o Motoboy entra por trás (+Z) e acelera para a frente (-Z) sem atravessar o cachorro!
+                const effectiveAiZ = isIntroCutscene
+                  ? THREE.MathUtils.lerp(aiMotoZ, 1.35, introMotoOffsetZ / 2.65)
+                  : aiMotoZ;
+                const aiSurf = sampleRoadSurfaceTransform(effectiveAiZ);
                 playerMotoInstance.root.visible =
                   isPlayingOrPaused &&
                   !isCrashing &&
                   inspectedId === null &&
                   carameloBitePhase !== 'brawl_cloud';
                 if (playerMotoInstance.root.visible) {
-                  playerMotoInstance.root.position.set(aiMotoX, aiRoadY, aiMotoZ);
-                  playerMotoInstance.root.rotation.x = Math.atan(2 * curveY * aiCurveDist);
+                  playerMotoInstance.root.position.set(
+                    aiMotoX + aiSurf.xOffset,
+                    aiSurf.yOffset,
+                    effectiveAiZ,
+                  );
+                  playerMotoInstance.root.rotation.set(aiSurf.pitchX, aiSurf.yawY, 0);
                   playerMotoInstance.update(
                     dt,
                     isActivelyRunning
                       ? effectiveGroundSpeed + aiMotoEscapeVel * 0.85
                       : 0,
                     aiSteerLean,
-                    aiEscapeWheelie,
+                    aiEscapeWheelie || introWheelieFlare,
                   );
                 }
               }
 
-              // Caramelo Jogável: aproximação gradual na preparação (sem pular à frente do Motoboy!)
+              // Item 11: Caramelo Jogável executando ataques sem avanço ou mudança brusca artificial de posição!
               if (leadCaramelo) {
                 leadCaramelo.root.visible =
                   isPlayingOrPaused &&
@@ -5236,21 +6813,17 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
 
                 let dogPosX = playerState.x;
                 let dogPosY = playerState.y;
-                let dogPosZ = 0;
+                let dogPosZ = isIntroCutscene ? introDogOffsetZ * 1.15 : 0;
 
                 if (carameloBitePhase === 'precision') {
-                  const sideOffset = playerState.x >= aiMotoX ? 0.38 : -0.38;
-                  dogPosX = THREE.MathUtils.lerp(
-                    playerState.x,
-                    aiMotoX + sideOffset,
-                    bitePrepBlend * 0.55,
-                  );
-                  dogPosZ = -0.22 * bitePrepBlend; // Permanece atrás da moto (-1.68m), nunca à frente!
+                  // Mantém a posição natural de corrida do Caramelo (sem avanço brusco artificial)
+                  dogPosX = playerState.x;
+                  dogPosZ = 0;
                 } else if (biteStrikeTimer > 0) {
-                  const strikeArc = Math.sin((1.0 - biteStrikeTimer / 0.28) * Math.PI);
-                  dogPosX = THREE.MathUtils.lerp(playerState.x, aiMotoX, strikeArc * 0.52);
-                  dogPosY = playerState.y + strikeArc * 0.22;
-                  dogPosZ = Math.max(aiMotoZ + 0.92, -0.58 * strikeArc);
+                  const strikeArc = Math.sin((1.0 - biteStrikeTimer / 0.34) * Math.PI);
+                  dogPosX = playerState.x;
+                  dogPosY = playerState.y + strikeArc * 0.14;
+                  dogPosZ = 0;
                 } else if (carameloBitePhase === 'brawl_leap') {
                   const leapU = Math.min(1, brawlClock / 0.38);
                   dogPosX = THREE.MathUtils.lerp(brawlStartX, brawlCenterX, leapU);
@@ -5259,7 +6832,9 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                 }
 
                 if (leadCaramelo.root.visible) {
-                  leadCaramelo.root.position.set(dogPosX, dogPosY, dogPosZ);
+                  const dogSurf = sampleRoadSurfaceTransform(dogPosZ);
+                  leadCaramelo.root.position.set(dogPosX + dogSurf.xOffset, dogPosY + dogSurf.yOffset, dogPosZ);
+                  leadCaramelo.root.rotation.set(dogSurf.pitchX, dogSurf.yawY, 0);
                   leadCaramelo.update(
                     dt,
                     isActivelyRunning ? Math.max(8.5, effectiveGroundSpeed) : 0,
@@ -5289,17 +6864,110 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
               dirtInstanced.visible = false;
             }
 
+            // 3B) Rastro de Pegadas de Fogo no Asfalto (Caramelo Diabo / Modo Extremo)
+            const isDiaboRunning =
+              (isInferno || leadCaramelo?.spec.id === 'caramelo_diabo') &&
+              isActivelyRunning &&
+              leadCaramelo &&
+              leadCaramelo.root.visible;
+
+            if (isDiaboRunning && leadCaramelo) {
+              fpEmitTimer += dt;
+              const stepInterval = Math.max(0.12, 0.22 - (effectiveGroundSpeed / 32.0) * 0.08);
+              if (fpEmitTimer >= stepInterval) {
+                fpEmitTimer = 0;
+                fpFootSideToggle = !fpFootSideToggle;
+                const sideOffset = fpFootSideToggle ? -0.16 : 0.16;
+                const pawWorldX = leadCaramelo.root.position.x + sideOffset;
+                const pawWorldZ = leadCaramelo.root.position.z + (fpFootSideToggle ? 0.08 : -0.08);
+                emitFireFootprint(pawWorldX, pawWorldZ);
+              }
+            }
+
+            for (let i = 0; i < FIRE_FOOTPRINT_POOL_SIZE; i++) {
+              const slot = fireFootprintSlots[i];
+              if (!slot.active) continue;
+              slot.life -= dt;
+              if (slot.life <= 0) {
+                slot.active = false;
+                slot.group.visible = false;
+                continue;
+              }
+              // Acompanha a esteira do asfalto correndo para trás (+Z)
+              slot.group.position.z += effectiveGroundSpeed * dt;
+
+              const normLife = slot.life / slot.maxLife;
+              const flameScaleY = THREE.MathUtils.clamp(normLife * 1.35, 0.04, 1.25);
+              slot.flameMeshA.scale.set(0.9, flameScaleY, 0.9);
+              slot.flameMeshA.rotation.z = Math.sin(slot.life * 28.0) * 0.18;
+              slot.flameMeshB.scale.set(0.75, flameScaleY * 0.85, 0.75);
+              slot.flameMeshB.rotation.z = -Math.sin(slot.life * 32.0) * 0.22;
+
+              const decalMat = slot.decalMesh.material as THREE.MeshBasicMaterial;
+              if (normLife > 0.6) {
+                decalMat.color.setHex(0xffea00); // Amarelo incandescente
+              } else if (normLife > 0.25) {
+                decalMat.color.setHex(0xf97316); // Laranja fogo
+              } else {
+                decalMat.color.setHex(0x991b1b); // Brasa esfriando
+              }
+              decalMat.opacity = Math.min(1.0, normLife * 1.8);
+            }
+
+            // Item 4: Na Praia, afasta moderadamente a câmera em terceira pessoa para visualizar melhor a estrada, curvas, veículos e orla!
+            const motoGameplayCamY =
+              (isPraia ? 2.48 : 2.14) + playerState.y * 0.35 + shakeY + wheelieRatio * 0.14;
+            const motoGameplayCamZ = (isPraia ? 5.26 : 4.48) + wheelieRatio * 0.24;
+            const motoGameplayLookY =
+              (isPraia ? 1.34 : 1.24) + playerState.y * 0.18 + wheelieRatio * 0.2;
+            const motoGameplayLookZ = isPraia ? -38 : -32;
+
             if (isMotoMode) {
               _camTargetPos.set(
                 playerState.x * 0.72 + shakeX,
-                2.14 + playerState.y * 0.35 + shakeY + wheelieRatio * 0.14,
-                4.48 + wheelieRatio * 0.24,
+                motoGameplayCamY,
+                motoGameplayCamZ,
               );
               _camLookAt.set(
                 playerState.x * 0.45 + steerVelocityX * 0.05,
-                1.24 + playerState.y * 0.18 + wheelieRatio * 0.2,
-                -32,
+                motoGameplayLookY,
+                motoGameplayLookZ,
               );
+
+              // Efeito cinematográfico suave da câmera afastando e se esticando para trás durante a empinada (grau)!
+              if (wheelieShoulderZoomBlend > 0.005) {
+                _camTargetPos.z += 0.95 * wheelieShoulderZoomBlend; // Afasta suavemente para trás (sem exagero)
+                _camTargetPos.y += 0.16 * wheelieShoulderZoomBlend; // Sobe ligeiramente mantendo a visão ampla da moto empinada
+                _camLookAt.y += 0.12 * wheelieShoulderZoomBlend;
+              }
+
+              // Item 1: Enquadramento Dinâmico acompanhando o braço e a trajetória da Pizza em Câmera Lenta!
+              if (pizzaSlowMoTimer > 0 || flyingPizzaState.active) {
+                const slowBlend = Math.sin(
+                  Math.min(1, (0.68 - pizzaSlowMoTimer) / 0.68) * Math.PI
+                );
+                const sideDir = flyingPizzaState.sideSign;
+                _camTargetPos.x += sideDir * 0.58 * slowBlend;
+                _camTargetPos.y -= 0.24 * slowBlend;
+                _camTargetPos.z -= 0.88 * slowBlend;
+                if (flyingPizzaState.active) {
+                  _camLookAt.x = THREE.MathUtils.lerp(
+                    _camLookAt.x,
+                    flyingPizzaBoxMesh.position.x * 0.72,
+                    slowBlend * 0.75
+                  );
+                  _camLookAt.y = THREE.MathUtils.lerp(
+                    _camLookAt.y,
+                    flyingPizzaBoxMesh.position.y,
+                    slowBlend * 0.65
+                  );
+                  _camLookAt.z = THREE.MathUtils.lerp(
+                    _camLookAt.z,
+                    flyingPizzaBoxMesh.position.z - 8.5,
+                    slowBlend * 0.55
+                  );
+                }
+              }
             } else if (
               carameloBitePhase === 'brawl_leap' ||
               carameloBitePhase === 'brawl_cloud'
@@ -5323,40 +6991,161 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
                 0.98 + playerState.y * 0.15,
                 -18,
               );
+            } else if (
+              biteStrikeTimer > 0 ||
+              (carameloBitePhase === 'impact_react' && impactReactTimer > 0)
+            ) {
+              // Item 10: Aproximação curta de câmera com Zoom Diagonal dinâmico e cinematográfico no momento da mordida do Caramelo!
+              const strikeEnv = Math.sin(
+                Math.min(1, Math.max(biteStrikeTimer / 0.34, impactReactTimer / 0.28)) * Math.PI
+              );
+              const diagSide = playerState.x <= aiMotoX ? -1 : 1;
+              _camTargetPos.set(
+                playerState.x * 0.62 + aiMotoX * 0.25 + diagSide * 0.92 * strikeEnv + shakeX,
+                (isPraia ? 1.82 : 1.58) - 0.26 * strikeEnv + playerState.y * 0.25 + shakeY,
+                (isPraia ? 3.55 : 3.05) - 1.15 * strikeEnv,
+              );
+              _camLookAt.set(
+                aiMotoX * 0.65 + playerState.x * 0.35,
+                0.96 + 0.14 * strikeEnv,
+                aiMotoZ * 0.85 - 2.2,
+              );
             } else {
               _camTargetPos.set(
                 playerState.x * 0.72 + shakeX,
-                1.86 + playerState.y * 0.35 + shakeY,
-                3.72 - (meatBoostTimer > 0 ? 0.18 : 0),
+                (isPraia ? 2.14 : 1.86) + playerState.y * 0.35 + shakeY,
+                (isPraia ? 4.32 : 3.72) - (meatBoostTimer > 0 ? 0.18 : 0),
               );
               _camLookAt.set(
                 (playerState.x * 0.38 + aiMotoX * 0.14) + steerVelocityX * 0.05,
-                1.14 + playerState.y * 0.18,
-                -32,
+                (isPraia ? 1.24 : 1.14) + playerState.y * 0.18,
+                isPraia ? -36 : -32,
               );
             }
-            const camDamp = 1 - Math.exp(-8.5 * dt);
-            camera.position.lerp(_camTargetPos, camDamp);
-            currentCamLook.lerp(_camLookAt, camDamp);
-            camera.lookAt(currentCamLook);
 
-            // Keep camera roll zeroed so the horizon mountains never rock or sway
+            // Item 9: Aumenta um pouco a nitidez/qualidade de renderização durante as cutscenes!
+            const wantCutsceneBoost =
+              activePhase === 'playing' && (isIntroCutscene || specialEndSequence !== 'none');
+            if (wantCutsceneBoost !== cutsceneBoostActive) {
+              cutsceneBoostActive = wantCutsceneBoost;
+              if (!isSoftwareGl) {
+                const dpr = window.devicePixelRatio || 1;
+                renderer.setPixelRatio(
+                  cutsceneBoostActive
+                    ? Math.min(dpr, Math.max(baseTargetPixelRatio + 0.35, 1.85))
+                    : baseTargetPixelRatio
+                );
+              }
+            }
+
+            // Item 4 & 10: Cutscene de Entrada + leve inclinação diagonal no Zoom da Mordida!
+            const biteDiagRoll =
+              !isMotoMode && (biteStrikeTimer > 0 || carameloBitePhase === 'impact_react')
+                ? (playerState.x <= aiMotoX ? -0.065 : 0.065) *
+                  Math.min(1, Math.max(biteStrikeTimer / 0.34, impactReactTimer / 0.28))
+                : 0;
+            camera.up.set(biteDiagRoll, 1, 0).normalize();
+            if (isIntroCutscene) {
+              const p = introProgress;
+              // CUTSCENE CINEMATOGRÁFICA UNIVERSAL: Câmera de frente para o Caramelo em todos os modos!
+              const dogX = leadCaramelo ? leadCaramelo.root.position.x : 0.45;
+              const dogY = leadCaramelo ? leadCaramelo.root.position.y : 0.0;
+              const dogZ = leadCaramelo ? leadCaramelo.root.position.z : (introDogOffsetZ + 1.95);
+
+              const motoX = isMotoMode ? 0.0 : aiMotoX;
+              const motoY = isPraia ? 1.18 : 1.12;
+              const motoZ = introMotoOffsetZ + 1.15;
+
+              if (p < 0.45) {
+                // Fase 1: CÂMERA DE FRENTE PARA O CARAMELO!
+                // O cão corre em direção a -Z. Para a câmera ficar DE FRENTE para ele (e NÃO nas costas!),
+                // ela se posiciona em Z menor à frente dele e olha para +Z direto na cara dele!
+                const sub1 = p / 0.45;
+                const swayX = Math.sin(introCutsceneClock * 4.2) * 0.12 + Math.sin(introCutsceneClock * 11.5) * 0.035;
+                const swayY = Math.cos(introCutsceneClock * 3.6) * 0.06 + Math.cos(introCutsceneClock * 13.0) * 0.025;
+                const rollAngle = Math.sin(introCutsceneClock * 3.8) * 0.045;
+                camera.up.set(rollAngle, 1, 0).normalize();
+
+                // Câmera à frente do cão (em Z menor), olhando para +Z
+                const frontCamX = dogX - 0.28 + swayX;
+                const frontCamY = dogY + 0.58 + swayY;
+                const frontCamZ = dogZ - 2.45 - sub1 * 0.35;
+                camera.position.set(frontCamX, frontCamY, frontCamZ);
+
+                currentCamLook.set(dogX, dogY + 0.65, dogZ);
+                camera.lookAt(currentCamLook);
+              } else if (p < 0.74) {
+                // Fase 2: Câmera sobe em arco cinematográfico revelando o Motoboy acelerando à frente!
+                const sub2 = (p - 0.45) / 0.29;
+                const smoothSub2 = sub2 * sub2 * (3 - 2 * sub2);
+                const swayRoll = Math.sin(introCutsceneClock * 3.2) * 0.032 * (1.0 - smoothSub2);
+                camera.up.set(swayRoll, 1, 0).normalize();
+
+                const fromX = dogX - 0.28;
+                const fromY = dogY + 0.58;
+                const fromZ = dogZ - 2.80;
+                const toX = isMotoMode ? 0.58 : -0.48;
+                const toY = isPraia ? 1.72 : 1.62;
+                const toZ = isPraia ? -4.25 : -3.85;
+                const arcX = Math.sin(smoothSub2 * Math.PI) * 1.85;
+
+                camera.position.set(
+                  THREE.MathUtils.lerp(fromX, toX, smoothSub2) + arcX,
+                  THREE.MathUtils.lerp(fromY, toY, smoothSub2),
+                  THREE.MathUtils.lerp(fromZ, toZ, smoothSub2),
+                );
+                currentCamLook.set(
+                  THREE.MathUtils.lerp(dogX, motoX, smoothSub2),
+                  THREE.MathUtils.lerp(dogY + 0.65, motoY, smoothSub2),
+                  THREE.MathUtils.lerp(dogZ, motoZ, smoothSub2),
+                );
+                camera.lookAt(currentCamLook);
+              } else {
+                // Fase 3: Transição suave assumindo a posição de pilotagem da gameplay
+                const sub3 = (p - 0.74) / 0.26;
+                const smoothSub3 = sub3 * sub3 * (3 - 2 * sub3);
+                camera.up.set(0, 1, 0);
+
+                const fromX = isMotoMode ? 0.58 : -0.48;
+                const fromY = isPraia ? 1.72 : 1.62;
+                const fromZ = isPraia ? -4.25 : -3.85;
+                const orbitX = Math.sin(smoothSub3 * Math.PI) * 1.85;
+
+                camera.position.set(
+                  THREE.MathUtils.lerp(fromX, _camTargetPos.x, smoothSub3) + orbitX,
+                  THREE.MathUtils.lerp(fromY, _camTargetPos.y, smoothSub3),
+                  THREE.MathUtils.lerp(fromZ, _camTargetPos.z, smoothSub3),
+                );
+                currentCamLook.set(
+                  THREE.MathUtils.lerp(motoX, _camLookAt.x, smoothSub3),
+                  THREE.MathUtils.lerp(motoY, _camLookAt.y, smoothSub3),
+                  THREE.MathUtils.lerp(motoZ, _camLookAt.z, smoothSub3),
+                );
+                camera.lookAt(currentCamLook);
+              }
+            } else {
+              const camDamp = 1 - Math.exp(-8.5 * dt);
+              camera.position.lerp(_camTargetPos, camDamp);
+              currentCamLook.lerp(_camLookAt, camDamp);
+              camera.lookAt(currentCamLook);
+            }
+
+            // Mantém o horizonte reto sem sobrescrever Euler XYZ quando lookAt estiver ativo
             camRollImpulse = 0;
             camRollAngle = 0;
-            camera.rotation.z = 0;
 
-            // Item 4: Projeta a posição 3D acima da cabeça do Motoboy para coordenadas de tela (10 Corações Dinâmicos)
+            // Projeta a posição 3D na altura do tronco/guidão do Motoboy para alinhar o HUD e combos na mesma camada!
             camera.updateMatrixWorld();
             _heartProjVec
               .set(
                 playerState.x,
-                playerState.y + (isMotoMode ? 2.12 + wheelieRatio * 0.22 : 1.55),
+                playerState.y + (isMotoMode ? 1.10 + wheelieRatio * 0.15 : 0.65),
                 0,
               )
               .project(camera);
             playerScreenPos = {
               x: THREE.MathUtils.clamp((_heartProjVec.x + 1) * 0.5, 0.14, 0.86),
-              y: THREE.MathUtils.clamp((1 - _heartProjVec.y) * 0.5, 0.11, 0.76),
+              y: THREE.MathUtils.clamp((1 - _heartProjVec.y) * 0.5, 0.25, 0.78),
             };
 
             hudEmitTimer += dt;
@@ -5365,6 +7154,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
         }
       } else {
         // paused ou gameover
+        sound.stopProceduralBikeEngine();
         const isPausedVisible = activePhase === 'paused' && !isCrashing;
         atmosGroup.visible = false;
         exhaustInstanced.visible = isMotoMode && isPausedVisible;
@@ -5386,11 +7176,31 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
         }
       }
 
+      // Animate Coastal Beach Waves, Wind-Blown Sand & Banner Airplanes when in Praia Map
+      if (isPraia) {
+        const frameMoveZ = isActivelyRunning ? effectiveGroundSpeed * dt : 0;
+        beachAndOcean?.update(elapsed, frameMoveZ);
+        blownSandEffect?.update(elapsed, frameMoveZ);
+        airplaneFleet?.update(elapsed);
+      }
+
       // Unified Automatic LOD (LOD0/LOD1/LOD2), Distance Culling, Forward-Only Culling & Occlusion Culling Pass
       const isInspectingCatalog = inspectedId !== null;
       const scaledHouseCullZ = MAX_CULL_DISTANCE_HOUSE_Z * activeCullScale;
       const scaledFavelaCullZ = MAX_CULL_DISTANCE_FAVELA_Z * activeCullScale;
       const scaledPropCullZ = MAX_CULL_DISTANCE_PROP_Z * activeCullScale;
+      // Item 5: Desativa temporariamente a ocultação traseira durante a Cutscene de Entrada para exibir todo o cenário atrás dos personagens!
+      const renderBehindCullZ = isIntroCutscene
+        ? THREE.MathUtils.lerp(
+            74.0,
+            BEHIND_GAMEPLAY_CULL_Z,
+            THREE.MathUtils.smoothstep(
+              introCutsceneClock / INTRO_CUTSCENE_DURATION,
+              0.56,
+              0.90,
+            ),
+          )
+        : BEHIND_GAMEPLAY_CULL_Z;
 
       for (let i = 0; i < activeHouseSlots.length; i++) {
         const slot = activeHouseSlots[i];
@@ -5399,7 +7209,7 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
           slot.rightMesh.visible = false;
           continue;
         }
-        const lodRes = computeObjectLodAndCulling(slot.z, 0, scaledHouseCullZ);
+        const lodRes = computeObjectLodAndCulling(slot.z, 0, scaledHouseCullZ, renderBehindCullZ);
         const houseOpacity = computeHouseHorizonFadeFactor(slot.z, 0);
         const isHouseVisible = lodRes.visible && houseOpacity > 0.02;
         slot.leftMesh.visible = isHouseVisible;
@@ -5407,14 +7217,55 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
         if (isHouseVisible) {
           applyGroupLodState(slot.leftMesh, lodRes.lod, false);
           applyGroupLodState(slot.rightMesh, lodRes.lod, false);
-          applyHouseDistanceOpacity(slot.leftMesh, houseOpacity);
-          applyHouseDistanceOpacity(slot.rightMesh, houseOpacity);
+          applyHouseDistanceOpacity(slot.leftMesh, houseOpacity, lodRes.distanceAhead);
+          applyHouseDistanceOpacity(slot.rightMesh, houseOpacity, lodRes.distanceAhead);
+
+          if (isPraia && lodRes.animateSubNodes) {
+            if (slot.palmCrowns) {
+              for (let p = 0; p < slot.palmCrowns.length; p++) {
+                const crown = slot.palmCrowns[p];
+                const phaseOffset = Number(crown.userData?.windPhase || 0) + slot.z * 0.08;
+                crown.rotation.z = Math.sin(elapsed * 2.35 + phaseOffset) * 0.085;
+                crown.rotation.x = Math.cos(elapsed * 1.85 + phaseOffset * 0.7) * 0.055;
+              }
+            }
+            if (slot.billboards) {
+              for (let b = 0; b < slot.billboards.length; b++) {
+                const board = slot.billboards[b];
+                const bPhase = Number(board.userData?.windPhase || 0) + slot.z * 0.05;
+                board.rotation.z = Math.sin(elapsed * 1.9 + bPhase) * 0.014;
+              }
+            }
+            if (slot.kites) {
+              for (let k = 0; k < slot.kites.length; k++) {
+                updateBeachKiteNode(slot.kites[k], elapsed + i * 0.65);
+              }
+            }
+          }
+        }
+      }
+
+      if (isPraia) {
+        for (let c = 0; c < condoSlots.length; c++) {
+          const cSlot = condoSlots[c];
+          const cLod = computeObjectLodAndCulling(
+            cSlot.z,
+            0,
+            scaledHouseCullZ * 1.25,
+            renderBehindCullZ + 10.0,
+          );
+          const cFade = computeHouseHorizonFadeFactor(cSlot.z, 0);
+          cSlot.mesh.visible = cLod.visible && cFade > 0.01 && !isInspectingCatalog;
+          if (cSlot.mesh.visible) {
+            applyGroupLodState(cSlot.mesh, cLod.lod, false);
+            applyHouseDistanceOpacity(cSlot.mesh, cFade, cLod.distanceAhead);
+          }
         }
       }
 
       for (let i = 0; i < favelaPairs.length; i++) {
         const fPair = favelaPairs[i];
-        const lodRes = computeObjectLodAndCulling(fPair.z, 0, scaledFavelaCullZ);
+        const lodRes = computeObjectLodAndCulling(fPair.z, 0, scaledFavelaCullZ, renderBehindCullZ);
         if (!lodRes.visible) {
           fPair.leftFavela.visible = false;
           fPair.rightFavela.visible = false;
@@ -5437,12 +7288,14 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
           'left',
           playerState.x,
           leftBlockedBySobrado,
+          renderBehindCullZ,
         );
         const rightOcc = evaluateFavelaOcclusion(
           fPair.z,
           'right',
           playerState.x,
           rightBlockedBySobrado,
+          renderBehindCullZ,
         );
 
         const lowerFade = computeFavelaFadeOpacity(fPair.z, 0, false);
@@ -5463,22 +7316,24 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
 
       for (let i = 0; i < polePairs.length; i++) {
         const pair = polePairs[i];
-        const lodRes = computeObjectLodAndCulling(pair.z, 0, scaledPropCullZ);
+        const lodRes = computeObjectLodAndCulling(pair.z, 0, scaledPropCullZ, renderBehindCullZ);
         pair.leftPole.visible = lodRes.visible;
-        pair.rightPole.visible = lodRes.visible;
+        pair.rightPole.visible = !isPraia && lodRes.visible;
         if (lodRes.visible) {
           applyGroupLodState(pair.leftPole, lodRes.lod, false);
-          applyGroupLodState(pair.rightPole, lodRes.lod, false);
+          if (!isPraia) {
+            applyGroupLodState(pair.rightPole, lodRes.lod, false);
+          }
         }
       }
 
       for (let i = 0; i < orelhaoPairs.length; i++) {
         const oPair = orelhaoPairs[i];
-        const lod = computeObjectLodAndCulling(oPair.z, 0, scaledPropCullZ);
+        const lod = computeObjectLodAndCulling(oPair.z, 0, scaledPropCullZ, renderBehindCullZ);
         oPair.leftOrelhao.visible =
-          oPair.activeSide === 'left' && lod.visible && !isInspectingCatalog;
+          !isPraia && oPair.activeSide === 'left' && lod.visible && !isInspectingCatalog;
         oPair.rightOrelhao.visible =
-          oPair.activeSide === 'right' && lod.visible && !isInspectingCatalog;
+          !isPraia && oPair.activeSide === 'right' && lod.visible && !isInspectingCatalog;
         if (oPair.leftOrelhao.visible) {
           applyGroupLodState(oPair.leftOrelhao, lod.lod, false);
         }
@@ -5493,11 +7348,13 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
           bPair.leftZ,
           0,
           scaledHouseCullZ,
+          renderBehindCullZ,
         );
         const rightLod = computeObjectLodAndCulling(
           bPair.rightZ,
           0,
           scaledHouseCullZ,
+          renderBehindCullZ,
         );
         const leftFade = computeHouseHorizonFadeFactor(bPair.leftZ, 0);
         const rightFade = computeHouseHorizonFadeFactor(bPair.rightZ, 0);
@@ -5517,13 +7374,13 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
 
       for (let i = 0; i < sidewalkCaramelos.length; i++) {
         const sc = sidewalkCaramelos[i];
-        const lod = computeObjectLodAndCulling(sc.z, 0, scaledPropCullZ);
+        const lod = computeObjectLodAndCulling(sc.z, 0, scaledPropCullZ, renderBehindCullZ);
         sc.root.visible = lod.visible && !isInspectingCatalog;
       }
 
       for (let i = 0; i < streetMotionRows.length; i++) {
         const row = streetMotionRows[i];
-        const lodRes = computeObjectLodAndCulling(row.z, 0, scaledPropCullZ);
+        const lodRes = computeObjectLodAndCulling(row.z, 0, scaledPropCullZ, renderBehindCullZ);
         row.mesh.visible = lodRes.visible;
         if (lodRes.visible) {
           applyGroupLodState(row.mesh, lodRes.lod, false);
@@ -5531,6 +7388,20 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       }
 
       renderer.render(scene, camera);
+
+      if (!hasNotifiedSceneReady) {
+        renderedFramesCount++;
+        if (
+          (renderedFramesCount >= 2 &&
+            playerMotoInstance !== null &&
+            leadCaramelo !== null &&
+            trafficPool.length > 0) ||
+          renderedFramesCount >= 18
+        ) {
+          hasNotifiedSceneReady = true;
+          onSceneReadyRef.current?.();
+        }
+      }
 
       if (isSoftwareGl) {
         afterDraw(tick);
@@ -5574,12 +7445,12 @@ export const RunnerCanvas: React.FC<RunnerCanvasProps> = ({
       waterSplashMat.dispose();
       renderer.dispose();
     };
-  }, []);
+  }, [mapId]);
 
   return (
     <div
       ref={mountRef}
-      style={{ filter: 'saturate(1.11) contrast(1.03)' }}
+      style={{ filter: 'saturate(1.03) contrast(1.02)' }}
       className="fixed inset-0 w-full h-full overflow-hidden"
     />
   );

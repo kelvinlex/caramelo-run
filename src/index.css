@@ -792,4 +792,129 @@
   pointer-events: none;
 }
 
+@keyframes monsterTalkBounce {
+  0%, 100% {
+    transform: translateY(0px) scale(1, 1) rotate(-1deg);
+  }
+  25% {
+    transform: translateY(-5px) scale(1.03, 0.97) rotate(1.4deg);
+  }
+  50% {
+    transform: translateY(2px) scale(0.98, 1.04) rotate(-1.6deg);
+  }
+  75% {
+    transform: translateY(-4px) scale(1.02, 0.98) rotate(1.1deg);
+  }
+}
+
+@keyframes monsterCharPop {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(1.45) rotate(-6deg);
+    color: #fde047;
+    filter: drop-shadow(0 0 10px #fde047);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.08) rotate(2deg);
+    color: #fb923c;
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0px) scale(1) rotate(0deg);
+  }
+}
+
+@keyframes monsterWordTremor {
+  0%, 100% {
+    transform: translate(0px, 0px);
+  }
+  25% {
+    transform: translate(-0.8px, 0.6px);
+  }
+  50% {
+    transform: translate(0.8px, -0.6px);
+  }
+  75% {
+    transform: translate(-0.6px, -0.5px);
+  }
+}
+
+@keyframes flameTongueFlicker {
+  0%, 100% {
+    transform: scaleY(1) scaleX(1) translateY(0px) rotate(-2deg);
+    filter: brightness(1);
+  }
+  33% {
+    transform: scaleY(1.14) scaleX(0.94) translateY(-4px) rotate(2deg);
+    filter: brightness(1.18);
+  }
+  66% {
+    transform: scaleY(0.92) scaleX(1.06) translateY(2px) rotate(-1.5deg);
+    filter: brightness(0.95);
+  }
+}
+
+@keyframes soulWhiteBorderPulse {
+  0% {
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes soulSpiritAscendCinematic {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 55%) scale(0.72);
+    filter: blur(2px) drop-shadow(0 0 24px rgba(255, 255, 255, 0.95));
+  }
+  18% {
+    opacity: 0.96;
+    transform: translate(-50%, 12%) scale(1.02);
+    filter: blur(0px) drop-shadow(0 0 28px rgba(255, 255, 255, 0.95));
+  }
+  72% {
+    opacity: 0.88;
+    transform: translate(-50%, -65%) scale(1.08);
+    filter: blur(0.4px) drop-shadow(0 0 32px rgba(255, 255, 255, 0.9));
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -135%) scale(1.18);
+    filter: blur(3px) drop-shadow(0 0 38px rgba(255, 255, 255, 0.6));
+  }
+}
+
+@keyframes deliveryPopSatisfying {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -30%) scale(0.35) rotate(-5deg);
+  }
+  22% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.18) rotate(2deg);
+  }
+  45% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(0.97) rotate(-1deg);
+  }
+  75% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.02) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -95%) scale(0.85) rotate(1deg);
+  }
+}
+
+
 

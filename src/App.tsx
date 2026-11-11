@@ -18,6 +18,7 @@ import { PWAInstallModal } from './components/common/PWAInstallModal';
 import { LegalModal, LegalTab } from './components/legal/LegalModal';
 import { CookieBanner } from './components/legal/CookieBanner';
 import { Footer } from './components/layout/Footer';
+import { CartoonSpiralTransition } from './components/common/CartoonSpiralTransition';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(storage.getCurrentUser());
@@ -137,12 +138,12 @@ export default function App() {
       window.scrollTo({ top: 0, behavior: 'auto' });
       setPortalTransition({ active: true, phase: 'in', direction });
       navSwapTimerRef.current = null;
-    }, 185);
+    }, 260);
 
     navDoneTimerRef.current = window.setTimeout(() => {
       setPortalTransition((prev) => ({ ...prev, active: false }));
       navDoneTimerRef.current = null;
-    }, 470);
+    }, 620);
   };
 
   const handleSelectPlayer = (player: User) => {
@@ -167,67 +168,22 @@ export default function App() {
         </div>
       ) : (
         <div className="relative min-h-full bg-stone-950 text-stone-100 flex flex-col font-sans selection:bg-amber-500 selection:text-stone-950 flex-1 overflow-hidden">
-          <style>{`
-            @keyframes carameloPortalSweep {
-              0% { opacity: 0; transform: scale(0.92); }
-              38% { opacity: 1; transform: scale(1.02); }
-              100% { opacity: 0; transform: scale(1.1); }
-            }
-            @keyframes carameloPortalMote {
-              0% { opacity: 0; transform: translateY(14px) scale(0.6); }
-              45% { opacity: 0.9; transform: translateY(-6px) scale(1.08); }
-              100% { opacity: 0; transform: translateY(-28px) scale(0.75); }
-            }
-          `}</style>
-
-          {/* Camada Cinematográfica de Luz Solar, Profundidade e Partículas Suaves na Transição Início <-> Menu */}
-          {portalTransition.active && (
-            <div
-              className="fixed inset-0 z-[70] pointer-events-none overflow-hidden"
-              aria-hidden="true"
-            >
-              <div
-                className="absolute inset-0"
-                style={{
-                  background:
-                    portalTransition.direction === 'to-game'
-                      ? 'radial-gradient(circle at 50% 42%, rgba(251,191,36,0.34) 0%, rgba(234,88,12,0.22) 45%, rgba(12,10,9,0.72) 100%)'
-                      : 'radial-gradient(circle at 50% 35%, rgba(253,224,71,0.28) 0%, rgba(180,83,9,0.2) 48%, rgba(12,10,9,0.68) 100%)',
-                  animation: 'carameloPortalSweep 460ms cubic-bezier(0.22, 1, 0.36, 1) forwards',
-                }}
-              />
-              {[
-                { l: '18%', t: '62%', s: 7, d: '0ms' },
-                { l: '32%', t: '46%', s: 9, d: '35ms' },
-                { l: '48%', t: '58%', s: 6, d: '15ms' },
-                { l: '64%', t: '42%', s: 10, d: '45ms' },
-                { l: '79%', t: '56%', s: 7, d: '25ms' },
-              ].map((m, idx) => (
-                <span
-                  key={idx}
-                  className="absolute rounded-full bg-amber-300/85 shadow-[0_0_12px_rgba(253,224,71,0.9)]"
-                  style={{
-                    left: m.l,
-                    top: m.t,
-                    width: `${m.s}px`,
-                    height: `${m.s}px`,
-                    animation: `carameloPortalMote 430ms ease-out ${m.d} forwards`,
-                  }}
-                />
-              ))}
-            </div>
-          )}
+          {/* Transição em Espiral Cartoon (Redemoinho HQ Verde e Amarelo) entre Entrada e Menu Principal */}
+          <CartoonSpiralTransition
+            active={portalTransition.active}
+            phase={portalTransition.phase}
+          />
 
           {/* Global Portal Navbar */}
           {activeView !== 'game' && (
             <div
               style={{
-                transition: 'opacity 210ms ease, transform 230ms cubic-bezier(0.22, 1, 0.36, 1)',
+                transition: 'opacity 320ms ease, transform 380ms cubic-bezier(0.4, 0, 0.2, 1)',
                 opacity: portalTransition.active && portalTransition.phase === 'out' ? 0 : 1,
                 transform:
                   portalTransition.active && portalTransition.phase === 'out'
-                    ? 'translateY(-10px)'
-                    : 'translateY(0)',
+                    ? 'scale(0.86) rotate(-8deg)'
+                    : 'scale(1) rotate(0deg)',
               }}
             >
               <Navbar
@@ -242,24 +198,24 @@ export default function App() {
             </div>
           )}
 
-          {/* Main Content Views com Movimento Suave de Câmera e Profundidade */}
+          {/* Main Content Views com Deformação Suave de Redemoinho na Entrada para o Menu */}
           <main
             style={{
               transition:
                 portalTransition.phase === 'out'
-                  ? 'opacity 180ms ease-in, transform 195ms cubic-bezier(0.4, 0, 1, 1), filter 180ms ease-in'
-                  : 'opacity 260ms ease-out, transform 280ms cubic-bezier(0.22, 1, 0.36, 1), filter 240ms ease-out',
+                  ? 'opacity 390ms ease-in, transform 420ms cubic-bezier(0.55, 0.055, 0.675, 0.19), filter 380ms ease-in'
+                  : 'opacity 380ms ease-out, transform 460ms cubic-bezier(0.16, 1, 0.3, 1), filter 340ms ease-out',
               opacity: portalTransition.active && portalTransition.phase === 'out' ? 0 : 1,
               transform:
                 portalTransition.active && portalTransition.phase === 'out'
                   ? portalTransition.direction === 'to-game'
-                    ? 'scale(1.04) translateY(-6px)'
-                    : 'scale(0.97) translateY(8px)'
-                  : 'scale(1) translateY(0)',
+                    ? 'scale(0.58) rotate(24deg)'
+                    : 'scale(0.68) rotate(-18deg)'
+                  : undefined,
               filter:
                 portalTransition.active && portalTransition.phase === 'out'
-                  ? 'blur(4px) brightness(1.08)'
-                  : 'blur(0px) brightness(1)',
+                  ? 'blur(5px) saturate(1.3)'
+                  : undefined,
               willChange: portalTransition.active ? 'transform, opacity, filter' : undefined,
             }}
             className={`flex-1 w-full max-w-full overflow-x-hidden flex flex-col ${activeView === 'game' ? 'h-full overflow-hidden' : 'min-h-0 pb-24 md:pb-6'}`}

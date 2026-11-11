@@ -90,88 +90,89 @@ export const HomePage: React.FC<HomePageProps> = ({
     <div className="space-y-8 sm:space-y-12 py-3 sm:py-6 md:py-8 text-stone-100 selection:bg-amber-500 selection:text-stone-950 w-full max-w-full overflow-x-hidden">
       {/* 1. HERO SECTION */}
       <section className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 w-full">
-        {/* BANNER DO PERFIL DO JOGADOR NO MENU COM FOTO E 3 TIPOS DE NOTAS */}
+        {/* BANNER DO PERFIL DO JOGADOR REORGANIZADO (Topo: Só Nome | Meio: Total R$ + Notas 10/50/100/200 | Base: Osso Coin & Ossos c/ Ícones Cartoon Feitos à Mão) */}
         {currentUser && (
-          <div className="mb-6 cartoon-wood-board p-3 sm:p-5 relative shadow-[0_10px_25px_rgba(0,0,0,0.6)] flex flex-col sm:flex-row items-center justify-between gap-3 max-w-full overflow-hidden">
+          <div className="mb-6 cartoon-wood-board p-3.5 sm:p-4 relative shadow-[0_10px_25px_rgba(0,0,0,0.6)] flex flex-col gap-2.5 max-w-full overflow-hidden">
             <SteelCornerBrackets size="sm" />
-            <div className="flex items-center gap-3 sm:gap-4 min-w-0 z-10">
-              {/* Foto de Perfil Clicável */}
-              <button
-                type="button"
-                onClick={() => {
-                  sound.playClick();
-                  setIsPhotoModalOpen(true);
-                }}
-                className="relative group p-1 rounded-2xl bg-gradient-to-b from-[#ffcf4b] to-[#d97706] border-2 border-white/60 shadow-lg cursor-pointer flex-shrink-0 hover:scale-105 transition-transform"
-                title="Clique para escolher outra foto de perfil"
-              >
-                <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl overflow-hidden flex items-center justify-center bg-zinc-950 border border-black/40">
-                  {currentUser.profilePhotoUrl ? (
-                    <img
-                      src={currentUser.profilePhotoUrl}
-                      alt={currentUser.nickname}
-                      className="w-full h-full object-cover group-hover:scale-110 transition-transform"
-                    />
-                  ) : (
-                    <span className="text-xl sm:text-2xl">🐕</span>
-                  )}
-                </div>
-                <div className="absolute -bottom-1 -right-1 p-1 bg-[#2563eb] border border-white/80 rounded-full text-white shadow-md">
-                  <Camera className="w-3 h-3 stroke-[2.5]" />
-                </div>
-              </button>
-
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-base sm:text-xl font-black text-[#ffea85] cartoon-title-gold-3d truncate">
-                    @{currentUser.nickname}
-                  </span>
-                  <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-[#1b2b40] text-[#93c5fd] border-2 border-[#3b597c] shadow-sm flex-shrink-0">
-                    {currentUser.stats.statusQuebrada}
-                  </span>
-                </div>
-                <div className="text-xs text-amber-200/90 font-bold mt-0.5">
-                  Recorde: <span className="text-[#ffdf5d] font-mono font-black">{currentUser.stats.maiorPontuacao.toLocaleString('pt-BR')} pts</span>
-                </div>
+            {/* 1. PARTE SUPERIOR: SOMENTE O NOME DO JOGADOR (Sem foto de perfil) */}
+            <div className="flex items-center justify-between gap-2 border-b border-amber-500/25 pb-2 z-10">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-lg sm:text-2xl font-black text-[#ffea85] cartoon-title-gold-3d truncate">
+                  {currentUser.nickname}
+                </span>
+                <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-[#1b2b40] text-[#93c5fd] border-2 border-[#3b597c] shadow-sm flex-shrink-0">
+                  {currentUser.stats.statusQuebrada}
+                </span>
+              </div>
+              <div className="text-xs text-amber-200/90 font-bold">
+                Recorde: <span className="text-[#ffdf5d] font-mono font-black">{currentUser.stats.maiorPontuacao.toLocaleString('pt-BR')} pts</span>
               </div>
             </div>
 
-            {/* Três tipos de dinheiro em cartoon-steel-pill */}
-            <div className="flex items-center justify-center flex-wrap gap-2 cartoon-steel-pill px-3 py-2 z-10 w-full sm:w-auto shadow-md">
-              {/* Nota de 10 */}
-              <div
-                onClick={() => onNavigate('shop')}
-                className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-emerald-950/70 border border-emerald-500/40 cursor-pointer hover:scale-105 transition-transform"
-                title="Skins Comuns custam notas de R$ 10"
-              >
-                <img src="/dinheiro/icone_10_cutout.png" alt="10" className="w-5 h-3.5 object-contain drop-shadow" />
-                <span className="text-xs sm:text-sm font-black text-emerald-300 font-mono">
-                  {(currentUser.notas10 ?? 0).toLocaleString('pt-BR')}
+            {/* 2. LOGO ABAIXO: DINHEIRO TOTAL DISPONÍVEL E NOTAS (10, 50, 100, 200) */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 cartoon-wood-inset px-3 py-2 rounded-xl border border-amber-500/40 z-10">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] sm:text-xs font-black uppercase text-amber-200/90 tracking-wider">
+                  DINHEIRO TOTAL:
+                </span>
+                <span className="text-sm sm:text-lg font-black text-[#4ade80] cartoon-text-outline">
+                  R$ {(currentUser.ossoCoins ?? 0).toLocaleString('pt-BR')}
                 </span>
               </div>
-
-              {/* Nota de 50 */}
-              <div
-                onClick={() => onNavigate('shop')}
-                className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-purple-950/70 border border-purple-500/40 cursor-pointer hover:scale-105 transition-transform"
-                title="Skins Intermediárias custam notas de R$ 50"
-              >
-                <img src="/dinheiro/icone_50_roxo_cutout.png" alt="50" className="w-5 h-3.5 object-contain drop-shadow" />
-                <span className="text-xs sm:text-sm font-black text-purple-300 font-mono">
-                  {(currentUser.notas50 ?? 0).toLocaleString('pt-BR')}
+              <div className="flex items-center flex-wrap gap-1.5">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gradient-to-b from-rose-400 to-rose-600 border border-[#1f0901] text-[10px] font-black text-white shadow-sm">
+                  10 ×{(currentUser.notas10 ?? 0).toLocaleString('pt-BR')}
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gradient-to-b from-amber-300 to-orange-500 border border-[#1f0901] text-[10px] font-black text-stone-950 shadow-sm">
+                  50 ×{(currentUser.notas50 ?? 0).toLocaleString('pt-BR')}
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gradient-to-b from-sky-400 to-blue-600 border border-[#1f0901] text-[10px] font-black text-white shadow-sm">
+                  100 ×{(currentUser.notas100 ?? 0).toLocaleString('pt-BR')}
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gradient-to-b from-[#be123c] to-[#4c0519] border border-amber-300 text-[10px] font-black text-[#fde047] shadow-sm">
+                  200 ×{(currentUser.notas200 ?? 0).toLocaleString('pt-BR')}
                 </span>
               </div>
+            </div>
 
-              {/* Nota de 100 */}
-              <div
-                onClick={() => onNavigate('shop')}
-                className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-cyan-950/70 border border-cyan-500/50 cursor-pointer hover:scale-105 transition-transform"
-                title="Skins Raras custam notas de R$ 100"
-              >
-                <img src="/dinheiro/icone_100_vermelho_cutout.png" alt="100" className="w-5 h-3.5 object-contain drop-shadow" />
-                <span className="text-xs sm:text-sm font-black text-cyan-200 font-mono">
-                  {(currentUser.notas100 ?? 0).toLocaleString('pt-BR')}
-                </span>
+            {/* 3. PARTE INFERIOR: QUANTIDADES DE OSSO COIN E OSSOS COM ÍCONES CARTOON FEITOS À MÃO */}
+            <div className="grid grid-cols-2 gap-2 z-10">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#160b04]/90 border border-[#fbbf24]/70">
+                <svg viewBox="0 0 36 36" className="w-6 h-6 flex-shrink-0 drop-shadow-[0_2px_0_#1f0901]">
+                  <circle cx="18" cy="18" r="15.5" fill="#f59e0b" stroke="#1f0901" strokeWidth="3" />
+                  <circle cx="18" cy="18" r="12" fill="#fde047" stroke="#92400e" strokeWidth="1.8" />
+                  <g transform="rotate(-24 18 18)">
+                    <circle cx="11.5" cy="15.8" r="2.6" fill="#fffbeb" stroke="#1f0901" strokeWidth="2" />
+                    <circle cx="11.5" cy="20.2" r="2.6" fill="#fffbeb" stroke="#1f0901" strokeWidth="2" />
+                    <circle cx="24.5" cy="15.8" r="2.6" fill="#fffbeb" stroke="#1f0901" strokeWidth="2" />
+                    <circle cx="24.5" cy="20.2" r="2.6" fill="#fffbeb" stroke="#1f0901" strokeWidth="2" />
+                    <rect x="11.5" y="16.2" width="13" height="3.6" rx="1.5" fill="#fffbeb" stroke="#1f0901" strokeWidth="2" />
+                  </g>
+                </svg>
+                <div className="flex flex-col leading-none">
+                  <span className="text-[9px] font-black uppercase text-amber-300 tracking-wider">OSSO COIN</span>
+                  <span className="text-xs sm:text-sm font-black text-[#fef08a] font-mono">
+                    {(currentUser.ossoCoins ?? 0).toLocaleString('pt-BR')}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#160b04]/90 border border-amber-200/60">
+                <svg viewBox="0 0 40 28" className="w-7 h-5 flex-shrink-0 drop-shadow-[0_2px_0_#1f0901]">
+                  <g transform="rotate(-14 20 14)">
+                    <circle cx="8.5" cy="9.5" r="5" fill="#fffbeb" stroke="#1f0901" strokeWidth="3" />
+                    <circle cx="8.5" cy="18.5" r="5" fill="#fef3c7" stroke="#1f0901" strokeWidth="3" />
+                    <circle cx="31.5" cy="9.5" r="5" fill="#fffbeb" stroke="#1f0901" strokeWidth="3" />
+                    <circle cx="31.5" cy="18.5" r="5" fill="#fef3c7" stroke="#1f0901" strokeWidth="3" />
+                    <rect x="8.5" y="10" width="23" height="8" rx="3.5" fill="#fffbeb" stroke="#1f0901" strokeWidth="3" />
+                  </g>
+                </svg>
+                <div className="flex flex-col leading-none">
+                  <span className="text-[9px] font-black uppercase text-amber-100 tracking-wider">OSSOS</span>
+                  <span className="text-xs sm:text-sm font-black text-white font-mono">
+                    {(currentUser.stats.motoqueirosMordidos ?? 0).toLocaleString('pt-BR')}
+                  </span>
+                </div>
               </div>
             </div>
           </div>

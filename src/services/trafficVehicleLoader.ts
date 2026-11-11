@@ -100,7 +100,9 @@ export interface PooledTrafficVehicle {
   wheelAngle: number;
   nearMissAwarded: boolean;
   honked: boolean;
+  currentLod: 0 | 1 | 2;
   spinWheels: (dt: number, groundSpeed: number) => void;
+  setVehicleLod: (lod: 0 | 1 | 2) => void;
 }
 
 interface BakedAxleTemplate {
@@ -477,8 +479,50 @@ function bakeSingleVehicleTemplate(
     if (worldDiag < 0.045) return;
 
     const lowerName = mesh.name.toLowerCase();
+    const parentName = mesh.parent?.name?.toLowerCase() || '';
     const isNativeOutline =
       Boolean(mesh.userData?.isCartoonOutline) || lowerName.includes('outline');
+
+    const rawMat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+    if (!rawMat && !isNativeOutline) return;
+    const matName = rawMat?.name?.toLowerCase() || '';
+
+    // Nos ônibus, descarta completamente qualquer malha do interior (bancos, passageiros, corrimão, volante, painel interno)
+    if (def.kind === 'bus') {
+      const combinedNames = `${lowerName} ${parentName} ${matName}`;
+      const isBusInteriorPart =
+        combinedNames.includes('seat') ||
+        combinedNames.includes('banco') ||
+        combinedNames.includes('assento') ||
+        combinedNames.includes('interior') ||
+        combinedNames.includes('inside') ||
+        combinedNames.includes('inner') ||
+        combinedNames.includes('passageir') ||
+        combinedNames.includes('passenger') ||
+        combinedNames.includes('steering') ||
+        combinedNames.includes('volante') ||
+        combinedNames.includes('dashboard') ||
+        combinedNames.includes('painel_int') ||
+        combinedNames.includes('handrail') ||
+        combinedNames.includes('corrimao') ||
+        combinedNames.includes('balaustre') ||
+        combinedNames.includes('catraca') ||
+        combinedNames.includes('turnstile') ||
+        combinedNames.includes('driver') ||
+        combinedNames.includes('motorista') ||
+        combinedNames.includes('partition');
+      if (isBusInteriorPart) return;
+
+      // Descarta geometrias estritamente enclausuradas dentro do salão interno do ônibus
+      const isStrictlyInsideCabin =
+        localBox.min.x > -width * 0.37 &&
+        localBox.max.x < width * 0.37 &&
+        localBox.min.y > 0.58 &&
+        localBox.max.y < height * 0.88 &&
+        localBox.min.z > -length * 0.42 &&
+        localBox.max.z < length * 0.42;
+      if (isStrictlyInsideCabin) return;
+    }
 
     if (isNativeOutline) {
       // Mantém contornos apenas de peças relevantes (carroceria, pneus, teto, para-choques)
@@ -489,11 +533,30 @@ function bakeSingleVehicleTemplate(
       return;
     }
 
-    const rawMat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
     if (!rawMat) return;
     const std = rawMat as THREE.MeshStandardMaterial;
     const hasTexture = Boolean(std.map || std.emissiveMap);
     const isTransparent = Boolean(std.transparent && (std.opacity ?? 1) < 0.94);
+    const isGlassSurface =
+      isTransparent ||
+      lowerName.includes('glass') ||
+      lowerName.includes('window') ||
+      lowerName.includes('vidro') ||
+      lowerName.includes('janela') ||
+      lowerName.includes('windshield') ||
+      lowerName.includes('parabrisa') ||
+      matName.includes('glass') ||
+      matName.includes('window') ||
+      matName.includes('vidro') ||
+      matName.includes('janela');
+
+    // Nos ônibus, todos os vidros e janelas usam vidro fumê opaco escuro para vedar 100% o interior
+    if (def.kind === 'bus' && isGlassSurface) {
+      const smokedBusGlassColor = new THREE.Color(0x131c2e);
+      const bg = bakeColoredGeometry(mesh.geometry, mesh.matrixWorld, smokedBusGlassColor);
+      if (bg) bodyGeos.push(bg);
+      return;
+    }
 
     // Verifica se pertence a uma roda giratória (*WheelSpin)
     const wheelSpinNode = findWheelSpinAncestor(mesh, clone);
@@ -513,9 +576,14 @@ function bakeSingleVehicleTemplate(
       return;
     }
 
-    // Vidros translúcidos ou adesivos/placas com textura (apenas ~3 a 5 por veículo)
-    if (hasTexture || isTransparent) {
+    // Vidros translúcidos (apenas carros) ou adesivos/placas com textura
+    if (hasTexture || (isTransparent && def.kind !== 'bus')) {
       const specialMat = convertSpecialMaterialToCartoon(rawMat);
+      if (def.kind === 'bus') {
+        specialMat.transparent = false;
+        specialMat.opacity = 1.0;
+        specialMat.depthWrite = true;
+      }
       specials.push({
         geometry: mesh.geometry.clone(),
         material: specialMat,
@@ -649,9 +717,10 @@ function instantiateFromTemplate(tpl: BakedVehicleTemplate): PooledTrafficVehicl
     root.add(bodyMesh);
   }
 
+  let outlineMeshRef: THREE.Mesh | null = null;
   if (tpl.outlineGeo) {
-    const outlineMesh = new THREE.Mesh(tpl.outlineGeo, getTrafficBlackOutlineMat());
-    root.add(outlineMesh);
+    outlineMeshRef = new THREE.Mesh(tpl.outlineGeo, getTrafficBlackOutlineMat());
+    root.add(outlineMeshRef);
   }
 
   const wheelPivots: THREE.Object3D[] = [];
@@ -663,11 +732,13 @@ function instantiateFromTemplate(tpl: BakedVehicleTemplate): PooledTrafficVehicl
     wheelPivots.push(axleMesh);
   }
 
+  const specialMeshes: THREE.Mesh[] = [];
   for (const sp of tpl.specials) {
     const sm = new THREE.Mesh(sp.geometry, sp.material);
     sm.matrixAutoUpdate = false;
     sm.matrix.copy(sp.matrix);
     root.add(sm);
+    specialMeshes.push(sm);
   }
 
   const contactShadow = new THREE.Mesh(tpl.shadowGeo, getTrafficContactShadowMat());
@@ -696,12 +767,23 @@ function instantiateFromTemplate(tpl: BakedVehicleTemplate): PooledTrafficVehicl
     wheelAngle: 0,
     nearMissAwarded: false,
     honked: false,
+    currentLod: 0,
     spinWheels(dt: number, groundSpeed: number) {
+      if (instance.currentLod >= 2) return;
       const omega = (groundSpeed / def.wheelRadiusM) * dt;
       instance.wheelAngle = (instance.wheelAngle + omega) % (Math.PI * 2);
       for (let i = 0; i < wheelPivots.length; i++) {
         // Eixo X gira o pneu para frente (+Z) na direção da moto!
         wheelPivots[i].rotation.x = instance.wheelAngle;
+      }
+    },
+    setVehicleLod(lod: 0 | 1 | 2) {
+      if (instance.currentLod === lod) return;
+      instance.currentLod = lod;
+      if (outlineMeshRef) outlineMeshRef.visible = lod === 0;
+      headlights.visible = lod <= 1;
+      for (let i = 0; i < specialMeshes.length; i++) {
+        specialMeshes[i].visible = lod <= 1;
       }
     },
   };

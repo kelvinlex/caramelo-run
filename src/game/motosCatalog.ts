@@ -255,7 +255,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Vermelho Perolizado & Bronze Níquel',
     nodeName: 'Player_Moto_11_honda_cb_650r_caf',
     rarity: 'Lendária',
-    price: 37500,
+    price: 68000,
     description: 'Quatro cilindros em linha com escape em formato de harpa. Sinfonia mecânica pura a cada acelerada.',
   },
   {
@@ -270,7 +270,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Cromo Espelhado Puro & Safira',
     nodeName: 'Player_Moto_17_custom_br_imperador_cromada',
     rarity: 'Mítica',
-    price: 48000,
+    price: 95000,
     description: '100% banhada a cromo espelhado com acabamentos manuais de luxo e presença inigualável na avenida.',
   },
   {
@@ -285,7 +285,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Chamas do Inferno & Obsidiana',
     nodeName: 'Player_Moto_18_custom_hell_motoqueiro_fantasma',
     rarity: 'Mítica',
-    price: 58000,
+    price: 125000,
     description: 'Rodas flamejantes, corrente infernal no chassi e chamas puras emanando dos tubos de escape.',
   },
   {
@@ -300,7 +300,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Cyberpunk Rosa Choque & Neon Cyan',
     nodeName: 'Player_Moto_19_custom_game_cyber_neon_500',
     rarity: 'Mítica',
-    price: 65000,
+    price: 150000,
     description: 'Painel holográfico de alta definição, fitas de neon pulsantes e aerodinâmica futurista.',
   },
   {
@@ -315,7 +315,7 @@ export const MOTORCYCLES_CATALOG: MotorcycleSpec[] = [
     colorName: 'Ouro 24K Espelhado & Cromo Real',
     nodeName: 'Player_Moto_20_custom_br_grau_ouro_24k',
     rarity: 'Mítica',
-    price: 78000,
+    price: 175000,
     description: 'Chassi banhado a ouro 24 quilates com escape polido sob medida para cortar de giro com estilo real.',
   },
 ];
